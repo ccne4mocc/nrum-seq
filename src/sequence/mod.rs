@@ -1,0 +1,508 @@
+//! Deterministic, bounded-work rhythm generators. Keep these functions pure and audio-thread safe.
+//! Adding a generator should not require touching MIDI scheduling or Slint geometry.
+
+mod cellular;
+mod crystallographic;
+mod eulerian;
+mod euclidean;
+mod logistic;
+mod markov;
+mod lsystem;
+mod phase_shift;
+mod polyrhythm;
+mod syncopation;
+mod raised_cosine;
+mod slowcat;
+mod toussaint;
+mod well_formed;
+mod oscillator;
+mod phyllotaxis;
+
+pub const TRACKS: usize = 8;
+/// 64 keeps the whole Pattern at ~3.8 KiB and bounds per-lane generation to a cost the
+/// audio thread can absorb in one block. Raising this is a tuning decision, not a free change:
+/// generation cost scales linearly with it.
+pub const MAX_STEPS: usize = 64;
+pub const CA_ROWS: usize = 16;
+const PHI: f64 = 1.618_033_988_749_895;
+const PHI_INV: f64 = 0.618_033_988_749_894_9;
+const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenKind {
+    Euclidean,
+    Eulerian,
+    Phyllotaxis,
+    Cellular,
+    Oscillator,
+    Crystallographic,
+    Logistic,
+    Markov,
+    RaisedCosine,
+    Slowcat,
+    ToussaintDistance,
+    WellFormed,
+    LSystem,
+    PhaseShift,
+    Polyrhythm,
+    Syncopation,
+}
+
+impl GenKind {
+    /// Every mode, for tests that sweep all of them. Production dispatch uses
+    /// [`from_index`] instead, so this stays compiled out of the audio path.
+    #[cfg(test)]
+    pub const ALL: [GenKind; 16] = [
+        Self::Euclidean, Self::Eulerian, Self::Phyllotaxis, Self::Cellular,
+        Self::Oscillator, Self::Crystallographic, Self::Logistic, Self::Markov,
+        Self::RaisedCosine, Self::Slowcat, Self::ToussaintDistance, Self::WellFormed,
+        Self::LSystem, Self::PhaseShift, Self::Polyrhythm, Self::Syncopation,
+    ];
+
+
+    /// Inverse of the mode order. `Mode` derives its own index mapping from declaration
+    /// order, so this is where the two enums are kept aligned.
+    pub const fn from_index(index: usize) -> Self {
+        match index {
+            1 => Self::Eulerian, 2 => Self::Phyllotaxis, 3 => Self::Cellular,
+            4 => Self::Oscillator, 5 => Self::Crystallographic, 6 => Self::Logistic,
+            7 => Self::Markov, 8 => Self::RaisedCosine, 9 => Self::Slowcat,
+            10 => Self::ToussaintDistance, 11 => Self::WellFormed, 12 => Self::LSystem,
+            13 => Self::PhaseShift, 14 => Self::Polyrhythm, 15 => Self::Syncopation,
+            _ => Self::Euclidean,
+        }
+    }
+}
+
+/// Immutable snapshot of every value that affects generated events.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GenParams {
+    pub kind: GenKind,
+    /// Number of grid cells the generators fill. Always a whole number.
+    pub steps: usize,
+    /// Loop length in steps. Equal to `steps` for whole-step patterns; fractional values
+    /// make the loop wrap part-way through a cell, so successive cycles shift by the remainder.
+    pub length: f32,
+    /// Main pulse/generation control; its exact interpretation is mode dependent.
+    pub pulses: usize,
+    pub rotate: usize,
+    pub density: f32,
+    /// Global probability multiplier for retaining generated hits.
+    pub probability: f32,
+    /// Global velocity multiplier for emitted MIDI notes.
+    pub velocity: f32,
+    /// Normalized deterministic seed.
+    pub seed: f32,
+    /// Normalized oscillator / phyllotaxis phase.
+    pub phase: f32,
+    /// Oscillator cycles per pattern.
+    pub osc_rate: f32,
+    /// 0 sine, 1 triangle, 2 saw, 3 square.
+    pub osc_wave: usize,
+    pub ca_rule: u8,
+    /// 1..8 unit-cell symmetry order.
+    pub symmetry: usize,
+    /// Incremented when the user presses Generate; saved with the project.
+    pub variation: u32,
+}
+
+impl Default for GenParams {
+    fn default() -> Self {
+        Self {
+            kind: GenKind::Euclidean, steps: 16, length: 16.0, pulses: 5, rotate: 0,
+            density: 0.65, probability: 1.0, velocity: 1.0, seed: 0.271, phase: 0.0, osc_rate: 2.0,
+            osc_wave: 0, ca_rule: 30, symmetry: 4, variation: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Pattern {
+    pub steps: usize,
+    pub hit: [[bool; MAX_STEPS]; TRACKS],
+    /// Per-step accent multiplier before the lane's velocity parameter.
+    pub accent: [[f32; MAX_STEPS]; TRACKS],
+    /// Which symbolic drum state generated this step (0 = rest, 1..8 = lane).
+    pub state: [u8; MAX_STEPS],
+    /// Cellular-automaton history for its space-time view.
+    pub ca: [[bool; MAX_STEPS]; CA_ROWS],
+    /// Orbit samples used by the logistic-map plot.
+    pub orbit: [f32; MAX_STEPS],
+}
+
+impl Default for Pattern {
+    fn default() -> Self {
+        Self {
+            steps: 16,
+            hit: [[false; MAX_STEPS]; TRACKS],
+            accent: [[1.0; MAX_STEPS]; TRACKS],
+            state: [0; MAX_STEPS],
+            ca: [[false; MAX_STEPS]; CA_ROWS],
+            orbit: [0.0; MAX_STEPS],
+        }
+    }
+}
+
+/// Small deterministic PRNG; no locks, heap allocations, or OS entropy on the audio thread.
+#[derive(Clone, Copy)]
+pub(super) struct Rng(u64);
+impl Rng {
+    pub(super) fn new(seed: f32, variation: u32, salt: u64) -> Self {
+        let bits = seed.to_bits() as u64;
+        let mut r = Self((bits << 32) ^ variation as u64 ^ salt.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+        r.next_u64();
+        r
+    }
+    pub(super) fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+    pub(super) fn unit(&mut self) -> f32 { (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32 }
+    pub(super) fn below(&mut self, n: usize) -> usize { if n == 0 { 0 } else { (self.next_u64() % n as u64) as usize } }
+}
+
+pub(super) const DENSITY_PROFILE: [f32; TRACKS] = [0.50, 0.30, 1.00, 0.12, 0.18, 0.15, 0.12, 0.28];
+
+#[inline]
+pub(super) fn enabled_threshold(p: &GenParams, track: usize) -> f32 {
+    (p.density.clamp(0.0, 1.0) * DENSITY_PROFILE[track]).clamp(0.0, 1.0)
+}
+
+#[inline]
+pub(super) fn set_hit(out: &mut Pattern, track: usize, step: usize, hit: bool, accent: f32) {
+    out.hit[track][step] = hit;
+    out.accent[track][step] = accent.clamp(0.05, 1.0);
+    if hit { out.state[step] = (track + 1) as u8; }
+}
+
+/// Stable step accents: backbeat and downbeat are emphasized without tying any lane to pitch.
+pub(super) fn accents(out: &mut Pattern, p: &GenParams) {
+    for tr in 0..TRACKS {
+        for i in 0..out.steps {
+            let base = if i % 4 == 0 { 1.0 } else if i % 2 == 0 { 0.82 } else { 0.68 };
+            let mut rng = Rng::new(p.seed, p.variation, 0xACCE_0000 + (tr * MAX_STEPS + i) as u64);
+            let human = 0.90 + rng.unit() * 0.10;
+            out.accent[tr][i] = (base * human).clamp(0.05, 1.0);
+        }
+    }
+}
+
+/// Run one generator and return its raw output, before the shared post-transforms.
+fn run_mode(q: &GenParams) -> Pattern {
+    match q.kind {
+        GenKind::Euclidean => euclidean::generate(q),
+        GenKind::Eulerian => eulerian::generate(q),
+        GenKind::Phyllotaxis => phyllotaxis::generate(q),
+        GenKind::Cellular => cellular::generate(q),
+        GenKind::Oscillator => oscillator::generate(q),
+        GenKind::Crystallographic => crystallographic::generate(q),
+        GenKind::Logistic => logistic::generate(q),
+        GenKind::Markov => markov::generate(q),
+        GenKind::RaisedCosine => raised_cosine::generate(q),
+        GenKind::Slowcat => slowcat::generate(q),
+        GenKind::ToussaintDistance => toussaint::generate(q),
+        GenKind::WellFormed => well_formed::generate(q),
+        GenKind::LSystem => lsystem::generate(q),
+        GenKind::PhaseShift => phase_shift::generate(q),
+        GenKind::Polyrhythm => polyrhythm::generate(q),
+        GenKind::Syncopation => syncopation::generate(q),
+    }
+}
+
+
+pub fn generate(p: &GenParams) -> Pattern {
+    let steps = p.steps.clamp(1, MAX_STEPS);
+    let mut q = *p;
+    q.steps = steps;
+    q.pulses = if q.kind == GenKind::Cellular { q.pulses.min(CA_ROWS - 1) } else { q.pulses.min(steps) };
+    q.rotate %= steps;
+    q.symmetry = q.symmetry.clamp(1, 8);
+    q.osc_wave %= 4;
+    let mut out = run_mode(&q);
+    out.steps = steps;
+    // Probability is applied after the algorithm so it behaves consistently across modes.
+    for tr in 0..TRACKS {
+        for i in 0..steps {
+            if out.hit[tr][i] {
+                let mut rng = Rng::new(q.seed, q.variation, 0xBABA_0000 + (tr * MAX_STEPS + i) as u64);
+                if rng.unit() >= q.probability.clamp(0.0, 1.0) { out.hit[tr][i] = false; }
+            }
+        }
+    }
+    let generated_accents = out.accent;
+    accents(&mut out, &q);
+    // Keep the stable downbeat/backbeat accent shape while preserving each mode's own accent data.
+    for tr in 0..TRACKS {
+        for i in 0..steps { out.accent[tr][i] = (out.accent[tr][i] * generated_accents[tr][i]).clamp(0.05, 1.0); }
+    }
+    if q.density <= 0.0 || (q.kind != GenKind::Cellular && q.pulses == 0) {
+        for tr in 0..TRACKS { out.hit[tr][..steps].fill(false); }
+    }
+    // Rotation includes probability drops, mode/human accents, and auxiliary view data. Variation
+    // also rotates by one or more steps, so closed-form modes can actually regenerate differently.
+    let shift = ((q.rotate % steps) + (q.variation as usize % steps)) % steps;
+    if shift != 0 {
+        let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
+        let old_ca = out.ca; let old_orbit = out.orbit;
+        for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
+        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+    }
+    out
+}
+
+#[inline]
+pub(super) fn frac(x: f64) -> f64 { x - x.floor() }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::alloc::{GlobalAlloc, Layout, System};
+
+    // Counting allocator: invariant #1 requires `generate()` to run on the audio thread
+    // without allocating, and reading the code cannot prove that. Thread-local so the
+    // parallel test harness cannot leak its own allocations into the count.
+    std::thread_local! {
+        static ALLOCS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+    struct Counting;
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+            let _ = ALLOCS.try_with(|c| c.set(c.get() + 1));
+            System.alloc(l)
+        }
+        unsafe fn dealloc(&self, p: *mut u8, l: Layout) { System.dealloc(p, l) }
+        unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
+            let _ = ALLOCS.try_with(|c| c.set(c.get() + 1));
+            System.realloc(p, l, n)
+        }
+    }
+    #[global_allocator]
+    static ALLOCATOR: Counting = Counting;
+
+    #[test]
+    fn generation_never_allocates() {
+        // Everything below runs inside one `try_with` so the counter is read on this thread
+        // only; `ALLOCS.with` outside the closure would register the access itself.
+        ALLOCS.with(|c| {
+            c.set(0);
+            for kind in GenKind::ALL {
+                for steps in [1usize, 2, 7, 16, 32, MAX_STEPS] {
+                    let p = GenParams { kind, steps, length: steps as f32, pulses: steps / 2, density: 0.8, probability: 1.0, ..GenParams::default() };
+                    std::hint::black_box(generate(&p));
+                }
+            }
+            let used = c.get();
+            assert_eq!(used, 0, "generate() allocated {used} times on the audio path");
+        });
+    }
+
+    #[test]
+    fn all_modes_are_deterministic_and_bounded() {
+        for kind in GenKind::ALL {
+            let p = GenParams { kind, ..GenParams::default() };
+            let a = generate(&p);
+            let b = generate(&p);
+            assert_eq!(a.hit, b.hit, "{kind:?} is not deterministic");
+            assert_eq!(a.steps, 16);
+            for tr in 0..TRACKS { assert!(a.hit[tr][16..].iter().all(|h| !h)); }
+        }
+    }
+
+    #[test]
+    fn probability_zero_suppresses_all_hits_and_one_preserves_algorithm_hits() {
+        for kind in GenKind::ALL {
+            let zero = generate(&GenParams { kind, probability: 0.0, ..GenParams::default() });
+            assert!(zero.hit.iter().all(|lane| lane[..zero.steps].iter().all(|hit| !hit)), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn steps_and_rotation_are_clamped() {
+        let p = GenParams { steps: 999, rotate: 999, ..GenParams::default() };
+        assert_eq!(generate(&p).steps, MAX_STEPS);
+        let p = GenParams { steps: 0, ..GenParams::default() };
+        assert_eq!(generate(&p).steps, 1);
+    }
+
+    #[test]
+    fn raised_cosine_hits_track_the_requested_pulse_count() {
+        // Regression: the generator once gated hits behind an unrelated modulo term, collapsing
+        // every onset into one contiguous arc and ignoring `pulses`.
+        for steps in [1usize, 7, 16, 17, 32, 63, 64] {
+            for pulses in [0usize, 1, 2, 3, 5, 8, 16, 32, 64] {
+                for density in [0.0f32, 0.07, 0.25, 0.5, 0.65, 1.0] {
+                    let p = GenParams { kind: GenKind::RaisedCosine, steps, pulses, density, probability: 1.0, ..GenParams::default() };
+                    let pat = generate(&p);
+                    for tr in 0..TRACKS {
+                        let requested = if pulses == 0 { 0 } else { (pulses + tr % 3).min(steps.max(1)) };
+                        let expected = ((requested as f32 * density).round() as usize).min(steps);
+                        assert_eq!(pat.hit[tr][..steps].iter().filter(|&&h| h).count(), expected,
+                            "steps={steps}, pulses={pulses}, density={density}, lane={tr}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn raised_cosine_onsets_stay_evenly_spaced() {
+        for steps in [7usize, 13, 16, 31, 64] {
+            for pulses in [2usize, 3, 5, 8] {
+                let pat = generate(&GenParams { kind: GenKind::RaisedCosine, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
+                for tr in 0..TRACKS {
+                    let positions: Vec<usize> = (0..steps).filter(|&i| pat.hit[tr][i]).collect();
+                    if positions.len() > 1 {
+                        let mut gaps: Vec<usize> = positions.windows(2).map(|w| w[1] - w[0]).collect();
+                        gaps.push(steps - positions[positions.len() - 1] + positions[0]);
+                        let max_gap = *gaps.iter().max().unwrap();
+                        let min_gap = *gaps.iter().min().unwrap();
+                        assert!(max_gap - min_gap <= 1,
+                            "steps={steps}, pulses={pulses}, lane={tr}, gaps={gaps:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_mode_supports_all_step_lengths() {
+        for kind in GenKind::ALL {
+            for steps in 1..=MAX_STEPS {
+                let p = GenParams { kind, steps, pulses: steps / 2, ..GenParams::default() };
+                let pat = generate(&p);
+                assert_eq!(pat.steps, steps, "{kind:?} at {steps} steps");
+                for tr in 0..TRACKS {
+                    assert!(pat.hit[tr][steps..].iter().all(|hit| !hit), "tail cells should stay clear");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rotation_is_a_circular_shift_for_every_mode() {
+        for kind in GenKind::ALL {
+            let p = GenParams { kind, density: 0.82, probability: 0.67, steps: 17, pulses: 7, rotate: 0, ..GenParams::default() };
+            let a = generate(&p); let b = generate(&GenParams { rotate: 3, ..p });
+            for tr in 0..TRACKS { for i in 0..p.steps { assert_eq!(b.hit[tr][i], a.hit[tr][(i + p.steps - 3) % p.steps], "{kind:?}"); } }
+        }
+    }
+
+    #[test]
+    fn distance_and_well_formed_generators_preserve_exact_requested_pulse_counts() {
+        for kind in [GenKind::ToussaintDistance, GenKind::WellFormed] {
+            for steps in [1usize, 2, 7, 16, 31, 63, 64] {
+                for pulses in [0usize, 1, 2, 3, 7, 16, 32, 64] {
+                    for density in [0.0f32, 0.17, 0.35, 0.5, 0.82, 1.0] {
+                        let p = GenParams { kind, steps, pulses, density, probability: 1.0, ..GenParams::default() };
+                        let pat = generate(&p);
+                        for tr in 0..TRACKS {
+                            let requested = if pulses == 0 { 0 } else { (pulses.min(steps) + tr % 3).min(steps) };
+                            let expected = (requested as f32 * density).round() as usize;
+                            let actual = pat.hit[tr][..steps].iter().filter(|&&hit| hit).count();
+                            assert_eq!(actual, expected, "{kind:?}: steps={steps}, pulses={pulses}, density={density}, lane={tr}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn well_formed_onset_intervals_differ_by_at_most_one_step() {
+        for steps in [7usize, 17, 31, 63, 64] {
+            for pulses in [1usize, 2, 3, steps / 2, steps.saturating_sub(1), steps] {
+                for density in [0.17f32, 0.5, 1.0] {
+                    let pat = generate(&GenParams { kind: GenKind::WellFormed, steps, pulses, density, probability: 1.0, ..GenParams::default() });
+                    for tr in 0..TRACKS {
+                        let positions: Vec<usize> = (0..steps).filter(|&i| pat.hit[tr][i]).collect();
+                        if positions.len() > 1 {
+                            let mut gaps: Vec<usize> = positions.windows(2).map(|w| w[1] - w[0]).collect();
+                            gaps.push(steps - positions[positions.len() - 1] + positions[0]);
+                            let min_gap = *gaps.iter().min().unwrap();
+                            let max_gap = *gaps.iter().max().unwrap();
+                            assert!(max_gap - min_gap <= 1, "steps={steps}, pulses={pulses}, density={density}, lane={tr}, gaps={gaps:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn zero_density_and_zero_pulses_silence_pulse_based_modes() {
+        for kind in GenKind::ALL {
+            let zero_density = generate(&GenParams { kind, density: 0.0, ..GenParams::default() });
+            assert!(zero_density.hit.iter().all(|lane| lane[..zero_density.steps].iter().all(|hit| !hit)), "{kind:?} at zero density");
+            if kind != GenKind::Cellular {
+                let zero_pulses = generate(&GenParams { kind, pulses: 0, ..GenParams::default() });
+                assert!(zero_pulses.hit.iter().all(|lane| lane[..zero_pulses.steps].iter().all(|hit| !hit)), "{kind:?} at zero pulses");
+            }
+        }
+    }
+
+    #[test]
+    fn variation_changes_patterns_even_for_closed_form_modes() {
+        for kind in GenKind::ALL {
+            let p = GenParams { kind, steps: 17, pulses: 7, density: 0.82, probability: 0.67, ..GenParams::default() };
+            assert_ne!(generate(&p).hit, generate(&GenParams { variation: 1, ..p }).hit, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn polyrhythm_stack_keeps_expected_ratio_counts_and_bounds() {
+        let ratios = [(1usize, 1usize), (3, 2), (2, 1), (5, 2), (4, 3), (2, 3), (5, 4), (3, 4)];
+        let steps = 64usize;
+        let pulses = 8usize;
+        let pat = generate(&GenParams { kind: GenKind::Polyrhythm, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
+        for tr in 0..TRACKS {
+            let (num, den) = ratios[tr];
+            let expected = ((pulses * num + den / 2) / den).min(steps);
+            let actual = pat.hit[tr][..steps].iter().filter(|&&hit| hit).count();
+            assert_eq!(actual, expected, "polyrhythm lane {tr}");
+        }
+    }
+
+    #[test]
+    fn phase_shift_lanes_are_circular_copies_of_the_same_motif() {
+        let p = GenParams { kind: GenKind::PhaseShift, steps: 32, pulses: 7, density: 1.0, probability: 1.0, phase: 0.0, seed: 0.0, variation: 0, rotate: 0, ..GenParams::default() };
+        let pat = generate(&p);
+        let reference_count = pat.hit[0][..p.steps].iter().filter(|&&hit| hit).count();
+        for tr in 1..TRACKS {
+            assert_eq!(pat.hit[tr][..p.steps].iter().filter(|&&hit| hit).count(), reference_count);
+            let shift = tr * (p.steps / TRACKS).max(1);
+            for i in 0..p.steps {
+                let source = (i + p.steps - shift % p.steps) % p.steps;
+                assert_eq!(pat.hit[tr][i], pat.hit[0][source], "lane={tr}, step={i}");
+            }
+        }
+        assert_eq!(reference_count, 7);
+    }
+
+    #[test]
+    fn syncopation_selects_exact_density_scaled_counts() {
+        for steps in [7usize, 16, 31, 63, 64] {
+            let pulses = (steps / 4).max(1);
+            for density in [0.25f32, 0.5, 1.0] {
+                let pat = generate(&GenParams { kind: GenKind::Syncopation, steps, pulses, density, probability: 1.0, ..GenParams::default() });
+                for tr in 0..TRACKS {
+                    let expected = ((pulses as f32 * density * (0.45 + DENSITY_PROFILE[tr])).round() as usize).min(steps);
+                    let actual = pat.hit[tr][..steps].iter().filter(|&&hit| hit).count();
+                    assert_eq!(actual, expected, "steps={steps}, density={density}, lane={tr}");
+                }
+            }
+        }
+    }
+
+
+    #[test]
+    fn full_step_range_is_supported() {
+        for kind in GenKind::ALL {
+            let pat = generate(&GenParams { kind, steps: MAX_STEPS, pulses: 32, density: 0.8, ..GenParams::default() });
+            assert_eq!(pat.steps, MAX_STEPS);
+            for tr in 0..TRACKS { assert!(pat.accent[tr][..MAX_STEPS].iter().all(|a| a.is_finite() && (0.0..=1.0).contains(a))); }
+        }
+    }
+}

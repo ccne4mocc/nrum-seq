@@ -1,0 +1,115 @@
+//! User-global settings, stored outside the DAW project.
+//!
+//! nih-plug already persists every parameter plus `#[persist]` fields with the host's
+//! project, so this file only holds preferences that should follow the user across every
+//! project: the colour theme and the editor's scale factor. Everything musical stays in the
+//! project state.
+
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+/// Written on a debounce so dragging a slider does not hit the disk every frame. The value
+/// is an epoch-second timestamp compared with `now`.
+static LAST_WRITE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+const DEBOUNCE_MS: u64 = 750;
+
+#[derive(Serialize, Deserialize, Default)]
+pub(crate) struct GlobalSettings {
+    /// Index into `Theme`. Absent or out of range falls back to the host default.
+    pub theme: Option<usize>,
+    /// Editor scale factor as the host reports it; `None` means "follow the system".
+    pub scale: Option<f32>,
+}
+
+/// `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json`, or `%APPDATA%` on Windows. Returns
+/// `None` when no config directory can be determined, in which case settings simply do not
+/// persist across sessions rather than failing the editor.
+fn config_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let base = std::env::var_os("APPDATA").map(PathBuf::from);
+    #[cfg(not(windows))]
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
+    Some(base?.join("AlgoDrumNemShine").join("settings.json"))
+}
+
+pub(crate) fn load() -> GlobalSettings {
+    config_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Write only if `DEBOUNCE_MS` has passed since the last attempt. Failures are silent:
+/// a read-only home directory should not break editing a pattern.
+pub(crate) fn save(settings: &GlobalSettings) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_WRITE.swap(now, std::sync::atomic::Ordering::Relaxed);
+    if now.saturating_sub(last) < DEBOUNCE_MS {
+        return;
+    }
+    let path = match config_path() { Some(path) => path, None => return };
+    if let Some(parent) = path.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+    if let Ok(json) = serde_json::to_string_pretty(settings) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+/// Force a write on editor close, bypassing the debounce so the last change is not lost.
+pub(crate) fn save_now(settings: &GlobalSettings) {
+    LAST_WRITE.store(0, std::sync::atomic::Ordering::Relaxed);
+    save(settings);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Theme as PluginTheme;
+    use nih_plug::prelude::Enum;
+
+    #[test]
+    fn settings_round_trip_through_json() {
+        let s = GlobalSettings { theme: Some(2), scale: Some(1.25) };
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(json, r#"{"theme":2,"scale":1.25}"#);
+        let back: GlobalSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.theme, Some(2));
+        assert_eq!(back.scale, Some(1.25));
+    }
+
+    #[test]
+    fn missing_and_corrupt_files_fall_back_to_defaults() {
+        assert_eq!(serde_json::from_str::<GlobalSettings>("{}").unwrap().theme, None);
+        // An unknown extra field must not break loading, and neither must garbage.
+        assert_eq!(serde_json::from_str::<GlobalSettings>(r#"{"theme":1,"who":42}"#).unwrap().theme, Some(1));
+        assert!(serde_json::from_str::<GlobalSettings>("not json").is_err());
+        assert_eq!(GlobalSettings::default().theme, None);
+    }
+
+    #[test]
+    fn an_out_of_range_theme_cannot_panic() {
+        // `Theme::from_index` falls back to the first variant, which is Aurora.
+        assert_eq!(PluginTheme::from_index(9), PluginTheme::Aurora);
+        assert_eq!(PluginTheme::from_index(0), PluginTheme::Aurora);
+    }
+
+    #[test]
+    fn config_path_is_under_the_config_home() {
+        // Only meaningful when a config home is actually resolvable.
+        if let Some(path) = config_path() {
+            let text = path.to_string_lossy();
+            assert!(text.contains("AlgoDrumNemShine"), "{text}");
+            assert!(text.ends_with("settings.json"), "{text}");
+        }
+    }
+}

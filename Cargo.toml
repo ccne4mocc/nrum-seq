@@ -1,0 +1,28 @@
+[package]
+name = "algodrumnemshine"
+version = "0.1.0"
+edition = "2021"
+description = "Algorithmic percussion MIDI sequencer plug-in (CLAP/VST3), Rust, nih-plug + Slint"
+license = "GPL-3.0-or-later"
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false, features = ["vst3"] }
+slint-baseview = { path = "vendor/slint-baseview" }
+slint = { version = "=1.16.1", default-features = false, features = ["std", "compat-1-2"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[build-dependencies]
+slint-build = "=1.16.1"
+
+[workspace]
+members = ["xtask"]
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
+codegen-units = 1
