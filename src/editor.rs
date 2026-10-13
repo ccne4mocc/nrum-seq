@@ -2,7 +2,7 @@
 use crate::globals;
 use crate::sequence::{generate, GenParams, Pattern, Rng, MAX_STEPS, TRACKS};
 use crate::view::{self, View};
-use crate::{DrumParams, Mode, OscWave, Rate, Shared, Theme as PluginTheme};
+use crate::{cell_count_for, DrumParams, Mode, OscWave, Rate, Shared, Theme as PluginTheme};
 use nih_plug::prelude::*;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use slint_baseview::{default_gl_config, Size, SlintWindow, WindowHandle, WindowOpenOptions, WindowScalePolicy};
@@ -25,14 +25,18 @@ fn global_settings(p: Arc<DrumParams>, scale: f32) -> globals::GlobalSettings {
         scale: if scale > 0.0 { Some(scale) } else { None },
     }
 }
-struct SlintEditorHandle { window: WindowHandle, settings: Option<globals::GlobalSettings> }
+struct SlintEditorHandle { window: WindowHandle, params: Arc<DrumParams>, scale: f32 }
 unsafe impl Send for SlintEditorHandle {}
 impl Drop for SlintEditorHandle {
     fn drop(&mut self) {
         // Editor closing is the last chance to persist, so bypass the debounce.
-        if let Some(settings) = self.settings.take() {
-            globals::save_now(&settings);
-        }
+        // Theme and scale must be read from live state *here*: a snapshot taken at spawn is
+        // stale by the time the user closes the editor, and writing it back would revert
+        // every theme or scale change made during the session. No unit test covers this:
+        // nih-plug's `Param` trait is read-only outside a `GuiContext`, so a test cannot
+        // change the theme and observe what the close path writes. The fix is structural --
+        // there is no snapshot field left to go stale.
+        globals::save_now(&global_settings(self.params.clone(), self.scale));
         self.window.close();
     }
 }
@@ -46,11 +50,18 @@ fn set<P: Param>(ctx: &Arc<dyn GuiContext>, param: &P, value: P::Plain) {
 
 /// Slider and spin-box paths for the option table share this so clamping stays identical.
 fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
-    let cells = p.cell_count();
+    let snap = p.round_steps.value();
+    // Setting `steps` reaches the host first and only shows up in `p.steps.value()` once the host
+    // echoes it back, so the bounds for pulses/rotate must come from the value being set, not
+    // from a read taken after (or before) the set.
+    let cells = if key == 0 { cell_count_for(value, snap) } else { p.cell_count() };
     let max_pulses = if p.mode.value() == Mode::Cellular { 15 } else { cells };
     match key {
         0 => {
-            set(c, &p.steps, value.clamp(1.0, MAX_STEPS as f32));
+            // Snap on: store a whole number. A raw slider position such as 16.37 would display
+            // as "16" while the stored value stayed fractional.
+            let v = value.clamp(1.0, MAX_STEPS as f32);
+            set(c, &p.steps, if snap { v.round() } else { v });
             if p.pulses.value() > max_pulses { set(c, &p.pulses, max_pulses); }
             if p.rotate.value() >= cells { set(c, &p.rotate, cells - 1); }
         },
@@ -94,7 +105,7 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let mut rng = Rng::new(p.seed.value(), variation, 0xA1_60_D2_0A_5EED);
 
     let mode = Mode::from_index(rng.below(16));
-    let cells = 8 + rng.below(MAX_STEPS - 7); // 8..=256
+    let cells = 8 + rng.below(MAX_STEPS - 7); // 8..=MAX_STEPS
     // Keep randomize on the grid; fractional spacing stays a deliberate user choice.
     let steps = cells as f32;
     let pulse_limit = if mode == Mode::Cellular { 15 } else { cells };
@@ -224,7 +235,7 @@ impl Editor for SlintEditor {
             // so an exact value can be reached regardless of pixel density.
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
-                ui.on_spin_steps(move |v| set(&c, &p.steps, v.clamp(1.0, MAX_STEPS as f32)));
+                ui.on_spin_steps(move |v| set_opt(&c, &p, 0, v));
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
@@ -260,10 +271,11 @@ impl Editor for SlintEditor {
                 palette.set_hi(rgb(colors[3])); palette.set_bg1(rgb(colors[4])); palette.set_bg2(rgb(colors[5])); palette.set_bg3(rgb(colors[6]));
                 ui.set_theme_index(theme_index);
                 // Theme is user-global, so persist it outside the project as it changes.
-                let mut s = globals::load();
-                s.theme = Some(theme_index as usize);
-                s.scale = if update_scale > 0.0 { Some(update_scale) } else { None };
-                globals::save(&s);
+                // Both fields are known here, so no read is needed.
+                globals::save(&globals::GlobalSettings {
+                    theme: Some(theme_index as usize),
+                    scale: if update_scale > 0.0 { Some(update_scale) } else { None },
+                });
             }
             ui.set_steps(p.steps.value());
             ui.set_round_steps(p.round_steps.value());
@@ -322,7 +334,7 @@ impl Editor for SlintEditor {
             }
         };
         let window = SlintWindow::open_parented(&parent, options, || AppWindow::new(), setup, update, |_, _| {});
-        Box::new(SlintEditorHandle { window, settings: Some(global_settings(self.params.clone(), scale)) })
+        Box::new(SlintEditorHandle { window, params: self.params.clone(), scale })
     }
     fn size(&self) -> (u32, u32) { (WIDTH, HEIGHT) }
     fn set_scale_factor(&self, factor: f32) -> bool {

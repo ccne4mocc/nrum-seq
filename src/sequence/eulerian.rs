@@ -40,7 +40,9 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     // reverse[] contains the circuit backwards. Repeating the circuit handles step lengths > E.
     let mut circuit = [0u8; V * MAX_DEG + 1];
     for i in 0..rev_len { circuit[i] = reverse[rev_len - 1 - i]; }
-    let circuit_len = rev_len.max(1);
+    // The circuit starts and ends on the rest vertex, so the closing vertex duplicates the
+    // opening one. Repeating the full length put two rests back to back at every seam.
+    let circuit_len = rev_len.saturating_sub(1).max(1);
     for i in 0..p.steps {
         // A circuit always starts at the rest vertex, so a one-step pattern would be silent.
         // Start from the first state that is not rest instead.

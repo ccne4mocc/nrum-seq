@@ -43,17 +43,20 @@ pub(crate) fn load() -> GlobalSettings {
         .unwrap_or_default()
 }
 
-/// Write only if `DEBOUNCE_MS` has passed since the last attempt. Failures are silent:
+/// Write only if `DEBOUNCE_MS` has passed since the last *write*. Failures are silent:
 /// a read-only home directory should not break editing a pattern.
 pub(crate) fn save(settings: &GlobalSettings) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    let last = LAST_WRITE.swap(now, std::sync::atomic::Ordering::Relaxed);
-    if now.saturating_sub(last) < DEBOUNCE_MS {
+    // Load first, store only when actually writing. Storing before the check made this a
+    // throttle: every call restarted the window, so a burst of changes wrote on a fixed
+    // cadence instead of once the user stopped changing things.
+    if now.saturating_sub(LAST_WRITE.load(std::sync::atomic::Ordering::Relaxed)) < DEBOUNCE_MS {
         return;
     }
+    LAST_WRITE.store(now, std::sync::atomic::Ordering::Relaxed);
     let path = match config_path() { Some(path) => path, None => return };
     if let Some(parent) = path.parent() {
         if std::fs::create_dir_all(parent).is_err() {

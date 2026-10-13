@@ -197,10 +197,12 @@ export component AppWindow inherits Window {
     in property <int> mode: 0;
     // The mode list is taller than its viewport, and the wheel now changes the mode instead
     // of scrolling it, so the list has to follow the selection. 32px per row (28px + 4px
-    // spacing), 218px of viewport, 17 modes => 326px of travel.
+    // spacing) x 16 modes = 508px of content in a 244px viewport => 264px of travel.
+    // A Flickable/ScrollView viewport moves up by going NEGATIVE; the previous positive value
+    // was clamped to 0, so modes 8-15 could be selected but never scrolled into view.
     in-out property <length> mode-scroll-y: 0px;
     changed mode => {
-        root.mode-scroll-y = Math.max(0px, Math.min(mode * 32px - 128px, 326px));
+        root.mode-scroll-y = -Math.max(0px, Math.min(mode * 32px - 108px, 264px));
     }
     in property <float> steps: 16;
     in property <bool> round-steps: true;
@@ -222,6 +224,11 @@ export component AppWindow inherits Window {
     in property <int> osc-wave: 0;
     in property <int> theme-index: 0;
     in-out property <bool> settings-open: false;
+    // Settings slide in from the right edge; see the panel at the bottom of this component.
+    in-out property <length> settings-x: root.width;
+    changed settings-open => {
+        root.settings-x = root.settings-open ? 0px : root.width;
+    }
     in property <bool> free-run: false;
     in property <bool> generate-on: false;
     in property <[TrackRow]> tracks;
@@ -243,7 +250,7 @@ export component AppWindow inherits Window {
     callback randomize-pressed();
     callback toggle-auto-randomize();
 
-    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Per-Lane (each lane picks)"];
+    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation"];
     property <[string]> mode-help: [
         "Euclidean pulse distribution on a circular clock.",
         "Euler circuit through a balanced directed drum-state graph.",
@@ -260,8 +267,7 @@ export component AppWindow inherits Window {
         "Finite L-system grammar rewrites symbols into a repeating, evolving rhythmic word.",
         "Same pulse train on every lane, circularly offset to create Reich-inspired phasing.",
         "Rational pulse ratios interlock across lanes over a shared pattern duration.",
-        "Metrically weighted selection favours offbeats and syncopated subdivisions.",
-        "Each of the eight lanes runs the generator you assign to it."
+        "Metrically weighted selection favours offbeats and syncopated subdivisions."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: 64, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", key: 0, step: root.round-steps ? 1 : 0.25 },
@@ -290,9 +296,9 @@ export component AppWindow inherits Window {
             Rectangle { width: 86px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : #30343c; Text { text: "⚙ SETTINGS"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
         }
         HorizontalLayout {
-            height: 218px; spacing: 10px;
+            height: 244px; spacing: 10px;
             mode-list := ScrollView {
-                width: 126px; height: 218px;
+                width: 126px; height: 244px;
                 viewport-y <=> root.mode-scroll-y;
                 VerticalLayout { spacing: 4px;
                     for i in root.mode-names.length: Rectangle {
@@ -318,7 +324,7 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 spacing: 5px;
                 Text { text: root.mode-names[root.mode]; color: Theme.c1; font-size: 16px; font-weight: 700; }
-                Text { text: root.mode-help[root.mode]; color: #c1c8d2; font-size: 11px; wrap: word-wrap; vertical-stretch: 1; }
+                Text { text: root.mode-help[root.mode]; color: #c1c8d2; font-size: 11px; wrap: word-wrap; vertical-stretch: 1; vertical-alignment: center; }
                 Text { text: "CLOCK / GENERATOR OPTIONS"; color: #788394; font-size: 9px; }
                 HorizontalLayout { spacing: 5px; for i in 4: OptSlider { opt: root.opts[i]; changed(v) => { root.set-opt(root.opts[i].key, v); } } }
                 HorizontalLayout {
@@ -358,7 +364,11 @@ export component AppWindow inherits Window {
                 height: 22px; spacing: 0px;
                 Text { width: 76px; text: track.name; color: track.enabled ? #d1d5db : #505965; font-size: 9px; vertical-alignment: center; }
                 for cell in track.cells: Rectangle {
-                    width: max(2px, 620px / (track.cells.length * 1.0));
+                    // A constant, deliberately: binding this to `root.width` or `parent.width`
+                    // is a binding loop (Slint warns it may panic) because the window width
+                    // itself derives from layout info. The editor is fixed at 760px, so
+                    // 656 = 760 - 2x14 padding - the 76px name column fills the row exactly.
+                    width: max(2px, 656px / (track.cells.length * 1.0));
                     height: 20px;
                     Rectangle {
                         x: 0px; y: 0px;
@@ -379,47 +389,63 @@ export component AppWindow inherits Window {
             Rectangle { width: 142px; height: 24px; border-radius: 4px; background: root.auto-randomize ? Theme.c1.with-alpha(0.8) : (auto-randomize-touch.has-hover ? #3b414a : #2a3038); Text { text: root.auto-randomize ? "AUTO RANDOMIZE: ON" : "AUTO RANDOMIZE: OFF"; color: root.auto-randomize ? #0b0f14 : #d1d5db; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } auto-randomize-touch := TouchArea { clicked => { root.toggle-auto-randomize(); } } }
         }
     }
-        if root.settings-open: HorizontalLayout {
-            height: 26px; spacing: 5px;
-            Text { text: "SETTINGS"; color: Theme.c1; font-size: 10px; font-weight: 700; vertical-alignment: center; }
-            Rectangle { width: 74px; height: 22px; border-radius: 4px; background: close-settings.has-hover ? Theme.hi : #30343c; Text { text: "CLOSE"; color: #f3f4f6; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } close-settings := TouchArea { clicked => { root.settings-open = false; } }
-        }
-        if root.settings-open: HorizontalLayout {
-            height: 30px; spacing: 5px;
-            Text { text: "COLOUR THEME"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
+
+    // Settings slide in from the right edge over the editor. The panel is always present and
+    // parked off-screen when closed, so the closing animation can play too; a bare
+    // `if settings-open` would make it vanish instead of sliding out.
+    // Tied to the animated position, not to the boolean: the scrim stays live while the panel
+    // is still travelling out, and is absent once it is parked, so it cannot swallow clicks
+    // meant for the editor underneath.
+    if root.settings-x < root.width: Rectangle {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        background: #00000066;
+        TouchArea { clicked => { root.settings-open = false; } }
+    }
+    Rectangle {
+        x: root.settings-x; y: 0px; width: 300px; height: root.height;
+        background: #191d24; border-width: 1px; border-color: #3b414a;
+        animate x { duration: 140ms; easing: ease-in-out; }
+        VerticalLayout {
+            padding: 12px; spacing: 8px;
+            HorizontalLayout {
+                height: 24px;
+                Text { text: "SETTINGS"; color: Theme.c1; font-size: 12px; font-weight: 700; vertical-alignment: center; }
+                Rectangle { width: 74px; height: 22px; border-radius: 4px; background: close-settings.has-hover ? Theme.hi : #30343c; Text { text: "CLOSE"; color: #f3f4f6; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } close-settings := TouchArea { clicked => { root.settings-open = false; } } }
+            }
+            Text { text: "COLOUR THEME"; color: #788394; font-size: 9px; }
             Selector { options: ["Aurora", "Neon", "Lava", "Forest"]; current: root.theme-index; text-size: 10px; selected(i) => { root.set-theme(i); } }
-            Text { text: "STEP SPACING"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
+            Text { text: "STEP SPACING"; color: #788394; font-size: 9px; }
             // Turning rounding off lets the loop wrap between grid cells, so the pattern
             // drifts against the step grid instead of landing on it.
             Rectangle {
-                width: 168px; height: 26px; border-radius: 4px;
+                height: 26px; border-radius: 4px;
                 background: root.round-steps ? Theme.c1.with-alpha(0.8) : (round-touch.has-hover ? #3b414a : #2a3038);
                 Text {
-                    x: 8px; text: root.round-steps ? "WHOLE STEPS ONLY" : "FRACTIONAL STEPS";
+                    x: 8px; width: parent.width - 16px;
+                    text: root.round-steps ? "WHOLE STEPS ONLY" : "FRACTIONAL STEPS";
                     color: root.round-steps ? #0b0f14 : #d1d5db;
                     font-size: 9px; vertical-alignment: center;
                 }
                 round-touch := TouchArea { clicked => { root.toggle-round-steps(); } }
             }
-        }
-        if root.settings-open: HorizontalLayout {
-            height: 30px; spacing: 5px;
-            NumBox {
-                label: "Steps"; value: root.steps; minimum: 1; maximum: 64;
-                step: root.round-steps ? 1 : 0.25; decimals: root.round-steps ? 0 : 2;
-                changed(v) => { root.spin-steps(v); }
+            Text { text: "PATTERN NUMBERS"; color: #788394; font-size: 9px; }
+            HorizontalLayout { spacing: 6px;
+                NumBox {
+                    label: "Steps"; value: root.steps; minimum: 1; maximum: 64;
+                    step: root.round-steps ? 1 : 0.25; decimals: root.round-steps ? 0 : 2;
+                    changed(v) => { root.spin-steps(v); }
+                }
+                NumBox { label: "Pulses"; value: root.pulses; minimum: 0; maximum: Math.ceil(root.steps); step: 1; changed(v) => { root.spin-opt(1, v); } }
             }
-            NumBox { label: "Pulses"; value: root.pulses; minimum: 0; maximum: Math.ceil(root.steps); step: 1; changed(v) => { root.spin-opt(1, v); } }
-            NumBox { label: "Rotate"; value: root.rotate; minimum: 0; maximum: Math.max(Math.ceil(root.steps) - 1, 0); step: 1; changed(v) => { root.spin-opt(2, v); } }
-            NumBox { label: "Symmetry"; value: root.symmetry; minimum: 1; maximum: 8; step: 1; changed(v) => { root.spin-opt(11, v); } }
-        }
-        if root.settings-open: HorizontalLayout {
-            height: 30px; spacing: 5px;
+            HorizontalLayout { spacing: 6px;
+                NumBox { label: "Rotate"; value: root.rotate; minimum: 0; maximum: Math.max(Math.ceil(root.steps) - 1, 0); step: 1; changed(v) => { root.spin-opt(2, v); } }
+                NumBox { label: "Symmetry"; value: root.symmetry; minimum: 1; maximum: 8; step: 1; changed(v) => { root.spin-opt(11, v); } }
+            }
             NumBox { label: "Regen after"; value: root.regenerate-every; minimum: 0; maximum: 256; step: 1; changed(v) => { root.spin-opt(10, v); } }
             NumBox { label: "Rand after beats"; value: root.randomize-after-beats; minimum: 1; maximum: 256; step: 1; changed(v) => { root.spin-opt(12, v); } }
             Text {
                 text: "RANDOMIZE uses the top button; enable Auto Randomize in the transport row. Type exact values here, or use the arrows and wheel.";
-                color: #8b95a5; font-size: 9px; wrap: word-wrap; vertical-alignment: center;
+                color: #8b95a5; font-size: 9px; wrap: word-wrap; vertical-stretch: 1; vertical-alignment: top;
             }
         }
     }

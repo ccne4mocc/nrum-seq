@@ -6,6 +6,9 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     let r = 3.5 + p.density.clamp(0.0, 1.0) as f64 * 0.5;
     let mut x = (0.13 + p.seed as f64 * 0.73 + p.phase as f64 * 0.11).clamp(0.001, 0.999);
     for _ in 0..24 { x = r * x * (1.0 - x); }
+    // At r near 4 the burn-in can end next to 0, where the orbit needs several steps to climb
+    // back and a short pattern is silent. Step on (bounded) until it is in the working range.
+    for _ in 0..32 { if (0.1..=0.9).contains(&x) { break; } x = r * x * (1.0 - x); }
     for i in 0..p.steps {
         x = r * x * (1.0 - x);
         out.orbit[i] = x as f32;

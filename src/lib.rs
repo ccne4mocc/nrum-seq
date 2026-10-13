@@ -211,10 +211,7 @@ impl Default for DrumParams {
 
 impl DrumParams {
     /// Grid cells the current `steps` value covers, matching what `gen_params` produces.
-    fn cell_count(&self) -> i32 {
-        let raw = self.steps.value().clamp(1.0, MAX_STEPS as f32);
-        (if self.round_steps.value() { raw.round() } else { raw.ceil() }).clamp(1.0, MAX_STEPS as f32) as i32
-    }
+    fn cell_count(&self) -> i32 { cell_count_for(self.steps.value(), self.round_steps.value()) }
 
     fn gen_params(&self) -> GenParams {
         let raw = self.steps.value().clamp(1.0, MAX_STEPS as f32);
@@ -223,7 +220,9 @@ impl DrumParams {
         GenParams {
             kind: self.mode.value().kind(),
             steps: cells as usize,
-            length: raw,
+            // With snapping on the loop is exactly `cells` long. Passing the raw value through
+            // made a slider drag to e.g. 16.37 (displayed as "16") wrap mid-cell and drift.
+            length: if self.round_steps.value() { cells } else { raw },
             pulses: self.pulses.value() as usize,
             rotate: self.rotate.value() as usize,
             density: self.density.value(),
@@ -252,6 +251,14 @@ impl DrumParams {
     }
 }
 
+/// Grid cells a raw `steps` value covers. Free function so tests exercise the real rule: an
+/// inlined copy inside the test silently outlived the `MAX_STEPS` 256 -> 64 reduction,
+/// because comparing a formula against itself cannot fail.
+fn cell_count_for(raw: f32, snap: bool) -> i32 {
+    let raw = raw.clamp(1.0, MAX_STEPS as f32);
+    (if snap { raw.round() } else { raw.ceil() }).clamp(1.0, MAX_STEPS as f32) as i32
+}
+
 /// Lock-free signals shared between the audio scheduler and the editor.
 /// Auto-randomization is requested on the audio thread at a beat boundary and
 /// applied through NIH-plug's ParamSetter on the editor thread.
@@ -278,6 +285,20 @@ fn regeneration_cycle_at(step_index: i64, pattern_steps: usize, every: i64, last
 /// step later and the pattern drifts against the grid.
 fn step_index(k: i64, length: f64) -> i64 {
     if length >= 1.0 && length.fract() == 0.0 { k.rem_euclid(length as i64) } else { (k as f64).rem_euclid(length).floor() as i64 }
+}
+
+/// Where the step cursor resumes in this block. A carried cursor is only trusted while it is
+/// plausibly "the next step" for the current block: the lower bound drops a cursor the clock has
+/// already passed, and the upper bound drops one that is far ahead, which happens when `rate`
+/// changes to a slower value (the cursor counts steps of the *old* rate, so e.g. step 400 at 1/16
+/// is beat 100 but step 400 at 1/4 is beat 400, silencing the plug-in for ~300 beats).
+fn resume_cursor(carried: Option<i64>, jumped: bool, start: f64, end: f64, spb: f64) -> i64 {
+    let lo = (start * spb - 1.0).ceil() as i64;
+    let hi = (end * spb + 1.0).ceil() as i64;
+    match carried {
+        Some(next) if !jumped && next >= lo && next <= hi => next,
+        _ => (start * spb - 1e-6).ceil() as i64,
+    }
 }
 
 /// Count beat-grid randomization points in a transport block: (start, end].
@@ -312,6 +333,9 @@ pub struct AlgoDrumNemShine {
     expected_beat: Option<f64>,
     /// Next step index to schedule, carried across blocks so swing cannot drop a step.
     next_step: Option<i64>,
+    /// Set by `reset`, which has no `ProcessContext` to send NoteOffs with. The next
+    /// `process` flushes them, so a host transport reset cannot leave notes hanging.
+    pending_reset: bool,
     free_beat: f64,
     last_regen_cycle: Option<i64>,
     sample_rate: f64,
@@ -321,7 +345,7 @@ impl Default for AlgoDrumNemShine {
         Self {
             params: Arc::new(DrumParams::default()), shared: Arc::new(Shared::default()),
             last_key: None, pattern: Pattern::default(), loop_length: 16.0, last_generate: None,
-            active: [None; TRACKS], expected_beat: None, next_step: None, free_beat: 0.0,
+            active: [None; TRACKS], expected_beat: None, next_step: None, pending_reset: false, free_beat: 0.0,
             last_regen_cycle: None, sample_rate: 44100.0,
         }
     }
@@ -344,7 +368,9 @@ impl Plugin for AlgoDrumNemShine {
     const EMAIL: &'static str = "maintainers@example.org";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout { main_input_channels: None, main_output_channels: None, ..AudioIOLayout::const_default() }];
-    const MIDI_INPUT: MidiConfig = MidiConfig::MidiCCs;
+    // Input is drained and discarded in `process`, so advertising CC input would only make
+    // hosts send messages that are thrown away.
+    const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::MidiCCs;
     const SAMPLE_ACCURATE_AUTOMATION: bool = false;
     type SysExMessage = ();
@@ -359,7 +385,10 @@ impl Plugin for AlgoDrumNemShine {
         true
     }
     fn reset(&mut self) {
-        self.active = [None; TRACKS];
+        // nih-plug hands `reset` no ProcessContext, so NoteOffs cannot be sent from here.
+        // `active` is deliberately left intact and flushed at the top of the next `process`;
+        // clearing it here would drop the note numbers and leave every sounding note stuck.
+        self.pending_reset = self.active.iter().any(|a| a.is_some());
         self.expected_beat = None;
         self.next_step = None;
         self.free_beat = 0.0;
@@ -372,6 +401,10 @@ impl Plugin for AlgoDrumNemShine {
 
     fn process(&mut self, buffer: &mut Buffer, _aux: &mut AuxiliaryBuffers, context: &mut impl ProcessContext<Self>) -> ProcessStatus {
         let p = self.params.clone();
+        if self.pending_reset {
+            self.pending_reset = false;
+            self.stop_all(context);
+        }
         while context.next_event().is_some() {} // This is a MIDI generator, not an input passthrough.
 
         let generated = p.generate.value();
@@ -382,6 +415,10 @@ impl Plugin for AlgoDrumNemShine {
             self.pattern = generate(&initial_key);
             self.loop_length = initial_key.length as f64;
             self.last_key = Some(initial_key);
+            // Cycle numbers are counted in pattern lengths, so changing the length renumbers
+            // them; the remembered cycle would otherwise suppress or trigger the next
+            // regeneration against the wrong count.
+            self.last_regen_cycle = None;
         }
 
         let n_samples = buffer.samples();
@@ -396,7 +433,9 @@ impl Plugin for AlgoDrumNemShine {
         let block_beats = n_samples as f64 * beats_per_sample;
         let start = if playing {
             self.free_beat = 0.0;
-            Some(transport.pos_beats().unwrap_or(0.0))
+            // Hosts that omit the position would otherwise pin every block to beat 0, replaying
+            // step 0 forever and tripping the jump detector; keep counting on our own clock.
+            Some(transport.pos_beats().or(self.expected_beat).unwrap_or(0.0))
         } else if p.free_run.value() { Some(self.free_beat) } else { None };
         let Some(start) = start else {
             self.stop_all(context);
@@ -433,10 +472,7 @@ impl Plugin for AlgoDrumNemShine {
         // re-derived from the host position, otherwise a deferred step would be skipped.
         let swing = p.swing.value().clamp(0.0, 0.5) as f64 * step_len;
         let swung = |k: i64| k as f64 * step_len + if k.rem_euclid(2) != 0 { swing } else { 0.0 };
-        let mut k = match self.next_step {
-            Some(next) if !transport_jump && next >= (start * spb - 1.0).ceil() as i64 => next,
-            _ => (start * spb - 1e-6).ceil() as i64,
-        };
+        let mut k = resume_cursor(self.next_step, transport_jump, start, end, spb);
         let every = p.regenerate_every.value().max(0) as i64;
 
         loop {
@@ -588,6 +624,19 @@ mod tests {
     }
 
     #[test]
+    fn a_carried_cursor_survives_normal_blocks_but_not_a_slower_rate() {
+        // 1/16 at beat 100: cursor ~400. Same cursor under 1/4 (spb 1) is 300 beats in the future.
+        assert_eq!(resume_cursor(Some(401), false, 100.0, 100.01, 4.0), 401);
+        let after_rate_change = resume_cursor(Some(401), false, 100.0, 100.01, 1.0);
+        assert_eq!(after_rate_change, 100, "stale cursor must be dropped");
+        // A cursor the clock has passed is dropped, as before; a jump always resets.
+        assert_eq!(resume_cursor(Some(10), false, 100.0, 100.01, 1.0), 100);
+        assert_eq!(resume_cursor(Some(401), true, 100.0, 100.01, 4.0), 400);
+        // A swung step deferred past the block end (cursor just beyond end*spb) is kept.
+        assert_eq!(resume_cursor(Some(101), false, 99.9, 100.0, 1.0), 101);
+    }
+
+    #[test]
     fn whole_step_lengths_behave_exactly_like_the_old_modulo_wrap() {
         // The fractional path must not change any existing whole-step behaviour.
         for n in [1i64, 2, 4, 16, 17, 255, 256] {
@@ -632,14 +681,17 @@ mod tests {
 
     #[test]
     fn step_count_rounding_follows_the_snap_toggle() {
-        // `steps` is host-automatable so it cannot be set from a unit test; check the
-        // conversion rule directly instead.
+        // Calls `cell_count_for` itself rather than restating it, so the two cannot drift.
         for (raw, snap, cells) in [
-            (16.0f32, true, 16usize), (16.4, true, 16), (16.6, true, 17),
-            (16.4, false, 17), (16.0, false, 16), (1.0, false, 1), (256.0, false, 256),
+            (16.0f32, true, 16i32), (16.4, true, 16), (16.6, true, 17),
+            (16.4, false, 17), (16.0, false, 16), (1.0, false, 1),
+            // Clamped to MAX_STEPS from both ends, whichever way rounding goes.
+            (MAX_STEPS as f32, false, MAX_STEPS as i32),
+            (MAX_STEPS as f32 + 40.0, false, MAX_STEPS as i32),
+            (MAX_STEPS as f32 + 40.0, true, MAX_STEPS as i32),
+            (0.0, false, 1), (-5.0, true, 1),
         ] {
-            let want = (if snap { raw.round() } else { raw.ceil() }).clamp(1.0, 256.0) as usize;
-            assert_eq!(want, cells, "raw={raw}, snap={snap}");
+            assert_eq!(cell_count_for(raw, snap), cells, "raw={raw}, snap={snap}");
         }
     }
 
@@ -724,5 +776,16 @@ fn walk_block(start: f64, block_beats: f64, swing: f64, cursor: Option<i64>) -> 
         assert_eq!((p.track_note(0), p.track_note(1), p.track_note(2), p.track_note(3)), (36, 38, 42, 46));
         assert!(p.track_enabled(0) && p.track_enabled(1) && p.track_enabled(2));
         assert_eq!(p.gen_params().kind, GenKind::Euclidean);
+    }
+
+    #[test]
+    fn snapped_loop_length_is_always_whole() {
+        // Regression: `length` was the raw float even with snapping on, so a slider value of
+        // 16.37 gave a 16-cell pattern in a 16.37-step loop that drifted every cycle.
+        let p = DrumParams::default();
+        let g = p.gen_params();
+        assert!(p.round_steps.value());
+        assert_eq!(g.length, g.steps as f32);
+        assert_eq!(g.length.fract(), 0.0);
     }
 }

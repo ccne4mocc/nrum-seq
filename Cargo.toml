@@ -19,6 +19,19 @@ serde_json = "1.0"
 [build-dependencies]
 slint-build = "=1.16.1"
 
+# Stylistic lints turned off deliberately. Everything else stays on, so clippy reports
+# correctness findings rather than taste. Remove this section to see them.
+[lints.clippy]
+# Index loops over fixed [T; TRACKS] arrays read better than iterator chains on the
+# no-allocation audio path, and `i` is genuinely the lane index in most of these bodies.
+needless_range_loop = "allow"
+# `x.rem_euclid(n) == 0` and `x.is_multiple_of(n)` are the same thing; the former is
+# explicit about handling negative `x`, which generators do rely on.
+manual_is_multiple_of = "allow"
+unusual_byte_groupings = "allow"
+redundant_closure = "allow"
+needless_borrow = "allow"
+
 [workspace]
 members = ["xtask"]
 

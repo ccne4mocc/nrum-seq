@@ -20,15 +20,18 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
                 _ => if phase < 0.5 { 1.0 } else { 0.0 },
             };
         }
-        // Counting the waveform values above a running cutoff gives exactly `wanted` hits
-        // without sorting or allocating; ties break toward the earlier step.
+        // Rank selection: a step hits when fewer than `wanted` steps outrank it, where
+        // "outranks" means a higher value, or an equal value at an earlier step. That gives
+        // exactly `wanted` hits even for square waves and symmetric sines (whose ties a plain
+        // `>= cutoff` test lets through in bulk), needs no sort, and cannot allocate.
+        // Cost is O(steps^2) = 4096 comparisons per lane at MAX_STEPS.
         if wanted > 0 {
-            let mut sorted = [0.0f32; super::MAX_STEPS];
-            sorted[..p.steps].copy_from_slice(&wave[..p.steps]);
-            sorted[..p.steps].sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-            let cutoff = sorted[wanted - 1];
             for i in 0..p.steps {
-                set_hit(&mut out, tr, i, wave[i] >= cutoff, 0.55 + 0.45 * wave[i]);
+                let mut rank = 0usize;
+                for j in 0..p.steps {
+                    if wave[j] > wave[i] || (wave[j] == wave[i] && j < i) { rank += 1; }
+                }
+                set_hit(&mut out, tr, i, rank < wanted, 0.55 + 0.45 * wave[i]);
             }
         }
     }

@@ -24,8 +24,10 @@ pub const TRACKS: usize = 8;
 /// generation cost scales linearly with it.
 pub const MAX_STEPS: usize = 64;
 pub const CA_ROWS: usize = 16;
-const PHI: f64 = 1.618_033_988_749_895;
-const PHI_INV: f64 = 0.618_033_988_749_894_9;
+// Spelled out: `std::f64::consts::GOLDEN_RATIO` is unstable on older toolchains, which made the
+// documented "Rust 1.88 or newer" baseline wrong.
+const PHI: f64 = 1.618_033_988_749_894_8;
+const PHI_INV: f64 = PHI - 1.0;
 const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -232,23 +234,26 @@ pub fn generate(p: &GenParams) -> Pattern {
             }
         }
     }
-    let generated_accents = out.accent;
-    accents(&mut out, &q);
-    // Keep the stable downbeat/backbeat accent shape while preserving each mode's own accent data.
-    for tr in 0..TRACKS {
-        for i in 0..steps { out.accent[tr][i] = (out.accent[tr][i] * generated_accents[tr][i]).clamp(0.05, 1.0); }
-    }
     if q.density <= 0.0 || (q.kind != GenKind::Cellular && q.pulses == 0) {
         for tr in 0..TRACKS { out.hit[tr][..steps].fill(false); }
     }
-    // Rotation includes probability drops, mode/human accents, and auxiliary view data. Variation
-    // also rotates by one or more steps, so closed-form modes can actually regenerate differently.
+    // Rotation includes probability drops, the mode's own accent data, and auxiliary view data.
+    // Variation also rotates by one or more steps, so closed-form modes can actually regenerate
+    // differently.
     let shift = ((q.rotate % steps) + (q.variation as usize % steps)) % steps;
     if shift != 0 {
         let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
         let old_ca = out.ca; let old_orbit = out.orbit;
         for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
         for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+    }
+    // The stable downbeat/backbeat accent shape is applied *after* rotation, so it stays tied to
+    // the step grid (and therefore the beat) instead of travelling with the rotated pattern;
+    // each mode's own accent data, already rotated above, is multiplied in.
+    let mode_accents = out.accent;
+    accents(&mut out, &q);
+    for tr in 0..TRACKS {
+        for i in 0..steps { out.accent[tr][i] = (out.accent[tr][i] * mode_accents[tr][i]).clamp(0.05, 1.0); }
     }
     out
 }
@@ -496,6 +501,108 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn oscillator_hits_exactly_the_requested_count_for_every_waveform() {
+        // Regression: ties at the cutoff were all kept, so a square wave lit every high step and
+        // a symmetric sine lit pairs, regardless of `pulses`.
+        for wave in 0..4usize {
+            for steps in [1usize, 2, 7, 16, 21, 32, 64] {
+                for pulses in [1usize, 2, 3, 5, 8, 21, 64] {
+                    for density in [0.25f32, 0.65, 1.0] {
+                        let p = GenParams { kind: GenKind::Oscillator, steps, pulses, density, probability: 1.0, osc_wave: wave, ..GenParams::default() };
+                        let pat = generate(&p);
+                        for tr in 0..TRACKS {
+                            let wanted = (((pulses.min(steps)) as f32 * density * (0.5 + DENSITY_PROFILE[tr])).round() as usize).min(steps);
+                            let got = pat.hit[tr][..steps].iter().filter(|&&h| h).count();
+                            assert_eq!(got, wanted, "wave={wave} steps={steps} pulses={pulses} density={density} lane={tr}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn euclidean_is_exact_evenly_spaced_and_anchored_on_step_zero() {
+        // Regression: the bucket form put the first onset at the end of its bucket, so E(4,16)
+        // played on 3,7,11,15 and a "four on the floor" kick missed the downbeat.
+        for steps in [1usize, 2, 7, 8, 16, 17, 31, 64] {
+            for pulses in 1..=steps.min(24) {
+                let p = GenParams { kind: GenKind::Euclidean, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() };
+                let pat = generate(&p);
+                for tr in 0..TRACKS {
+                    let want = ((pulses as f32 * (0.35 + DENSITY_PROFILE[tr]) + 0.5).floor() as usize).min(steps);
+                    let pos: Vec<usize> = (0..steps).filter(|&i| pat.hit[tr][i]).collect();
+                    assert_eq!(pos.len(), want, "steps={steps} pulses={pulses} lane={tr}");
+                    if want > 0 { assert_eq!(pos[0], 0, "not anchored: steps={steps} pulses={pulses} lane={tr} {pos:?}"); }
+                    if pos.len() > 1 {
+                        let mut gaps: Vec<usize> = pos.windows(2).map(|w| w[1] - w[0]).collect();
+                        gaps.push(steps - pos[pos.len() - 1] + pos[0]);
+                        assert!(gaps.iter().max().unwrap() - gaps.iter().min().unwrap() <= 1, "{steps}/{pulses}/{tr}: {gaps:?}");
+                    }
+                }
+            }
+        }
+        // The concrete case from the bug report.
+        let pat = generate(&GenParams { kind: GenKind::Euclidean, steps: 16, pulses: 16, density: 0.3, probability: 1.0, ..GenParams::default() });
+        let kick: Vec<usize> = (0..16).filter(|&i| pat.hit[0][i]).collect();
+        assert_eq!(kick, vec![0, 4, 8, 12]);
+    }
+
+    #[test]
+    fn well_formed_first_lane_starts_on_step_zero() {
+        for steps in [8usize, 16, 17, 32, 64] {
+            for pulses in [1usize, 2, 3, 5, 7] {
+                let pat = generate(&GenParams { kind: GenKind::WellFormed, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
+                assert!(pat.hit[0][0], "steps={steps} pulses={pulses}");
+            }
+        }
+    }
+
+    /// AGENTS.md requires this check by name: every mode must still sound at one step and at full
+    /// density. It was missing from the suite, and the logistic map failed it at two steps.
+    #[test]
+    fn every_mode_produces_hits_at_one_step_and_at_full_density() {
+        for kind in GenKind::ALL {
+            let one = generate(&GenParams { kind, steps: 1, pulses: 1, density: 1.0, probability: 1.0, ..GenParams::default() });
+            assert!((0..TRACKS).any(|t| one.hit[t][0]), "{kind:?} is silent at steps=1");
+            for steps in 1..=MAX_STEPS {
+                let pulses = if kind == GenKind::Cellular { 5.min(steps) } else { steps };
+                let pat = generate(&GenParams { kind, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
+                assert!((0..TRACKS).any(|t| pat.hit[t][..steps].iter().any(|&h| h)), "{kind:?} is silent at steps={steps}, full density");
+            }
+        }
+    }
+
+    #[test]
+    fn eulerian_circuit_seam_does_not_double_the_rest() {
+        // Degree 1 is the plain ring 0,1,..,8,0. Repeating the closed circuit played rest twice.
+        let pat = generate(&GenParams { kind: GenKind::Eulerian, steps: 64, pulses: 0, density: 1.0, probability: 1.0, ..GenParams::default() });
+        // pulses == 0 silences hits but the walk itself is still recorded in `state`.
+        for i in 0..63 { assert!(!(pat.state[i] == 0 && pat.state[i + 1] == 0), "double rest at {i}: {:?}", &pat.state[..64]); }
+    }
+
+    #[test]
+    fn metric_accents_stay_on_the_grid_when_the_pattern_rotates() {
+        // Cellular hits all carry mode accent 1.0, so their final accent is the metric shape alone.
+        let base = GenParams { kind: GenKind::Cellular, steps: 16, pulses: 3, density: 0.9, probability: 1.0, ..GenParams::default() };
+        let a = generate(&base);
+        let b = generate(&GenParams { rotate: 5, ..base });
+        let mut compared = 0;
+        for tr in 0..TRACKS { for i in 0..16 { if a.hit[tr][i] && b.hit[tr][i] { compared += 1; assert!((a.accent[tr][i] - b.accent[tr][i]).abs() < 1e-6, "lane={tr} step={i}"); } } }
+        assert!(compared > 0, "test needs overlapping hits to compare");
+    }
+
+    #[test]
+    fn logistic_short_patterns_survive_the_critical_r() {
+        for seed in [0.0f32, 0.1, 0.271, 0.5, 0.9, 1.0] {
+            for steps in 1..=8usize {
+                let pat = generate(&GenParams { kind: GenKind::Logistic, steps, pulses: steps, density: 1.0, probability: 1.0, seed, ..GenParams::default() });
+                assert!((0..TRACKS).any(|t| pat.hit[t][..steps].iter().any(|&h| h)), "seed={seed} steps={steps}");
+            }
+        }
+    }
 
     #[test]
     fn full_step_range_is_supported() {

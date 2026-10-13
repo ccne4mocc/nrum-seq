@@ -10,9 +10,10 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let phase = (tr * n / TRACKS) % n;
         for i in 0..n {
             let pos = (i + n - phase) % n;
-            let hit = ((pos + 1) * k / n) != (pos * k / n);
+            // Anchored at the lane's phase origin (see euclidean.rs): onset j at floor(j*n/k).
             let distance = (pos * k) % n;
-            set_hit(&mut out, tr, i, hit, if distance < k.max(1) { 1.0 } else { 0.72 });
+            let hit = (n - distance) % n < k;
+            set_hit(&mut out, tr, i, hit, if hit { 1.0 } else { 0.72 });
         }
     }
     out
