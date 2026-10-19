@@ -27,16 +27,29 @@ fn circle(s: &mut String, cx: f32, cy: f32, r: f32) {
     let _ = write!(s, "M{:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} ", cx + r, cy, cx - r, cy, cx + r, cy);
 }
 fn aggregate_hit(p: &Pattern, i: usize) -> bool { (0..TRACKS).any(|t| p.hit[t][i]) }
+/// Count of onsets in one lane.
+fn lane_count(p: &Pattern, tr: usize, n: usize) -> usize {
+    (0..n).filter(|&i| p.hit[tr][i]).count()
+}
+
+/// Generation the cellular generator reads for one lane. Must match `cellular::generate`;
+/// it also collapses to row 0 at one step, where the ring wraps onto itself.
+fn selected_row(params: &GenParams, tr: usize) -> usize {
+    if params.steps <= 1 {
+        0
+    } else {
+        (params.pulses + (params.phase * CA_ROWS as f32).round() as usize + tr * 2) % CA_ROWS
+    }
+}
+
+/// Panel half-width available for drawing, keeping 10px of margin inside the 210 viewbox.
+const PLOT: f32 = 92.0;
+/// `traj` is stored in simulation units and clamped to `R_MAX`; this maps it into the panel.
+const ORBIT_SCALE: f32 = PLOT / 3.2;
 
 #[inline]
-fn oscillator_value(wave: usize, phase: f32) -> f32 {
-    let phase = phase.rem_euclid(1.0);
-    match wave % 4 {
-        0 => 0.5 + 0.5 * (TAU * phase).sin(),
-        1 => 1.0 - (2.0 * phase - 1.0).abs(),
-        2 => phase,
-        _ => if phase < 0.5 { 1.0 } else { 0.0 },
-    }.clamp(0.0, 1.0)
+fn osc_value(wave: usize, phase: f32) -> f32 {
+    crate::sequence::oscillator_value(wave, phase)
 }
 
 pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
@@ -45,12 +58,24 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
     let mut v = View::default();
     match params.kind {
         GenKind::Euclidean => {
-            circle(&mut v.edges, C, C, 82.0);
-            for i in 0..n {
-                let (x, y) = polar(82.0, i as f32 / n as f32);
-                v.nodes.push(Node { x, y, r: if aggregate_hit(p, i) { 6.5 } else { 3.2 }, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
+            // Per-lane rings rather than one aggregate ring: the lanes have different densities,
+            // and collapsing them hid that (and showed hits for lanes the user disabled).
+            for tr in 0..TRACKS {
+                let radius = 24.0 + tr as f32 * 9.2;
+                circle(&mut v.edges, C, C, radius);
+                for i in 0..n {
+                    let (x, y) = polar(radius, i as f32 / n as f32);
+                    let on = p.hit[tr][i];
+                    v.nodes.push(Node { x, y, r: if on { 3.6 } else { 1.8 }, on, cur: play == Some(i), label: String::new() });
+                }
             }
-            if let Some(i) = play { let (x, y) = polar(82.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
+            if let Some(i) = play {
+                mv(&mut v.hand, C, C);
+                for tr in 0..TRACKS {
+                    let (x, y) = polar(24.0 + tr as f32 * 9.2, i as f32 / n as f32);
+                    ln(&mut v.hand, x, y);
+                }
+            }
         }
         GenKind::Eulerian | GenKind::Markov => {
             let vertices = TRACKS + 1;
@@ -90,15 +115,19 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
         GenKind::Cellular => {
             let cw = 184.0 / n as f32;
             let ch = 172.0 / CA_ROWS as f32;
+            // Each lane reads its own generation, so mark every lane's row rather than the one
+            // the old `pulses % CA_ROWS` guess pointed at.
+            let lane_rows: [usize; TRACKS] = std::array::from_fn(|tr| selected_row(params, tr));
             for row in 0..CA_ROWS {
                 for i in 0..n {
                     let on = p.ca[row][i];
+                    let cur = play == Some(i) && lane_rows.contains(&row);
                     v.nodes.push(Node {
                         x: 13.0 + (i as f32 + 0.5) * cw,
                         y: 18.0 + (row as f32 + 0.5) * ch,
                         r: (cw.min(ch) * 0.40).max(1.1),
                         on,
-                        cur: play == Some(i) && row == params.pulses % CA_ROWS,
+                        cur,
                         label: String::new(),
                     });
                 }
@@ -112,20 +141,18 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             let points = (n * 3).max(24);
             for j in 0..points {
                 let phase = (j as f32 / points as f32 * params.osc_rate + params.phase).fract();
-                let value = oscillator_value(params.osc_wave, phase);
+                let value = osc_value(params.osc_wave, phase);
                 let x = 12.0 + j as f32 / (points - 1) as f32 * 186.0;
                 let y = 176.0 - value * 130.0;
                 if j == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
             }
-            let pulse_ratio = params.pulses as f32 / n as f32;
-            let threshold = (pulse_ratio * (0.25 + 0.75 * params.density.clamp(0.0, 1.0))
-                * (0.5 + crate::sequence::DENSITY_PROFILE[0])).clamp(0.01, 0.99);
+            let threshold = crate::sequence::oscillator_threshold(params);
             let threshold_y = 176.0 - (1.0 - threshold) * 130.0;
             mv(&mut v.edges, 12.0, threshold_y); ln(&mut v.edges, 198.0, threshold_y);
             for i in 0..n {
                 let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
                 let phase = (i as f32 / n as f32 * params.osc_rate + params.phase).fract();
-                let value = oscillator_value(params.osc_wave, phase);
+                let value = osc_value(params.osc_wave, phase);
                 v.nodes.push(Node { x, y: 176.0 - value * 130.0, r: 3.0, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
             }
         }
@@ -152,22 +179,195 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.lines, x, 16.0); ln(&mut v.lines, x, 194.0);
             }
         }
-        GenKind::RaisedCosine | GenKind::Slowcat | GenKind::ToussaintDistance | GenKind::WellFormed
-        | GenKind::LSystem | GenKind::PhaseShift | GenKind::Polyrhythm | GenKind::Syncopation => {
-            // Shared step-lattice visualization; each new mode retains a distinct kind/index.
+        GenKind::RaisedCosine => {
+            // The generator's own envelope and cutoff, so the drawn curve is the curve that
+            // produced the hits. Orbit lane 0's envelope because that is the one it publishes.
+            mv(&mut v.edges, 12.0, 180.0); ln(&mut v.edges, 198.0, 180.0);
+            let hits = crate::sequence::pulse_hits(params.pulses, params.density, 0, n);
+            let phase = crate::sequence::raised_cosine_phase(params.seed, params.phase);
+            let samples = (n * 6).max(48);
+            for j in 0..samples {
+                // Sample the envelope densely: it can complete several cycles between steps.
+                let pos = j as f32 / (samples - 1) as f32;
+                let hits_f = (pos * hits as f32).round() as usize;
+                let value = crate::sequence::raised_cosine_envelope(0, 1000, hits_f, phase);
+                let x = 12.0 + pos * 186.0;
+                let y = 180.0 - value * 148.0;
+                if j == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
+            }
+            let cut = crate::sequence::raised_cosine_cutoff(hits, n);
+            let cut_y = 180.0 - cut * 148.0;
+            mv(&mut v.edges, 12.0, cut_y); ln(&mut v.edges, 198.0, cut_y);
+            for i in 0..n {
+                let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
+                let value = crate::sequence::raised_cosine_envelope(i, n, hits, phase);
+                v.nodes.push(Node { x, y: 180.0 - value * 148.0, r: 3.0, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
+            }
+            if let Some(i) = play { let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0; mv(&mut v.hand, x, 18.0); ln(&mut v.hand, x, 194.0); }
+        }
+        GenKind::Slowcat => {
+            // Phrase timeline: one band per lane, ticks at that lane's motif boundaries, onsets
+            // as nodes on the band. Motif length comes from the generator.
             let cw = 184.0 / n as f32;
             let ch = 168.0 / TRACKS as f32;
+            let count = params.pulses.max(1);
             for tr in 0..TRACKS {
+                let y = 21.0 + (tr as f32 + 0.5) * ch;
+                let motif = crate::sequence::slowcat_motif_len(tr, count, n).max(1);
+                mv(&mut v.edges, 11.0, y); ln(&mut v.edges, 199.0, y);
+                let mut cell = 0usize;
+                while cell < n {
+                    let x = 13.0 + cell as f32 * cw;
+                    mv(&mut v.lines, x, y - ch * 0.42); ln(&mut v.lines, x, y + ch * 0.42);
+                    cell += motif;
+                }
                 for i in 0..n {
                     let on = p.hit[tr][i];
                     let x = 13.0 + (i as f32 + 0.5) * cw;
-                    let y = 21.0 + (tr as f32 + 0.5) * ch;
-                    v.nodes.push(Node { x, y, r: if on { 4.3 } else { 2.0 }, on, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x, y, r: if on { 4.3 } else { 1.8 }, on, cur: play == Some(i), label: String::new() });
                 }
             }
-            for i in 0..=n { let x = 13.0 + i as f32 * cw; mv(&mut v.edges, x, 18.0); ln(&mut v.edges, x, 192.0); }
+            if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 16.0); ln(&mut v.hand, x, 196.0); }
+        }
+        GenKind::ToussaintDistance => {
+            // Distance circle: each lane's k onsets sit at evenly spaced angles, radius by lane.
+            // Tick marks on the rim give the step grid, so the circular origin each lane was
+            // rotated by is readable against them.
+            for tr in 0..TRACKS {
+                let k = crate::sequence::pulse_hits(params.pulses, params.density, tr, n);
+                if k == 0 { continue; }
+                let radius = 30.0 + tr as f32 * 8.5;
+                let mut j = 0usize;
+                for i in 0..n {
+                    if !p.hit[tr][i] { continue; }
+                    let (x, y) = polar(radius, j as f32 / k as f32);
+                    let (tx, ty) = polar(100.0, i as f32 / n as f32);
+                    mv(&mut v.lines, tx, ty); ln(&mut v.lines, x, y);
+                    v.nodes.push(Node { x, y, r: 4.2, on: true, cur: play == Some(i), label: String::new() });
+                    j += 1;
+                }
+            }
+            circle(&mut v.edges, C, C, 100.0);
+            if let Some(i) = play { let (x, y) = polar(100.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
+        }
+        GenKind::WellFormed => {
+            // Christoffel slack: the Bresenham remainder rises linearly and resets at each onset,
+            // so the two inter-onset interval lengths are visible as the slope changes.
+            mv(&mut v.edges, 12.0, 186.0); ln(&mut v.edges, 198.0, 186.0);
+            for tr in 0..TRACKS {
+                let k = crate::sequence::pulse_hits(params.pulses, params.density, tr, n);
+                if k == 0 { continue; }
+                let phase = (tr * n / TRACKS) % n;
+                let height = 24.0 + tr as f32 * 4.5;
+                for i in 0..n {
+                    let d = crate::sequence::modular_distance((i + n - phase) % n, k, n);
+                    let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0;
+                    let y = 186.0 - d as f32 / n as f32 * height;
+                    if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
+                    if p.hit[tr][i] {
+                        mv(&mut v.edges, x, 186.0 - height); ln(&mut v.edges, x, y);
+                    }
+                }
+            }
+            for i in 0..n {
+                let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0;
+                v.nodes.push(Node { x, y: 186.0, r: if aggregate_hit(p, i) { 4.0 } else { 1.9 }, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
+            }
+            if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 40.0); ln(&mut v.hand, x, 190.0); }
+        }
+        GenKind::LSystem => {
+            // Nesting depth per step, recovered by walking the lane's onsets: a hit that starts
+            // a new run raises the level, consecutive hits hold it. Bars make the grammar's
+            // branching readable where a plain grid only showed on/off.
+            let cw = 184.0 / n as f32;
+            let ch = 168.0 / TRACKS as f32;
+            for tr in 0..TRACKS {
+                let y = 21.0 + (tr as f32 + 0.5) * ch;
+                let mut depth = 0usize;
+                for i in 0..n {
+                    let on = p.hit[tr][i];
+                    if on && (i == 0 || !p.hit[tr][i - 1]) { depth += 1; }
+                    let height = if depth == 0 { 0.0 } else { (depth as f32 * ch * 0.34).min(ch * 0.9) };
+                    if height > 0.0 {
+                        let x = 13.0 + (i as f32 + 0.5) * cw;
+                        mv(&mut v.lines, x, y + ch * 0.42); ln(&mut v.lines, x, y + ch * 0.42 - height);
+                    }
+                    if on {
+                        v.nodes.push(Node { x: 13.0 + (i as f32 + 0.5) * cw, y, r: 4.0, on: true, cur: play == Some(i), label: String::new() });
+                    }
+                }
+            }
             for tr in 0..=TRACKS { let y = 21.0 + tr as f32 * ch; mv(&mut v.edges, 11.0, y); ln(&mut v.edges, 199.0, y); }
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 18.0); ln(&mut v.hand, x, 192.0); }
+        }
+        GenKind::PhaseShift => {
+            // Every lane is the same motif at a different circular offset, so the structure is
+            // the offsets: draw one spoke per lane to its first onset, plus a playhead radius.
+            circle(&mut v.edges, C, C, 94.0);
+            let labels = ["K", "S", "CH", "OH", "CL", "RM", "T", "P"];
+            for tr in 0..TRACKS {
+                let first = (0..n).find(|&i| p.hit[tr][i]).unwrap_or(0);
+                let (x, y) = polar(94.0, first as f32 / n as f32);
+                mv(&mut v.lines, C, C); ln(&mut v.lines, x, y);
+                v.nodes.push(Node { x, y, r: 7.0, on: lane_count(p, tr, n) > 0, cur: play == Some(first), label: labels[tr].into() });
+            }
+            if let Some(i) = play { let (x, y) = polar(94.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
+        }
+        GenKind::Polyrhythm => {
+            // Ratio stack: a dot ring per lane shows the pulse count, but sized by accent so the
+            // long/short relationship of the ratios is visible rather than just counted.
+            circle(&mut v.edges, C, C, 8.0);
+            for tr in 0..TRACKS {
+                let radius = 24.0 + tr as f32 * 9.0;
+                circle(&mut v.edges, C, C, radius);
+                for i in 0..n {
+                    if !p.hit[tr][i] { continue; }
+                    let (x, y) = polar(radius, i as f32 / n as f32);
+                    let accent = p.accent[tr][i];
+                    v.nodes.push(Node { x, y, r: 2.6 + accent * 2.4, on: true, cur: play == Some(i), label: String::new() });
+                }
+            }
+            if let Some(i) = play { let (x, y) = polar(24.0 + 7.0 * 9.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
+        }
+        GenKind::Syncopation => {
+            // The generator publishes lane 0's metrical score, so the bars are the weights that
+            // drove the selection rather than a re-derivation of them.
+            mv(&mut v.edges, 12.0, 176.0); ln(&mut v.edges, 198.0, 176.0);
+            for tr in 0..TRACKS {
+                let weight = if tr == 0 { 1.0 } else { 0.0 };
+                for i in 0..n {
+                    let value = (p.orbit[i] * weight).max(if p.hit[tr][i] { 1.0 } else { 0.0 });
+                    if value <= 0.0 { continue; }
+                    let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0;
+                    let y = 176.0 - value * 140.0;
+                    mv(&mut v.lines, x, 176.0); ln(&mut v.lines, x, y);
+                    v.nodes.push(Node { x, y: 176.0, r: if p.hit[tr][i] { 4.2 } else { 2.4 }, on: p.hit[tr][i], cur: play == Some(i), label: String::new() });
+                }
+            }
+            if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 20.0); ln(&mut v.hand, x, 192.0); }
+        }
+        GenKind::ThreeBody => {
+            // The orbit itself: bodies 1 and 2 traced relative to body 0, with a step marker on
+            // the third body. This is the only panel whose picture *is* the generator's state.
+            circle(&mut v.edges, C, C, 96.0);
+            for body in 0..2 {
+                for i in 0..n {
+                    let x = C + p.traj[i][body * 2] * ORBIT_SCALE;
+                    let y = C - p.traj[i][body * 2 + 1] * ORBIT_SCALE;
+                    if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
+                }
+            }
+            for i in 0..n {
+                let x = C + p.traj[i][2] * ORBIT_SCALE;
+                let y = C - p.traj[i][3] * ORBIT_SCALE;
+                v.nodes.push(Node { x, y, r: if aggregate_hit(p, i) { 4.4 } else { 2.4 }, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
+            }
+            v.nodes.push(Node { x: C, y: C, r: 3.0, on: true, cur: false, label: "0".into() });
+            if let Some(i) = play {
+                let x = C + p.traj[i][2] * ORBIT_SCALE;
+                let y = C - p.traj[i][3] * ORBIT_SCALE;
+                mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
+            }
         }
         GenKind::Logistic => {
             // Orbit diagram x[n] -> x[n+1], plus a slim orbit trace in the lower half.
@@ -192,12 +392,12 @@ mod tests {
     use crate::sequence::{generate, GenKind};
     #[test]
     fn oscillator_view_matches_each_selected_waveform() {
-        assert!((oscillator_value(0, 0.25) - 1.0).abs() < 1e-5);
-        assert!((oscillator_value(1, 0.25) - 0.5).abs() < 1e-5);
-        assert!((oscillator_value(2, 0.25) - 0.25).abs() < 1e-5);
-        assert_eq!(oscillator_value(3, 0.25), 1.0);
-        assert_eq!(oscillator_value(3, 0.75), 0.0);
-        for wave in 0..4 { for i in 0..=100 { assert!((0.0..=1.0).contains(&oscillator_value(wave, i as f32 / 100.0))); } }
+        assert!((osc_value(0, 0.25) - 1.0).abs() < 1e-5);
+        assert!((osc_value(1, 0.25) - 0.5).abs() < 1e-5);
+        assert!((osc_value(2, 0.25) - 0.25).abs() < 1e-5);
+        assert_eq!(osc_value(3, 0.25), 1.0);
+        assert_eq!(osc_value(3, 0.75), 0.0);
+        for wave in 0..4 { for i in 0..=100 { assert!((0.0..=1.0).contains(&osc_value(wave, i as f32 / 100.0))); } }
     }
 
     #[test]
@@ -227,5 +427,87 @@ mod tests {
         assert!(build(&g, &pat, -1).nodes.iter().all(|n| !n.cur));
         assert!(build(&g, &pat, 0).nodes.iter().any(|n| n.cur));
         assert!(build(&g, &pat, 9999).nodes.iter().all(|n| !n.cur));
+    }
+
+    #[test]
+    fn every_panel_stays_inside_the_viewbox() {
+        // A mode whose geometry escapes the 210x210 panel is clipped by Slint and reads as a
+        // blank or half-drawn box. Every mode, at the sizes most likely to overflow.
+        for k in GenKind::ALL {
+            for steps in [1usize, 2, 7, 16, 32, MAX_STEPS] {
+                for density in [0.0f32, 0.5, 1.0] {
+                    let g = GenParams { kind: k, steps, pulses: steps, density, probability: 1.0, ..GenParams::default() };
+                    for cur in [-1, 0, (steps / 2) as i32] {
+                        for node in build(&g, &generate(&g), cur).nodes {
+                            assert!(node.x >= -12.0 && node.x <= SIZE + 12.0 && node.y >= -12.0 && node.y <= SIZE + 12.0,
+                                "{k:?} steps={steps} density={density} node=({:.1},{:.1})", node.x, node.y);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn polyrhythm_rings_grow_with_the_lane() {
+        // Lane tr is drawn on radius 24 + tr*9; the test reads those radii back out of the path
+        // data rather than restating them as constants, so the two cannot drift apart.
+        let g = GenParams { kind: GenKind::Polyrhythm, steps: 16, pulses: 8, density: 1.0, ..GenParams::default() };
+        let view = build(&g, &generate(&g), -1);
+        // `circle` writes two half-arcs, so each radius appears twice per lane ring.
+        let mut radii: Vec<f32> = view.edges.split('A').skip(1)
+            .filter_map(|chunk| chunk.split_whitespace().next())
+            .filter_map(|v| v.parse::<f32>().ok())
+            .filter(|r| *r > 8.0)
+            .collect();
+        radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        radii.dedup_by(|a, b| (*a - *b).abs() < 0.15);
+        assert_eq!(radii.len(), TRACKS, "expected one ring per lane, found {radii:?}");
+        for tr in 0..TRACKS {
+            let want = 24.0 + tr as f32 * 9.0;
+            assert!((radii[tr] - want).abs() < 0.15, "lane ring {tr} at radius {:.2}, expected {want:.2}: {radii:?}", radii[tr]);
+        }
+    }
+
+    #[test]
+    fn phase_shift_spokes_follow_each_lane_offset() {
+        // The spokes encode where each lane's motif starts, so each must sit on that lane's onset.
+        let g = GenParams { kind: GenKind::PhaseShift, steps: 16, pulses: 4, density: 1.0, ..GenParams::default() };
+        let pat = generate(&g);
+        let view = build(&g, &pat, -1);
+        let labels = ["K", "S", "CH", "OH", "CL", "RM", "T", "P"];
+        for tr in 0..TRACKS {
+            let first = (0..16).find(|&i| pat.hit[tr][i]).unwrap_or(0);
+            let (x, y) = polar(94.0, first as f32 / 16.0);
+            assert!(view.nodes.iter().any(|nd| nd.label == labels[tr]
+                && (nd.x - x).abs() < 0.6 && (nd.y - y).abs() < 0.6), "lane {tr} spoke misplaced");
+        }
+    }
+
+    #[test]
+    fn chaos_panel_traces_the_recorded_orbit() {
+        // The panel must draw the generator's own trajectory, not a default-constructed one.
+        let g = GenParams { kind: GenKind::ThreeBody, steps: 32, pulses: 8, density: 1.0, ..GenParams::default() };
+        let pat = generate(&g);
+        let view = build(&g, &pat, 3);
+        let expected = C + pat.traj[3][2] * ORBIT_SCALE;
+        assert!(view.nodes.iter().any(|n| n.cur && (n.x - expected).abs() < 0.6), "playhead node not on the orbit");
+        // A default Pattern would collapse every trail point onto the centre.
+        assert!(view.nodes.iter().filter(|n| (n.x - C).abs() > 1.0).count() > 5, "orbit collapsed to the centre");
+    }
+
+    #[test]
+    fn cellular_highlights_the_generation_each_lane_reads() {
+        // Regression: the panel marked `pulses % CA_ROWS`, ignoring the phase offset and the
+        // per-lane step, so a marker could sit on a row the generator never plays.
+        let g = GenParams { kind: GenKind::Cellular, steps: 16, pulses: 5, phase: 0.5, ..GenParams::default() };
+        let view = build(&g, &generate(&g), 0);
+        let row_y = |row: usize| 18.0 + (row as f32 + 0.5) * (172.0 / CA_ROWS as f32);
+        let marked: Vec<f32> = view.nodes.iter().filter(|n| n.cur).map(|n| n.y).collect();
+        assert!(marked.iter().any(|y| (*y - row_y(selected_row(&g, 0))).abs() < 0.6), "lane 0 row missing: {marked:?}");
+        // The lane offset puts later lanes on different rows, so one marker cannot serve all and
+        // the panel has to mark each lane's own generation.
+        assert_ne!(selected_row(&g, 0), selected_row(&g, 1));
+        assert!(marked.iter().any(|y| (*y - row_y(selected_row(&g, 1))).abs() < 0.6), "lane 1 row missing: {marked:?}");
     }
 }

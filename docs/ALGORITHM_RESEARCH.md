@@ -20,6 +20,46 @@ Each lane uses a different rational pulse ratio within the same full pattern dur
 
 Each step receives a metrical weight, a lane-dependent offset, and seeded jitter. The generator selects the highest-scoring steps up to a density-scaled target count. Offbeats are favored, but seeded jitter makes ties and repeated patterns less mechanical. The result is deterministic for the same seed/variation and does not allocate dynamic memory.
 
+### Three-Body Chaos
+
+The logistic map is a one-dimensional chaotic system whose orbit the panel draws directly. The
+three-body mode is a genuinely different one: a real Newtonian N-body integration of three
+masses, integrated with velocity-Verlet leapfrog under softened gravity
+`a_i = Σ G m_j (r_j - r_i) / (|r_i - r_j|² + ε²)^(3/2)`.
+
+The configuration is a tight binary (masses 1.0 and 0.6) plus a lighter third body (0.4) on a
+wider orbit, which is the standard setup for Kozai-Lidov exchange: the third body's eccentricity
+breathes on a long cycle, so close approaches arrive irregularly rather than on a schedule.
+That irregularity is the point — it is a source of genuinely aperiodic rhythm structure rather
+than a periodic sequence read at an irrational offset. The chaotic nature of the three-body
+problem is established in the literature (Bruns 1887 on non-integrability; Poincaré 1890 on
+sensitivity to initial conditions; Saari and Xia 1991 on non-collision singularities).
+
+Onsets come from a per-step score rather than from thresholding a raw signal:
+
+- **Sweep** — how far the third body swept about the barycentre during the step, in revolutions.
+- **Encounter** — proximity to the binary, as `1 / (1 + d_min)`.
+
+Each lane combines the two with weights that favour encounters for quiet lanes and sweep for loud
+ones, so the eight lanes are not nested subsets of one ranking. Hits are then chosen by **rank
+selection** — a step hits when fewer than `wanted` steps outrank it — the same bounded rule the
+oscillator and syncopation modes use. This guarantees an exact, density-scaled onset count at
+every step count, keeps the mode non-silent at `steps=1` and at full density, and needs no sort
+or allocation.
+
+Accents come from a **rotating line**: a line rotating from the barycentre completes `pulses`
+turns across the pattern, and steps where the third body crosses it are the loud ones. That is
+the rotating-line model of Euclidean rhythms (Rosin & Worby, "Introducing Circular Euclidean
+Rhythms", 2014) driven by a chaotic angle instead of a linear one.
+
+Control mapping: `seed` perturbs the initial conditions, `phase` widens the third body's orbit
+(tight orbits produce frequent encounters, wide ones produce long quiet sweeps), `osc_rate` sets
+the integration resolution, `pulses` is the onset target, `density` is the usual lane weight. No
+new host parameters were added.
+
 ## Validation strategy
 
-Unit tests cover mode dispatch, determinism, bounds for 1–256 steps, global probability, rotation, zero density/pulses, and the new polyrhythm / syncopation count rules. The UI and host build still need to be compiled in an environment with the project's Rust toolchain and Slint 1.16.1 dependency.
+Unit tests cover mode dispatch, determinism, bounds for 1–64 steps, global probability, rotation,
+zero density/pulses, the polyrhythm / syncopation count rules, the three-body orbit's finiteness
+across the seed/phase/rate space, its exact onset counts, and that neighbouring seeds diverge
+while one seed repeats. Every mode is also swept for view geometry that escapes the panel.

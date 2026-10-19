@@ -34,7 +34,7 @@ DrumParams + same GenParams snapshot ---> editor-side preview
 
 The reference `_AlgoNemLody` project has a strong seam between pure generation (`src/pattern.rs`), pure visualization geometry (`src/view.rs`), and Slint host glue (`src/editor.rs`). AlgoDrumNemShine preserves that seam and replaces pitch-oriented output with a multi-lane drum event matrix.
 
-`sequence::Pattern` is a bounded data structure: eight lane arrays, each at most 64 steps, plus mode visualization state (CA history, logistic orbit, and symbolic state sequence). Algorithms are deterministic: parameter snapshots contain seed and a persisted variation counter; no entropy source is consulted during playback. Rotation is a shared post-transform.
+`sequence::Pattern` is a bounded data structure: eight lane arrays, each at most 64 steps, plus mode visualization state (CA history, logistic orbit, symbolic state sequence, and three-body positions). Algorithms are deterministic: parameter snapshots contain seed and a persisted variation counter; no entropy source is consulted during playback. Rotation is a shared post-transform and rotates every per-step view array, including the orbit trace, so the playhead always matches what is drawn.
 
 ## Audio/MIDI thread
 
@@ -56,7 +56,7 @@ The audio callback remains a bounded MIDI-event scheduler. It publishes current-
 Two independent mechanisms, deliberately:
 
 - **Project state** is owned by the host. `GuiContext::get_state`/`set_state` serialise every parameter plus any `#[persist]` field (`variation` today), so mode, pattern settings and lane routing all travel with the DAW project. Nothing to implement.
-- **User-global settings** live in `src/globals.rs` and are written to `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json` (`%APPDATA%` on Windows). Only preferences that should follow the user across projects belong here: the colour theme and the editor scale. Loaded at editor open and applied over the host's state, so a project cannot pin a palette; written on a 750 ms debounce and forced once when the editor closes.
+- **User-global settings** live in `src/globals.rs` and are written to `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json`, falling back to `$HOME/.config/AlgoDrumNemShine/settings.json` when `XDG_CONFIG_HOME` is unset or empty (`%APPDATA%` on Windows). If neither a config home nor `HOME` is resolvable — a host launched from a bare systemd unit — settings do not persist rather than the editor failing. Only preferences that should follow the user across projects belong here: the colour theme and the editor scale. Loaded at editor open and applied over the host's state, so a project cannot pin a palette; written on a 750 ms debounce and forced once when the editor closes.
 
 The consequence of theme being global is that host automation of `theme` will not survive an editor reopen. That is an accepted trade-off for a cosmetic setting.
 | Lane state | `<lane>_on` | Host-automatable lane enable switches |
@@ -75,8 +75,10 @@ The consequence of theme being global is that host automation of `theme` will no
 
 - `ViewNode` is a panel coordinate: coordinates and radius are in a 210×210 viewbox.
 - `StepCell` is one lane/step entry with hit state, playhead state and effective velocity for brightness and hit probability for opacity. The editor only publishes cells for current `steps`.
-- `GenKind` order is stable: 0 Euclidean, 1 Eulerian, 2 Phyllotaxis, 3 Cellular, 4 Oscillator, 5 Crystallographic, 6 Logistic, 7 Markov, 8 Raised-Cos Threshold, 9 Slowcat Rhythm, 10 Toussaint Distance, 11 Well-Formed Rhythm, 12 L-System Grammar, 13 Phase Shift / Reich, 14 Polyrhythm Stack, 15 Weighted Syncopation. `Mode` mirrors this order, and a test pins the two against each other.
+- `GenKind` order is stable: 0 Euclidean, 1 Eulerian, 2 Phyllotaxis, 3 Cellular, 4 Oscillator, 5 Crystallographic, 6 Logistic, 7 Markov, 8 Raised-Cos Threshold, 9 Slowcat Rhythm, 10 Toussaint Distance, 11 Well-Formed Rhythm, 12 L-System Grammar, 13 Phase Shift / Reich, 14 Polyrhythm Stack, 15 Weighted Syncopation, 16 Three-Body Chaos. `Mode` mirrors this order, and a test pins the two against each other.
 - All UI controls call a parameter setter; the GUI must not become an independent source of sequencing state.
+- Each mode draws a panel specific to its own algorithm. Where a panel needs the generator's arithmetic — the raised-cosine envelope and cutoff, the oscillator threshold, the modular distance, the Slowcat motif length, the syncopation score, the cellular generation selection, the three-body trajectory — it reads that value from `Pattern` or from a helper exported by the generator module. A panel must never re-derive a generator's formula: two copies of one formula is how the previous oscillator cutoff line drifted away from the threshold the generator actually applied.
+- The panel has three path slots (`edges`, `lines`, `hand`) and single-colour nodes, so a drawing that needs per-lane colour would require changing `ViewNode` and the Slint panel. Views stay within the existing slots until that is worth doing.
 
 ## Extension points
 

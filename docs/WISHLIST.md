@@ -60,7 +60,8 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 - L-system / grammar expansion with depth and step caps, using an explicit bounded algorithm.
 - 1D/2D cellular rules, configurable initial-state policies, CA generation selection.
 - Formalize the crystallographic-inspired mode: name each implemented operation, document its invariants, and distinguish real group action from artistic periodic symmetry.
-- Chaotic maps (circle, tent, logistic) as separate modes only if each has a genuinely different control and view.
+- Chaotic maps (circle, tent) as separate modes only if each has a genuinely different control and view. The three-body case already satisfies that bar and is built: it has its own controls (`phase` sets orbital width, `osc_rate` sets integration resolution) and a live orbit panel. Circle and tent maps remain open; both are one-dimensional and would need controls that are not `pulses`/`density` again.
+- The three-body integrator uses hard radius/speed clamps instead of adaptive substepping. That bounds the work but distorts genuinely close encounters. If the mode ever sounds clipped or metallic, shorten `DT` adaptively on a detected encounter before adding any new control.
 - Every algorithm should end up with a concise mathematical description, an example, deterministic seed behavior, a mode view and invariant tests.
 - Fixed and covered by tests: modes going silent at `steps=1`, and the Oscillator density floor. Both were user-visible defects rather than missing features.
 - Still worth checking: Crystallographic's motif cell is `steps / symmetry` steps wide, so its smallest possible change in hit count is that wide too. Its density slider is inherently steppy rather than smooth. The threshold was rebalanced but the quantisation is structural.

@@ -197,12 +197,12 @@ export component AppWindow inherits Window {
     in property <int> mode: 0;
     // The mode list is taller than its viewport, and the wheel now changes the mode instead
     // of scrolling it, so the list has to follow the selection. 32px per row (28px + 4px
-    // spacing) x 16 modes = 508px of content in a 244px viewport => 264px of travel.
+    // spacing) x 17 modes = 544px of content in a 244px viewport => 300px of travel.
     // A Flickable/ScrollView viewport moves up by going NEGATIVE; the previous positive value
     // was clamped to 0, so modes 8-15 could be selected but never scrolled into view.
     in-out property <length> mode-scroll-y: 0px;
     changed mode => {
-        root.mode-scroll-y = -Math.max(0px, Math.min(mode * 32px - 108px, 264px));
+        root.mode-scroll-y = -Math.max(0px, Math.min(mode * 32px - 108px, 300px));
     }
     in property <float> steps: 16;
     in property <bool> round-steps: true;
@@ -250,7 +250,7 @@ export component AppWindow inherits Window {
     callback randomize-pressed();
     callback toggle-auto-randomize();
 
-    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation"];
+    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Three-Body Chaos"];
     property <[string]> mode-help: [
         "Euclidean pulse distribution on a circular clock.",
         "Euler circuit through a balanced directed drum-state graph.",
@@ -267,7 +267,8 @@ export component AppWindow inherits Window {
         "Finite L-system grammar rewrites symbols into a repeating, evolving rhythmic word.",
         "Same pulse train on every lane, circularly offset to create Reich-inspired phasing.",
         "Rational pulse ratios interlock across lanes over a shared pattern duration.",
-        "Metrically weighted selection favours offbeats and syncopated subdivisions."
+        "Metrically weighted selection favours offbeats and syncopated subdivisions.",
+        "Chaotic three-body orbit drives the onsets; encounters and line crossings accent them."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: 64, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", key: 0, step: root.round-steps ? 1 : 0.25 },

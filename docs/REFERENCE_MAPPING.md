@@ -8,7 +8,7 @@ The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`G
 
 | Reference mode | Reference generator | Reference view | AlgoDrumNemShine adaptation |
 |---|---|---|---|
-| Euclidean | `E(pulses, steps)` | Radial clock; active hit nodes and a playhead hand | **Euclidean** — radial clock of any-hit events across drum lanes |
+| Euclidean | `E(pulses, steps)` | Radial clock; active hit nodes and a playhead hand | **Euclidean** — one pulse ring per drum lane, so per-lane densities stay visible |
 | Golomb Ruler | Optimal Golomb ruler marks | Pitch/step strip only (`view_kind = 6`) | Replaced by **Crystallographic** — periodic motif with symmetry-lattice view |
 | Logistic Map | Top-N / thresholded logistic orbit | Pitch/step strip only (`view_kind = 6`) | **Logistic Map** — logistic orbit diagram, plus lane trigger matrix |
 | Eulerian Walk | Hierholzer circuit on balanced directed graph, vertex 0 = rest | Directed graph nodes/edges and moving path | **Eulerian Walk** — balanced drum-state graph, rest and eight lane vertices |
@@ -25,14 +25,32 @@ The `GenKind::index()` value in `src/sequence/mod.rs`, the `View.kind` in `src/v
 
 | Index | Mode | Visualization |
 |---:|---|---|
-| 0 | Euclidean | Radial step clock |
+| 0 | Euclidean | Per-lane pulse rings, one ring per drum lane |
 | 1 | Eulerian | Directed state-transition graph |
 | 2 | Golden Ratio / Phyllotaxis | Golden-angle spiral, hit states highlighted |
-| 3 | Cellular Automaton | Ring-based CA history / space-time cells |
+| 3 | Cellular Automaton | Ring-based CA history / space-time cells, each lane's own selected generation marked |
 | 4 | Oscillator / Phase | Waveform, threshold and sampled step markers |
 | 5 | Crystallographic | Eight-lane symmetry lattice with unit-cell axes |
 | 6 | Logistic Map | Orbit diagram and orbit trace |
 | 7 | Markov Walk | Directed percussion-state transition graph |
+| 8 | Raised-Cos Threshold | The generator's envelope curve and its cutoff |
+| 9 | Slowcat Rhythm | Phrase timeline with per-lane motif boundaries |
+| 10 | Toussaint Distance | Distance circle: onsets on lag rings, rim ticks for the step grid |
+| 11 | Well-Formed Rhythm | Christoffel/Bresenham slack plot — the two inter-onset lengths |
+| 12 | L-System Grammar | Nesting-depth bars recovered from the onset runs |
+| 13 | Phase Shift / Reich | One spoke per lane at its circular offset |
+| 14 | Polyrhythm Stack | Concentric ratio rings, dot size by accent |
+| 15 | Weighted Syncopation | The generator's metrical score as bars, selection marked |
+| 16 | Three-Body Chaos | Live orbit trace of the two outer bodies about body 0 |
+
+Indices 8–16 all draw their own panel. There is no shared step-lattice fallback: a mode whose
+structure is not a grid shows that structure instead. Each panel draws the generator's own
+formula (envelope, cutoff, slack, motif length, orbital state), reached through helpers exported
+from the generator module — a panel must never restate an algorithm's math.
+
+Three-Body Chaos is not a reference-project mode; it follows the same chaos family as the
+existing Logistic Map but with genuinely different controls (`phase` widens the third orbit,
+`osc_rate` sets integration resolution) and a different panel.
 
 When adding or reordering a mode, update together: `Mode`, `GenKind`, `GenKind::ALL`, `GenKind::index()`, dispatch in `sequence::generate()`, `view::build()`, `Mode` labels in Slint, the editor's `from_index()` bound, and the expected parameter/view tests.
 

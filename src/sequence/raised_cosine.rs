@@ -1,5 +1,24 @@
 use super::{set_hit, GenParams, Pattern, TRACKS};
-use std::f64::consts::TAU;
+use std::f64::consts::{PI, TAU};
+
+/// Smooth periodic envelope at step `i`, in 0..=1. Shared with the panel so the drawn curve
+/// is the curve the generator actually thresholded.
+pub(crate) fn envelope(i: usize, n: usize, hits: usize, phase: f64) -> f32 {
+    let env = ((i as f64 / n.max(1) as f64 * hits as f64 + phase) % 1.0).rem_euclid(1.0);
+    (0.5 - 0.5 * (TAU * env).cos()) as f32
+}
+
+/// Envelope phase offset. Lane-independent, so the panel can redraw the same curve.
+pub(crate) fn phase_offset(seed: f32, phase: f32) -> f64 {
+    phase.clamp(0.0, 1.0) as f64 + seed.clamp(0.0, 1.0) as f64 * 0.4
+}
+
+/// Cutoff giving the envelope a duty cycle of `hits / n`: each envelope cycle then
+/// contributes exactly one onset. Inverting duty = 1 - acos(1-2T)/pi.
+pub(crate) fn cutoff(hits: usize, n: usize) -> f32 {
+    let duty = (hits as f64 / n.max(1) as f64).clamp(0.0, 1.0);
+    (0.5 * (1.0 + (PI * duty).cos())) as f32
+}
 
 /// Raised-cosine threshold: a smooth periodic envelope is compared against a cutoff derived from
 /// `pulses * density`. The envelope runs `hits` cycles around the ring, so each cycle lights one
@@ -7,19 +26,18 @@ use std::f64::consts::TAU;
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let n = p.steps.max(1);
+    let phase = phase_offset(p.seed, p.phase);
     for tr in 0..TRACKS {
-        let requested = if p.pulses == 0 { 0 } else { (p.pulses + tr % 3).min(n) };
-        let hits = ((requested as f32 * p.density.clamp(0.0, 1.0)).round() as usize).min(n);
+        let hits = super::pulse_hits(p.pulses, p.density.clamp(0.0, 1.0), tr, n);
+        // Lane 0's envelope is the panel's plotted curve.
+        if tr == 0 {
+            for i in 0..n { out.orbit[i] = envelope(i, n, hits, phase); }
+        }
         if hits == 0 { continue; }
-        // Cutoff giving the raised cosine a duty cycle of `hits / n`: each envelope cycle
-        // then contributes exactly one onset. Inverting duty = 1 - acos(1-2T)/pi.
-        let duty = (hits as f64 / n as f64).clamp(0.0, 1.0);
-        let threshold = 0.5 * (1.0 + (std::f64::consts::PI * duty).cos());
-        let phase = p.phase as f64 + p.seed as f64 * 0.4;
+        let threshold = cutoff(hits, n);
         for i in 0..n {
-            let env = ((i as f64 / n as f64 * hits as f64 + phase) % 1.0).rem_euclid(1.0);
-            let raised = 0.5 - 0.5 * (TAU * env).cos();
-            set_hit(&mut out, tr, i, raised >= threshold, (0.55 + raised as f32 * 0.45).clamp(0.05, 1.0));
+            let raised = envelope(i, n, hits, phase);
+            set_hit(&mut out, tr, i, raised >= threshold, (0.55 + raised * 0.45).clamp(0.05, 1.0));
         }
     }
     out

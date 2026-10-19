@@ -17,6 +17,12 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
             let jitter = 0.85 + rng.unit() * 0.30;
             scores[i] = beat_weight * shifted_weight * jitter;
         }
+        // Lane 0's normalized score is the panel's bar chart; publishing it here keeps the view
+        // from restating the metric weights above.
+        if tr == 0 {
+            let peak = scores[..n].iter().fold(0.0f32, |m, &s| m.max(s));
+            for i in 0..n { out.orbit[i] = if peak > 0.0 { scores[i] / peak } else { 0.0 }; }
+        }
         // Fixed-size top-k selection avoids allocations and sorting dependencies on the audio path.
         for _ in 0..target {
             let mut best = 0usize;

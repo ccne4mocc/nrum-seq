@@ -104,7 +104,7 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let variation = p.variation.fetch_add(1, Relaxed).wrapping_add(nonce);
     let mut rng = Rng::new(p.seed.value(), variation, 0xA1_60_D2_0A_5EED);
 
-    let mode = Mode::from_index(rng.below(16));
+    let mode = Mode::from_index(rng.below(17));
     let cells = 8 + rng.below(MAX_STEPS - 7); // 8..=MAX_STEPS
     // Keep randomize on the grid; fractional spacing stays a deliberate user choice.
     let steps = cells as f32;
@@ -173,7 +173,7 @@ impl Editor for SlintEditor {
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_set_mode(move |v| {
-                    let mode = Mode::from_index(v.clamp(0, 15) as usize);
+                    let mode = Mode::from_index(v.clamp(0, 16) as usize);
                     set(&c, &p.mode, mode);
                     let max_pulses = if mode == Mode::Cellular { 15 } else { p.cell_count() };
                     if p.pulses.value() > max_pulses { set(&c, &p.pulses, max_pulses); }

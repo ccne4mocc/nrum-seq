@@ -5,14 +5,15 @@
 ## What is implemented
 
 - Eight MIDI lanes: Kick, Snare, Closed Hat, Open Hat, Clap, Rim, Low Tom, and Percussion.
-- Sixteen deterministic generator modes with mode-specific visualization and mode-sensitive parameters.
-- Additional generators: Raised-Cos Threshold, Slowcat Rhythm, Toussaint Distance, Well-Formed Rhythm, L-System Grammar, Phase Shift / Reich, Polyrhythm Stack, and Weighted Syncopation.
+- Seventeen deterministic generator modes with mode-specific visualization and mode-sensitive parameters.
+- Additional generators: Raised-Cos Threshold, Slowcat Rhythm, Toussaint Distance, Well-Formed Rhythm, L-System Grammar, Phase Shift / Reich, Polyrhythm Stack, Weighted Syncopation, and Three-Body Chaos.
+- Every mode draws a panel specific to its own algorithm: per-lane pulse rings, motif phrase timelines, modular distance circles, Christoffel slack plots, grammar nesting bars, phasing spokes, ratio rings, metrical score bars, and a live three-body orbit.
 - Global hit probability and velocity controls, automatic regeneration after N complete pattern lengths (0 disables it), manual parameter randomization, and optional auto-randomization every N host-transport beats.
 - Host-automatable lane enables, note numbers, velocities, Gate, Swing, rate, mode, Generate, and Free Run.
 - Swing delays alternate steps in the beat domain, from straight up to a half-step shuffle; a third of a step gives triplet feel.
 - The mouse wheel edits whatever it is hovering: mode, rate, waveform, theme, every parameter slider, and the spin boxes in Settings. The wheel steps the mode list rather than scrolling it, and the list follows the selection.
 - Settings are shown only while in use; the editor window is sized for the worst case so nothing jumps when they appear.
-- Theme and editor scale are remembered per user in `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json` (`%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
+- Theme and editor scale are remembered per user in `~/.config/AlgoDrumNemShine/settings.json` (`$XDG_CONFIG_HOME` when set, `%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
 - Default lane notes follow a GM-style mapping: Kick 36, Snare 38, Closed Hat 42, Open Hat 46, Clap 39, Rim 37, Low Tom 45, Percussion 50. MIDI is sent on zero-based channel 9 (MIDI channel 10).
 - Fixed-size patterns support 1–64 steps. The generation path uses bounded work, and the audio callback uses fixed-size patterns without allocating or locking.
 - Settings can snap the pattern length to whole steps or leave it fractional. With snapping off, a length like 16.5 wraps mid-cell, so the pattern drifts against the step grid instead of repeating in phase. Exact values can be typed into the spin boxes rather than dragged, which matters because a 64-value range does not fit in the slider's pixel width.
@@ -22,7 +23,7 @@
 
 | Mode | Core method | Main view |
 |---|---|---|
-| Euclidean | Evenly distribute `pulses` over `steps`, per-lane density profile | Radial clock |
+| Euclidean | Evenly distribute `pulses` over `steps`, per-lane density profile | Per-lane pulse rings |
 | Eulerian Walk | Hierholzer traversal of a balanced directed graph; rest is vertex 0, lanes are vertices 1–8 | Directed drum-state network |
 | Golden Ratio / Phyllotaxis | Golden-angle / irrational fractional phase tests, with density and pulse ratio | Golden-angle spiral |
 | Cellular Automaton | Ring-based elementary cellular automaton (Wolfram `ca_rule`); `pulses` selects a generation | Space-time cell grid |
@@ -30,14 +31,15 @@
 | Crystallographic | Periodic motif transformed by translation, mirror, glide, inversion and centering-like symmetry operations | 8-lane lattice and symmetry axes |
 | Logistic Map | Logistic orbit `x[n+1] = r*x[n]*(1-x[n])`; thresholded orbit peaks | Orbit diagram |
 | Markov Walk | Seeded first-order transition walk through rest and drum states | State-transition graph |
-| Raised-Cos Threshold | Smooth raised-cosine envelope threshold | Step lattice |
-| Slowcat Rhythm | Slow phrase concatenation with evolving lane motifs | Step lattice |
-| Toussaint Distance | Seeded circular offset, integer boundary-crossing onset word, and modular-distance accents | Step lattice |
-| Well-Formed Rhythm | Christoffel/Bresenham word with two interval lengths | Step lattice |
-| L-System Grammar | Bounded Fibonacci-style parallel symbol rewriting interpreted as lane and accent roles | Step lattice |
-| Phase Shift / Reich | Common maximally-even motif circularly offset per lane | Step lattice |
-| Polyrhythm Stack | Rational pulse ratios across lanes over a shared duration | Step lattice |
-| Weighted Syncopation | Metric/offbeat scoring with deterministic top-k hit selection | Step lattice |
+| Raised-Cos Threshold | Smooth raised-cosine envelope threshold | Envelope curve and cutoff |
+| Slowcat Rhythm | Slow phrase concatenation with evolving lane motifs | Phrase timeline |
+| Toussaint Distance | Seeded circular offset, integer boundary-crossing onset word, and modular-distance accents | Distance circle |
+| Well-Formed Rhythm | Christoffel/Bresenham word with two interval lengths | Bresenham slack plot |
+| L-System Grammar | Bounded Fibonacci-style parallel symbol rewriting interpreted as lane and accent roles | Nesting-depth bars |
+| Phase Shift / Reich | Common maximally-even motif circularly offset per lane | Per-lane offset spokes |
+| Polyrhythm Stack | Rational pulse ratios across lanes over a shared duration | Ratio rings |
+| Weighted Syncopation | Metric/offbeat scoring with deterministic top-k hit selection | Metrical score bars |
+| Three-Body Chaos | Soft-gravity 3-body leapfrog orbit; chaotic score ranked into onsets, rotating-line crossings accent | Live orbit trace |
 
 The crystallographic mode is an **algorithmic symmetry palette inspired by periodic/crystallographic operations**, not a claim to enumerate all formal 2D/3D crystallographic space groups.
 
@@ -73,7 +75,7 @@ The existing melody/tuning-specific material (pitch contours, scales, tuning/EDO
 src/
   lib.rs                  nih-plug parameters, transport scheduler, CLAP/VST3 exports
   editor.rs               Slint adapter; host parameter callbacks; UI model updates
-  view.rs                 pure geometry for the sixteen generation-mode panels
+  view.rs                 pure geometry for the seventeen generation-mode panels
   sequence/
     mod.rs                immutable generator params, fixed-size Pattern, dispatch, PRNG, invariants
     euclidean.rs          Euclidean rhythms
@@ -87,7 +89,8 @@ src/
     lsystem.rs            finite L-system rhythm grammar
     phase_shift.rs        interlocking circular phase offsets
     polyrhythm.rs         rational pulse-ratio stack
-    syncopation.rs        weighted metric/offbeat selection
+    syncopation.rs         weighted metric/offbeat selection
+    nbody.rs              three-body gravity, chaotic onset score
 ui/app.slint             Slint interface and per-lane step matrix
 docs/                     reference map, architecture, wishlist, agent ownership
 ```

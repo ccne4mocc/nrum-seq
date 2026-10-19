@@ -17,6 +17,13 @@ mod toussaint;
 mod well_formed;
 mod oscillator;
 mod phyllotaxis;
+mod nbody;
+
+// The panel draws these algorithms' own curves and cutoffs rather than restating their
+// formulas, so these re-exports exist for `crate::view` alone.
+pub(crate) use oscillator::{threshold as oscillator_threshold, value as oscillator_value};
+pub(crate) use raised_cosine::{cutoff as raised_cosine_cutoff, envelope as raised_cosine_envelope, phase_offset as raised_cosine_phase};
+pub(crate) use slowcat::motif_len as slowcat_motif_len;
 
 pub const TRACKS: usize = 8;
 /// 64 keeps the whole Pattern at ~3.8 KiB and bounds per-lane generation to a cost the
@@ -48,17 +55,19 @@ pub enum GenKind {
     PhaseShift,
     Polyrhythm,
     Syncopation,
+    ThreeBody,
 }
 
 impl GenKind {
     /// Every mode, for tests that sweep all of them. Production dispatch uses
     /// [`from_index`] instead, so this stays compiled out of the audio path.
     #[cfg(test)]
-    pub const ALL: [GenKind; 16] = [
+    pub const ALL: [GenKind; 17] = [
         Self::Euclidean, Self::Eulerian, Self::Phyllotaxis, Self::Cellular,
         Self::Oscillator, Self::Crystallographic, Self::Logistic, Self::Markov,
         Self::RaisedCosine, Self::Slowcat, Self::ToussaintDistance, Self::WellFormed,
         Self::LSystem, Self::PhaseShift, Self::Polyrhythm, Self::Syncopation,
+        Self::ThreeBody,
     ];
 
 
@@ -71,6 +80,7 @@ impl GenKind {
             7 => Self::Markov, 8 => Self::RaisedCosine, 9 => Self::Slowcat,
             10 => Self::ToussaintDistance, 11 => Self::WellFormed, 12 => Self::LSystem,
             13 => Self::PhaseShift, 14 => Self::Polyrhythm, 15 => Self::Syncopation,
+            16 => Self::ThreeBody,
             _ => Self::Euclidean,
         }
     }
@@ -130,6 +140,8 @@ pub struct Pattern {
     pub ca: [[bool; MAX_STEPS]; CA_ROWS],
     /// Orbit samples used by the logistic-map plot.
     pub orbit: [f32; MAX_STEPS],
+    /// Three-body positions relative to body 0: `[x1, y1, x2, y2]` per step.
+    pub traj: [[f32; 4]; MAX_STEPS],
 }
 
 impl Default for Pattern {
@@ -141,6 +153,7 @@ impl Default for Pattern {
             state: [0; MAX_STEPS],
             ca: [[false; MAX_STEPS]; CA_ROWS],
             orbit: [0.0; MAX_STEPS],
+            traj: [[0.0; 4]; MAX_STEPS],
         }
     }
 }
@@ -171,6 +184,22 @@ pub(super) const DENSITY_PROFILE: [f32; TRACKS] = [0.50, 0.30, 1.00, 0.12, 0.18,
 #[inline]
 pub(super) fn enabled_threshold(p: &GenParams, track: usize) -> f32 {
     (p.density.clamp(0.0, 1.0) * DENSITY_PROFILE[track]).clamp(0.0, 1.0)
+}
+
+/// Onset count for the "pulse count scaled by density" modes. Every lane asks for
+/// `pulses + tr % 3` onsets and density decides how many of those survive.
+#[inline]
+pub(crate) fn pulse_hits(pulses: usize, density: f32, tr: usize, n: usize) -> usize {
+    let requested = if pulses == 0 { 0 } else { (pulses + tr % 3).min(n) };
+    ((requested as f32 * density.clamp(0.0, 1.0)).round() as usize).min(n)
+}
+
+/// Circular modular distance of `pos` in a k-over-n word: the Bresenham remainder that both
+/// the well-formed and the Toussaint onset tests are built from, and the curve the well-formed
+/// panel plots.
+#[inline]
+pub(crate) fn modular_distance(pos: usize, k: usize, n: usize) -> usize {
+    (pos * k) % n.max(1)
 }
 
 #[inline]
@@ -211,6 +240,7 @@ fn run_mode(q: &GenParams) -> Pattern {
         GenKind::PhaseShift => phase_shift::generate(q),
         GenKind::Polyrhythm => polyrhythm::generate(q),
         GenKind::Syncopation => syncopation::generate(q),
+        GenKind::ThreeBody => nbody::generate(q),
     }
 }
 
@@ -243,9 +273,9 @@ pub fn generate(p: &GenParams) -> Pattern {
     let shift = ((q.rotate % steps) + (q.variation as usize % steps)) % steps;
     if shift != 0 {
         let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
-        let old_ca = out.ca; let old_orbit = out.orbit;
+        let old_ca = out.ca; let old_orbit = out.orbit; let old_traj = out.traj;
         for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
-        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
     }
     // The stable downbeat/backbeat accent shape is applied *after* rotation, so it stays tied to
     // the step grid (and therefore the beat) instead of travelling with the rotated pattern;

@@ -22,9 +22,11 @@ pub(crate) struct GlobalSettings {
     pub scale: Option<f32>,
 }
 
-/// `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json`, or `%APPDATA%` on Windows. Returns
-/// `None` when no config directory can be determined, in which case settings simply do not
-/// persist across sessions rather than failing the editor.
+/// `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json`, falling back to
+/// `$HOME/.config/AlgoDrumNemShine/settings.json`, or `%APPDATA%` on Windows. Returns `None`
+/// when no config directory can be determined — a host launched with neither `HOME` nor
+/// `XDG_CONFIG_HOME`, e.g. under a bare systemd unit. Settings then simply do not persist
+/// across sessions rather than failing the editor.
 fn config_path() -> Option<PathBuf> {
     #[cfg(windows)]
     let base = std::env::var_os("APPDATA").map(PathBuf::from);
@@ -107,12 +109,18 @@ mod tests {
     }
 
     #[test]
-    fn config_path_is_under_the_config_home() {
+    fn config_path_is_exactly_the_expected_file_under_the_config_home() {
         // Only meaningful when a config home is actually resolvable.
-        if let Some(path) = config_path() {
-            let text = path.to_string_lossy();
-            assert!(text.contains("AlgoDrumNemShine"), "{text}");
-            assert!(text.ends_with("settings.json"), "{text}");
-        }
+        let Some(path) = config_path() else { return };
+        // The old assertion only checked the path *contained* the app name, which any path
+        // would pass; pin the actual location. On Linux that is `$XDG_CONFIG_HOME` or
+        // `$HOME/.config`, so this fails loudly if settings ever start landing elsewhere.
+        let expected_home: Option<PathBuf> = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|p| !p.as_os_str().is_empty())
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
+        // No config home resolvable at all; there is nothing to compare against.
+        let Some(home) = expected_home else { return };
+        assert_eq!(path, home.join("AlgoDrumNemShine").join("settings.json"));
     }
 }
