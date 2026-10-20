@@ -1,12 +1,15 @@
-//! Pebble box: eight pebbles (one per lane) bounce in a tilted box. A shaker impulse kicks a
-//! rotating third of them each pulse; a pebble fires its lane when it strikes a wall harder than
-//! the density-derived impact threshold. The per-step positions are recorded so the panel can
-//! animate the same simulation the audio thread schedules.
+//! Pebble box: eight pebbles (one per lane) bounce in a box tilted by `phase`. A shaker impulse
+//! kicks a rotating third of them each pulse; a pebble fires its lane when it strikes a wall harder
+//! than the density-derived impact threshold, and the wall is recorded for the panel. Gravity is
+//! the mode-scoped `ca_rule` control. The per-step positions are recorded so the panel can animate
+//! the same simulation the audio thread schedules.
 use super::{set_hit, GenParams, Pattern, Rng, TRACKS};
 
-/// Gravity in box-heights per step². Small next to a shaker kick: the impulses drive the motion,
-/// gravity only curves it, so the impact threshold tracks the impulses instead of the falls.
-const GRAVITY: f32 = 0.35;
+/// Gravity range in box-heights per step², mapped from the mode-scoped Gravity control
+/// (`ca_rule`, 0-255). Small next to a shaker kick: the impulses drive the motion, gravity only
+/// curves it, so the impact threshold tracks the impulses instead of the falls.
+const GRAVITY_MIN: f32 = 0.05;
+const GRAVITY_RANGE: f32 = 1.15;
 /// Kick speed upward, in box-heights per step. The lowest value clears the density-0.65
 /// threshold (1.47) even after gravity decelerates the climb.
 const KICK_MIN: f32 = 2.4;
@@ -30,8 +33,10 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     }
 
     let tilt = p.phase.clamp(0.0, 1.0) * std::f32::consts::TAU;
-    let (gx, gy) = (tilt.sin() * GRAVITY * 0.7, tilt.cos() * GRAVITY);
-    let substeps = ((p.osc_rate * 8.0).round() as usize).clamp(1, 16);
+    // `ca_rule` is the mode-scoped Gravity knob in the editor; 0-255 maps to 0.05-1.2.
+    let gravity = GRAVITY_MIN + (p.ca_rule as f32 / 255.0) * GRAVITY_RANGE;
+    let (gx, gy) = (tilt.sin() * gravity * 0.7, tilt.cos() * gravity);
+    let substeps = (p.osc_rate.round() as i32).clamp(1, 16) as usize;
     let dt = 1.0 / substeps as f32;
     let threshold = (1.0 - p.density.clamp(0.0, 1.0)) * 4.2;
     let shaker = p.pulses.clamp(1, n.max(1));
@@ -53,6 +58,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         }
 
         let mut best = [0.0f32; TRACKS];
+        let mut best_wall = [0u8; TRACKS];
         for _ in 0..substeps {
             for tr in 0..TRACKS {
                 vel[tr].0 += gx * dt;
@@ -60,26 +66,32 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
                 pos[tr].0 += vel[tr].0 * dt;
                 pos[tr].1 += vel[tr].1 * dt;
                 let mut impact = 0.0f32;
+                let mut wall = 0u8;
                 if pos[tr].0 < 0.0 {
-                    impact = impact.max(-vel[tr].0);
+                    let v = -vel[tr].0;
+                    if v > impact { impact = v; wall = 1; }
                     pos[tr].0 = 0.0;
                     vel[tr].0 = (-vel[tr].0 * bounce[tr]).abs();
                 } else if pos[tr].0 > 1.0 {
-                    impact = impact.max(vel[tr].0);
+                    let v = vel[tr].0;
+                    if v > impact { impact = v; wall = 2; }
                     pos[tr].0 = 1.0;
                     vel[tr].0 = -(vel[tr].0.abs() * bounce[tr]);
                 }
                 if pos[tr].1 < 0.0 {
-                    impact = impact.max(-vel[tr].1);
+                    let v = -vel[tr].1;
+                    if v > impact { impact = v; wall = 3; }
                     pos[tr].1 = 0.0;
                     vel[tr].1 = (-vel[tr].1 * bounce[tr]).abs();
                 } else if pos[tr].1 > 1.0 {
-                    impact = impact.max(vel[tr].1);
+                    let v = vel[tr].1;
+                    if v > impact { impact = v; wall = 4; }
                     pos[tr].1 = 1.0;
                     vel[tr].1 = -(vel[tr].1.abs() * bounce[tr]);
                 }
                 if impact >= threshold && impact >= 0.6 {
-                    best[tr] = best[tr].max((impact / (KICK_MIN + KICK_RANGE)).clamp(0.15, 1.0));
+                    let e = (impact / (KICK_MIN + KICK_RANGE)).clamp(0.15, 1.0);
+                    if e > best[tr] { best[tr] = e; best_wall[tr] = wall; }
                 }
             }
         }
@@ -87,6 +99,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         for tr in 0..TRACKS {
             if best[tr] > 0.0 {
                 set_hit(&mut out, tr, i, true, best[tr]);
+                out.impact[i][tr] = best_wall[tr];
             }
             out.pebbles[i][tr * 2] = (pos[tr].0.clamp(0.0, 1.0) * 255.0).round() as u8;
             out.pebbles[i][tr * 2 + 1] = (pos[tr].1.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -128,5 +141,30 @@ mod tests {
             (0..32).map(|i| (0..TRACKS).filter(|&tr| pat.hit[tr][i]).count()).sum::<usize>()
         };
         assert!(count(1.0) > count(0.4), "density does not gate impacts");
+    }
+
+    #[test]
+    fn every_hit_records_the_wall_it_struck() {
+        let p = GenParams { kind: super::super::GenKind::PebbleBox, steps: 64, pulses: 8, density: 1.0, ca_rule: 255, ..GenParams::default() };
+        let pat = generate(&p);
+        for i in 0..64 {
+            for tr in 0..TRACKS {
+                if pat.hit[tr][i] {
+                    assert!((1..=4).contains(&pat.impact[i][tr]), "step {i} lane {tr} hit without a wall");
+                } else {
+                    assert_eq!(pat.impact[i][tr], 0, "step {i} lane {tr} recorded a wall without a hit");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn gravity_and_substeps_change_the_bounce() {
+        let base = GenParams { kind: super::super::GenKind::PebbleBox, steps: 32, pulses: 6, seed: 0.314, ..GenParams::default() };
+        let a = generate(&base);
+        let heavy = generate(&GenParams { ca_rule: 255, ..base });
+        let fine = generate(&GenParams { osc_rate: 16.0, ..base });
+        assert_ne!(a.pebbles, heavy.pebbles, "gravity did not change the frames");
+        assert_ne!(a.pebbles, fine.pebbles, "substeps did not change the frames");
     }
 }

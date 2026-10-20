@@ -446,15 +446,43 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             ln(&mut v.edges, 196.0, 196.0); ln(&mut v.edges, 14.0, 196.0); ln(&mut v.edges, 14.0, 14.0);
             let frame = play.unwrap_or(0).min(n - 1);
             for tr in 0..TRACKS {
-                let x = 14.0 + p.pebbles[frame][tr * 2] as f32 / 255.0 * 182.0;
-                let y = 14.0 + p.pebbles[frame][tr * 2 + 1] as f32 / 255.0 * 182.0;
+                let mut x = 14.0 + p.pebbles[frame][tr * 2] as f32 / 255.0 * 182.0;
+                let mut y = 14.0 + p.pebbles[frame][tr * 2 + 1] as f32 / 255.0 * 182.0;
                 let hit = p.hit[tr][frame];
-                v.nodes.push(Node { x, y, r: if hit { 6.4 } else { 4.6 }, on: true, cur: hit, label: String::new() });
+                let wall = p.impact[frame][tr];
+                if hit {
+                    // The frame records the end of the step, after the bounce: put the pebble
+                    // back on the wall it actually struck and flash that wall.
+                    match wall {
+                        1 => x = 14.0,
+                        2 => x = 196.0,
+                        3 => y = 14.0,
+                        4 => y = 196.0,
+                        _ => {}
+                    }
+                    let len = (8.0 + 16.0 * p.accent[tr][frame]).min(30.0);
+                    match wall {
+                        1 => { mv(&mut v.hand, 14.0, (y - len).clamp(14.0, 196.0)); ln(&mut v.hand, 14.0, (y + len).clamp(14.0, 196.0)); }
+                        2 => { mv(&mut v.hand, 196.0, (y - len).clamp(14.0, 196.0)); ln(&mut v.hand, 196.0, (y + len).clamp(14.0, 196.0)); }
+                        3 => { mv(&mut v.hand, (x - len).clamp(14.0, 196.0), 14.0); ln(&mut v.hand, (x + len).clamp(14.0, 196.0), 14.0); }
+                        4 => { mv(&mut v.hand, (x - len).clamp(14.0, 196.0), 196.0); ln(&mut v.hand, (x + len).clamp(14.0, 196.0), 196.0); }
+                        _ => {}
+                    }
+                }
+                v.nodes.push(Node { x, y, r: if hit { 6.2 } else { 4.6 }, on: true, cur: hit, label: String::new() });
             }
-            // Gravity tilt, so `phase` is visible: the arrow points down at 0°.
+            // Gravity is the mode-scoped `ca_rule` knob; the arrow length shows its strength and
+            // the direction follows the tilt.
             let tilt = params.phase.clamp(0.0, 1.0) * std::f32::consts::TAU;
-            mv(&mut v.edges, C, C);
-            ln(&mut v.edges, C + tilt.sin() * 18.0, C + tilt.cos() * 18.0);
+            let gravity = 0.05 + params.ca_rule as f32 / 255.0 * 1.15;
+            let len = 12.0 + gravity * 16.0;
+            let (dx, dy) = (tilt.sin(), tilt.cos());
+            let (px, py) = (-dy * 5.0, dx * 5.0);
+            let tip = (C + dx * len, C + dy * len);
+            mv(&mut v.lines, C, C);
+            ln(&mut v.lines, tip.0, tip.1);
+            mv(&mut v.lines, tip.0 - px, tip.1 - py);
+            ln(&mut v.lines, tip.0 + px, tip.1 + py);
         }
     }
     v
@@ -492,6 +520,33 @@ mod tests {
                     "{k:?} produced a non-finite node");
             }
         }
+    }
+
+    #[test]
+    fn pebble_hits_are_drawn_on_the_wall_they_struck() {
+        let g = GenParams { kind: GenKind::PebbleBox, steps: 32, pulses: 8, density: 1.0, ca_rule: 200, ..GenParams::default() };
+        let pat = generate(&g);
+        let mut hits = 0;
+        for step in 0..32 {
+            let view = build(&g, &pat, step as i32);
+            assert_eq!(view.nodes.len(), TRACKS);
+            let mut step_hits = 0;
+            for tr in 0..TRACKS {
+                if !pat.hit[tr][step] { continue; }
+                step_hits += 1;
+                hits += 1;
+                let node = &view.nodes[tr];
+                match pat.impact[step][tr] {
+                    1 => assert!((node.x - 14.0).abs() < 0.01, "left wall hit drawn at x={}", node.x),
+                    2 => assert!((node.x - 196.0).abs() < 0.01, "right wall hit drawn at x={}", node.x),
+                    3 => assert!((node.y - 14.0).abs() < 0.01, "top wall hit drawn at y={}", node.y),
+                    4 => assert!((node.y - 196.0).abs() < 0.01, "bottom wall hit drawn at y={}", node.y),
+                    wall => panic!("hit at step {step} lane {tr} recorded wall {wall}"),
+                }
+            }
+            assert_eq!(!view.hand.is_empty(), step_hits > 0, "wall flash missing at step {step}");
+        }
+        assert!(hits > 0, "no pebble hits to check");
     }
 
     #[test]

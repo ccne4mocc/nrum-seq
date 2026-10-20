@@ -151,6 +151,9 @@ pub struct Pattern {
     pub traj: [[f32; 4]; MAX_STEPS],
     /// Pebble-box positions, normalized 0-255 as `[x0, y0, x1, y1, …]` per step.
     pub pebbles: [[u8; TRACKS * 2]; MAX_STEPS],
+    /// Wall a pebble struck this step: 0 = none, 1 = left, 2 = right, 3 = top, 4 = bottom.
+    /// The frame records the end of the step, so this is what tells the panel *where* it hit.
+    pub impact: [[u8; TRACKS]; MAX_STEPS],
 }
 
 impl Default for Pattern {
@@ -164,6 +167,7 @@ impl Default for Pattern {
             orbit: [0.0; MAX_STEPS],
             traj: [[0.0; 4]; MAX_STEPS],
             pebbles: [[0; TRACKS * 2]; MAX_STEPS],
+            impact: [[0; TRACKS]; MAX_STEPS],
         }
     }
 }
@@ -271,12 +275,13 @@ pub fn generate(p: &GenParams) -> Pattern {
         for i in 0..steps {
             if out.hit[tr][i] {
                 let mut rng = Rng::new(q.seed, q.variation, 0xBABA_0000 + (tr * MAX_STEPS + i) as u64);
-                if rng.unit() >= q.probability.clamp(0.0, 1.0) { out.hit[tr][i] = false; }
+                if rng.unit() >= q.probability.clamp(0.0, 1.0) { out.hit[tr][i] = false; out.impact[i][tr] = 0; }
             }
         }
     }
     if q.density <= 0.0 || (q.kind != GenKind::Cellular && q.pulses == 0) {
         for tr in 0..TRACKS { out.hit[tr][..steps].fill(false); }
+        out.impact[..steps].fill([0; TRACKS]);
     }
     // Rotation includes probability drops, the mode's own accent data, and auxiliary view data.
     // Variation also rotates by one or more steps, so closed-form modes can actually regenerate
@@ -285,9 +290,9 @@ pub fn generate(p: &GenParams) -> Pattern {
     if shift != 0 {
         let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
         let old_ca = out.ca; let old_orbit = out.orbit; let old_traj = out.traj;
-        let old_pebbles = out.pebbles;
+        let old_pebbles = out.pebbles; let old_impact = out.impact;
         for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
-        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; out.pebbles[i] = old_pebbles[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
     }
     // The stable downbeat/backbeat accent shape is applied *after* rotation, so it stays tied to
     // the step grid (and therefore the beat) instead of travelling with the rotated pattern;
@@ -344,6 +349,24 @@ mod tests {
             let used = c.get();
             assert_eq!(used, 0, "generate() allocated {used} times on the audio path");
         });
+    }
+
+    #[test]
+    #[ignore = "timing run; use cargo test --release bench_generation_at_max_steps -- --ignored --nocapture"]
+    fn bench_generation_at_max_steps() {
+        use std::time::Instant;
+        for kind in GenKind::ALL {
+            let p = GenParams { kind, steps: MAX_STEPS, length: MAX_STEPS as f32, pulses: MAX_STEPS / 2, density: 1.0, probability: 1.0, ..GenParams::default() };
+            let mut times = [0u64; 200];
+            for t in times.iter_mut() {
+                let start = Instant::now();
+                std::hint::black_box(generate(&p));
+                *t = start.elapsed().as_nanos() as u64;
+            }
+            times.sort_unstable();
+            println!("{kind:?}: median {:.1} us, max {:.1} us at {MAX_STEPS} steps",
+                times[100] as f64 / 1000.0, times[199] as f64 / 1000.0);
+        }
     }
 
     #[test]

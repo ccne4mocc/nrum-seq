@@ -44,7 +44,7 @@ The **Math** column shows the formula with the default snapshot substituted: `st
 | Polyrhythm Stack | Fixed integer ratios (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over one duration | lane 0 `k = round(5·0.65) = 3`; lane 1 (3:2) `k = round(8·0.65) = 5` | Ratio rings |
 | Weighted Syncopation | Metric, lane-shifted and jittered scores; the top-k steps become onsets | `target = round(pulses·density·(0.45+w)) = 3`; `score(i) = w(i mod 4)·w((i+3·lane) mod 4)·jitter` | Metrical score bars |
 | Three-Body Chaos | Soft-gravity three-body leapfrog orbit; sweep and close encounters are ranked into onsets | `substeps = clamp(n·(8+32·osc_rate), 64, 2048) = 1152`; `wanted = 3`; line crossings accent | Live orbit trace |
-| Pebble Box | Eight pebbles (one per lane) bounce in a box; a shaker impulse kicks a rotating third and wall impacts above the density threshold fire their lanes | `16 substeps/step`, gravity tilted `0°`; impulse every `n/pulses = 3` steps; threshold `(1−density)·4.2 = 1.47` | Animated pebble box |
+| Pebble Box | Eight pebbles (one per lane) bounce in a box; a shaker impulse kicks a rotating third and wall impacts above the density threshold fire their lanes | `substeps = osc_rate` (`2`), gravity `0.05+ca_rule/255·1.15 = 0.19` tilted `0°`; impulse every `n/pulses = 3` steps; threshold `(1−density)·4.2 = 1.47` | Animated pebble box with wall-contact flashes |
 
 The crystallographic mode is an **algorithmic symmetry palette inspired by periodic/crystallographic operations**, not a claim to enumerate all formal 2D/3D crystallographic space groups.
 

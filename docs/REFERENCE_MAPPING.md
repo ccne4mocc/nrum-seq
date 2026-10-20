@@ -55,6 +55,43 @@ existing Logistic Map but with genuinely different controls (`phase` widens the 
 
 When adding or reordering a mode, update together: `Mode`, `GenKind`, `GenKind::ALL`, `GenKind::index()`, dispatch in `sequence::generate()`, `view::build()`, `Mode` labels in Slint, the editor's `from_index()` bound, and the expected parameter/view tests.
 
+## Per-mode controls
+
+Every mode also shows Steps, Rotate, Probability, Velocity, Regenerate after, After beats and
+Swing. Those are shared post-transforms or clock settings. The table lists the remaining controls
+in the order the panel exposes them; `ui/app.slint` (`shows-param`, `pulse-label`,
+`density-label`, `phase-label`, `osc-label`, `ca-label`) is the presentation source of truth, and
+the generator's own use of `GenParams` is the behavioural source of truth.
+
+| Mode | Mode-specific controls |
+|---|---|
+| Euclidean | Target pulses, Density, Seed |
+| Eulerian | Degree (0–3), Density, Seed |
+| Phyllotaxis | Pulses, Density, Seed, Spiral phase |
+| Cellular | Generation (0–15), Density, Seed, Generation offset, CA rule |
+| Oscillator | Requested hits, Density, Seed, Osc phase, Osc cycles, Wave |
+| Crystallographic | Motif density, Density, Seed, Symmetry |
+| Logistic | Target peaks, Growth (r), Seed, Initial x |
+| Markov | Walk activity, Density, Seed |
+| Raised-Cos | Envelope cycles, Density, Seed, Envelope phase |
+| Slowcat | Motif pulses, Density, Seed |
+| Toussaint | Pulses, Density, Seed |
+| Well-Formed | Pulses, Density, Seed |
+| L-System | Pulses, Density, Seed |
+| Phase Shift | Pulses, Density, Seed, Phase offset |
+| Polyrhythm | Pulses, Density, Seed |
+| Syncopation | Target onsets, Density, Seed |
+| Three-Body | Target onsets, Onset density, Seed, Orbit phase, Solver detail |
+| Pebble Box | Shaker impulses, Impact sensitivity, Seed, Gravity tilt, Substeps, Gravity |
+
+Mode-scoped reuse is deliberate: `ca_rule` is the cellular rule and Pebble Box's gravity;
+`symmetry` only affects Crystallographic; `osc_rate` is oscillator cycles, Three-Body solver
+detail or Pebble Box substeps. Seed stays visible in every mode because the shared accent
+humanizer reads it even where the hit pattern does not. A control that the selected mode never
+reads is hidden, not left inert. `ca_rule` maps to gravity as `0.05 + ca_rule/255 × 1.15`
+box-heights per step².
+
+
 ## Shared interaction patterns retained from the reference
 
 - One shared pattern snapshot drives both audio output and preview.

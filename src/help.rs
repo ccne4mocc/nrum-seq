@@ -118,10 +118,11 @@ pub(crate) fn math(p: &GenParams) -> String {
             format!("n={n}: substeps=clamp({n}·(8+32·{:.3}),64,2048)={sub}, dt=0.004; wanted={wanted}; rank w_sweep·sweep+w_close·close", p.osc_rate)
         }
         GenKind::PebbleBox => {
-            let substeps = ((p.osc_rate * 8.0).round() as usize).clamp(1, 16);
+            let substeps = (p.osc_rate.round() as i32).clamp(1, 16);
+            let gravity = 0.05 + p.ca_rule as f32 / 255.0 * 1.15;
             let shaker = p.pulses.clamp(1, n);
             let stride = (n / shaker).max(1);
-            format!("n={n}: {substeps} substep(s)/step; gravity tilted {:.0}°; shaker impulse every {stride} step(s) kicks a rotating third of 8 pebbles; a lane fires when its wall impact exceeds {:.2}", p.phase * 360.0, (1.0 - d) * 4.2)
+            format!("n={n}: {substeps} substep(s)/step; gravity {gravity:.2} tilted {:.0}°; shaker impulse every {stride} step(s) kicks a rotating third of 8 pebbles; a lane fires when its wall impact exceeds {:.2}", p.phase * 360.0, (1.0 - d) * 4.2)
         }
     }
 }

@@ -265,6 +265,58 @@ export component AppWindow inherits Window {
     callback randomize-pressed();
     callback toggle-auto-randomize();
 
+    // Only expose mode-specific controls the selected mode actually uses, and label them with
+    // what they mean in that mode. `GenParams` still carries every field; this is presentation.
+    pure function shows-param(mode: int, key: int) -> bool {
+        if (key == 5) { return mode == 2 || mode == 3 || mode == 4 || mode == 6 || mode == 8 || mode == 13 || mode == 16 || mode == 17; }
+        if (key == 6) { return mode == 4 || mode == 16 || mode == 17; }
+        if (key == 7) { return mode == 3 || mode == 17; } // Pebble reuses the CA knob as gravity
+        if (key == 11) { return mode == 5; }
+        return true;
+    }
+    pure function pulses-max(mode: int) -> float {
+        if (mode == 1) { return 3; } // Eulerian degree is 1 + pulses mod 4
+        if (mode == 3) { return 15; } // cellular generation
+        return Math.ceil(root.steps);
+    }
+    pure function pulse-label(mode: int) -> string {
+        if (mode == 0) { return "Target pulses"; }
+        if (mode == 1) { return "Degree"; }
+        if (mode == 3) { return "Generation"; }
+        if (mode == 4) { return "Requested hits"; }
+        if (mode == 5) { return "Motif density"; }
+        if (mode == 6) { return "Target peaks"; }
+        if (mode == 7) { return "Walk activity"; }
+        if (mode == 8) { return "Envelope cycles"; }
+        if (mode == 9) { return "Motif pulses"; }
+        if (mode == 15 || mode == 16) { return "Target onsets"; }
+        if (mode == 17) { return "Shaker impulses"; }
+        return "Pulses";
+    }
+    pure function density-label(mode: int) -> string {
+        if (mode == 6) { return "Growth (r)"; }
+        if (mode == 16) { return "Onset density"; }
+        if (mode == 17) { return "Impact sensitivity"; }
+        return "Density";
+    }
+    pure function phase-label(mode: int) -> string {
+        if (mode == 2) { return "Spiral phase"; }
+        if (mode == 3) { return "Generation offset"; }
+        if (mode == 6) { return "Initial x"; }
+        if (mode == 8) { return "Envelope phase"; }
+        if (mode == 13) { return "Phase offset"; }
+        if (mode == 16) { return "Orbit phase"; }
+        if (mode == 17) { return "Gravity tilt"; }
+        return "Osc phase";
+    }
+    pure function osc-label(mode: int) -> string {
+        if (mode == 16) { return "Solver detail"; }
+        if (mode == 17) { return "Substeps"; }
+        return "Osc cycles";
+    }
+    pure function ca-label(mode: int) -> string {
+        return mode == 17 ? "Gravity" : "CA rule";
+    }
     property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Three-Body Chaos", "Pebble Box"];
     property <[string]> mode-help: [
         "Places pulses as evenly as possible around the step ring with Bjorklund spacing. Each lane scales the pulse count by its density profile and anchors its word on a different phase, so the kit interleaves instead of stacking.",
@@ -284,17 +336,17 @@ export component AppWindow inherits Window {
         "Gives each lane a fixed integer ratio (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over the same pattern duration. Pulse count and density scale the number of onsets per ratio.",
         "Scores every step by metric weight, a lane-dependent shifted weight, and deterministic jitter. The highest-scoring steps become onsets, biasing the result toward offbeats and late subdivisions.",
         "Integrates a hierarchical three-body orbit with a leapfrog solver and turns orbital sweep plus close encounters into a per-step score. Rank selection keeps exactly the requested number of onsets; line crossings add accents.",
-        "Bounces eight pebbles, one per lane, in a box tilted by the phase control. Each shaker impulse kicks a rotating third of them; a pebble triggers its drum when its wall impact is harder than the density threshold. The panel animates the recorded positions step by step."
+        "Bounces eight pebbles, one per lane, in a box whose gravity can be tilted and strengthened. Each shaker impulse kicks a rotating third of them; a pebble triggers its drum when its wall impact is harder than the density-derived threshold. The panel animates the recorded positions and flashes the wall each hit struck."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: 64, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", key: 0, step: root.round-steps ? 1 : 0.25 },
-        { label: root.mode == 3 ? "Generation" : (root.mode == 5 ? "Motif density" : (root.mode == 17 ? "Shaker impulses" : "Pulses")), min: 0, max: root.mode == 3 ? 15 : Math.ceil(root.steps), value: Math.min(root.pulses, root.mode == 3 ? 15 : Math.ceil(root.steps)), text: "\{Math.round(Math.min(root.pulses, root.mode == 3 ? 15 : Math.ceil(root.steps)))}", key: 1, step: 1 },
+        { label: root.pulse-label(root.mode), min: 0, max: root.pulses-max(root.mode), value: Math.min(root.pulses, root.pulses-max(root.mode)), text: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", key: 1, step: 1 },
         { label: "Rotate", min: 0, max: Math.max(Math.ceil(root.steps) - 1, 0), value: Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)), text: "\{Math.round(Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)))}", key: 2, step: 1 },
-        { label: root.mode == 17 ? "Impact threshold" : "Density", min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", key: 3, step: 0.01 },
+        { label: root.density-label(root.mode), min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", key: 3, step: 0.01 },
         { label: "Seed", min: 0, max: 1, value: root.seed, text: "\{Math.round(root.seed * 1000) / 1000}", key: 4, step: 0.001 },
-        { label: root.mode == 13 ? "Phase offset" : (root.mode == 17 ? "Gravity tilt" : "Osc phase"), min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", key: 5, step: 0.01 },
-        { label: root.mode == 17 ? "Substeps" : "Osc cycles", min: 0.125, max: 8, value: root.osc-rate, text: "\{Math.round(root.osc-rate * 100) / 100}", key: 6, step: 0.125 },
-        { label: "CA rule", min: 0, max: 255, value: root.ca-rule, text: "\{Math.round(root.ca-rule)}", key: 7, step: 1 },
+        { label: root.phase-label(root.mode), min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", key: 5, step: 0.01 },
+        { label: root.osc-label(root.mode), min: root.mode == 17 ? 1 : 0.125, max: root.mode == 17 ? 16 : 8, value: root.mode == 17 ? Math.max(root.osc-rate, 1) : root.osc-rate, text: root.mode == 17 ? "\{Math.round(Math.max(root.osc-rate, 1))}" : "\{Math.round(root.osc-rate * 100) / 100}", key: 6, step: root.mode == 17 ? 1 : 0.125 },
+        { label: root.ca-label(root.mode), min: 0, max: 255, value: root.ca-rule, text: root.mode == 17 ? "\{Math.round(root.ca-rule / 255 * 100)}%" : "\{Math.round(root.ca-rule)}", key: 7, step: 1 },
         { label: "Probability", min: 0, max: 1, value: root.probability, text: "\{Math.round(root.probability * 100)}%", key: 8, step: 0.01 },
         { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", key: 9, step: 0.01 },
         { label: "Regenerate after (lengths, 0=off)", min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", key: 10, step: 1 },
@@ -346,23 +398,24 @@ export component AppWindow inherits Window {
             }
             ModePanel { nodes: root.view-nodes; edges: root.view-edges; lines: root.view-lines; hand: root.view-hand; }
             VerticalLayout {
-                spacing: 5px;
+                spacing: 3px;
                 Text { text: root.mode-names[root.mode]; color: Theme.c1; font-size: 16px; font-weight: 700; }
-                Text { text: root.mode-help[root.mode]; color: #c1c8d2; font-size: 11px; wrap: word-wrap; vertical-stretch: 1; vertical-alignment: center; }
+                Text { text: root.mode-help[root.mode]; color: #c1c8d2; font-size: 11px; wrap: word-wrap; }
                 // Live formula with the current snapshot substituted; pushed by Rust from the
                 // same helpers the generator calls, so it cannot drift from what is playing.
                 Text { text: root.mode-math; color: #7f8a99; font-size: 9px; wrap: word-wrap; }
+                Rectangle { height: 5px; }
                 Text { text: "GENERATOR OPTIONS"; color: #788394; font-size: 9px; }
                 HorizontalLayout { spacing: 5px; for i in 4: OptSlider { opt: root.opts[i]; changed(v) => { root.set-opt(root.opts[i].key, v); } } }
                 HorizontalLayout {
                     spacing: 5px;
                     OptSlider { opt: root.opts[4]; changed(v) => { root.set-opt(4, v); } }
-                    if root.mode == 2 || root.mode == 3 || root.mode == 4 || root.mode == 6 || root.mode == 8 || root.mode == 13: OptSlider { opt: root.opts[5]; changed(v) => { root.set-opt(5, v); } }
-                    if root.mode == 4: OptSlider { opt: root.opts[6]; changed(v) => { root.set-opt(6, v); } }
-                    if root.mode == 3: OptSlider { opt: root.opts[7]; changed(v) => { root.set-opt(7, v); } }
+                    if root.shows-param(root.mode, 5): OptSlider { opt: root.opts[5]; changed(v) => { root.set-opt(5, v); } }
+                    if root.shows-param(root.mode, 6): OptSlider { opt: root.opts[6]; changed(v) => { root.set-opt(6, v); } }
+                    if root.shows-param(root.mode, 7): OptSlider { opt: root.opts[7]; changed(v) => { root.set-opt(7, v); } }
                 }
                 HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[8]; changed(v) => { root.set-opt(8, v); } } OptSlider { opt: root.opts[9]; changed(v) => { root.set-opt(9, v); } } }
-                HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } } if root.mode == 5: OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
+                HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } } if root.shows-param(root.mode, 11): OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
                 if root.mode == 4: HorizontalLayout {
                     Text { text: "WAVE"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
                     Selector { options: ["Sine", "Triangle", "Saw", "Square"]; current: root.osc-wave; text-size: 9px; selected(i) => { root.set-osc-wave(i); } }
