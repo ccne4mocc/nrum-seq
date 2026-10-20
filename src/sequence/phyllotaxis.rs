@@ -1,4 +1,4 @@
-use super::{frac, set_hit, GenParams, Pattern, TRACKS, PHI, PHI_INV, GOLDEN_ANGLE};
+use super::{set_hit, GenParams, Pattern, TRACKS, PHI, PHI_INV, GOLDEN_ANGLE};
 
 /// Golden-ratio / phyllotaxis sequence. The golden-angle spiral defines each candidate's phase;
 /// lane density clips the fractional golden-ratio orbit into trigger / rest decisions.
@@ -10,8 +10,8 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
             .clamp(0.02, 0.98);
         for i in 0..p.steps {
             let angle = (i as f64 + tr as f64 * PHI_INV + p.phase as f64 * p.steps as f64) * GOLDEN_ANGLE;
-            let radial = frac(angle / (std::f64::consts::TAU * PHI));
-            let beat = frac(i as f64 * PHI_INV + p.seed as f64 + p.phase as f64 + tr as f64 * 0.137);
+            let radial = (angle / (std::f64::consts::TAU * PHI)).rem_euclid(1.0);
+            let beat = (i as f64 * PHI_INV + p.seed as f64 + p.phase as f64 + tr as f64 * 0.137).rem_euclid(1.0);
             let hit = beat < threshold as f64 || radial < (threshold as f64 * 0.18);
             set_hit(&mut out, tr, i, hit, 0.65 + (1.0 - beat as f32) * 0.35);
         }

@@ -4384,7 +4384,6 @@ dependencies = [
  "once_cell",
  "raw-window-handle 0.5.2",
  "slint",
- "slint-build",
 ]
 
 [[package]]

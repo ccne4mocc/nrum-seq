@@ -178,10 +178,11 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sequence::{generate, GenKind, GenParams};
+    use crate::sequence::{generate, GenParams};
+    use crate::modes::Mode;
 
     fn params(steps: usize, pulses: usize, density: f32, seed: f32) -> GenParams {
-        GenParams { kind: GenKind::ThreeBody, steps, length: steps as f32, pulses, density, probability: 1.0, seed, ..GenParams::default() }
+        GenParams { kind: Mode::ThreeBody, steps, length: steps as f32, pulses, density, probability: 1.0, seed, ..GenParams::default() }
     }
 
     #[test]

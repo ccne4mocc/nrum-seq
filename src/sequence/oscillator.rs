@@ -1,10 +1,10 @@
-use super::{frac, set_hit, GenParams, Pattern, TRACKS};
+use super::{set_hit, GenParams, Pattern, TRACKS};
 use std::f64::consts::TAU;
 
 /// Waveform value in 0..=1 at a normalized phase. Shared with the panel so the drawn curve is
 /// the curve the generator thresholded.
 pub(crate) fn value(wave: usize, phase: f32) -> f32 {
-    let phase = frac(phase as f64) as f32;
+    let phase = (phase as f64).rem_euclid(1.0) as f32;
     match wave % 4 {
         0 => 0.5 + 0.5 * (TAU as f32 * phase).sin(),
         1 => 1.0 - (2.0 * phase - 1.0).abs(),
@@ -31,7 +31,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
             * (0.5 + super::DENSITY_PROFILE[tr])).round() as usize).min(p.steps);
         let mut wave = [0.0f32; super::MAX_STEPS];
         for i in 0..p.steps {
-            wave[i] = value(p.osc_wave, frac(i as f64 / p.steps as f64 * rate + p.phase as f64 + tr as f64 * 0.071) as f32);
+            wave[i] = value(p.osc_wave, (i as f64 / p.steps as f64 * rate + p.phase as f64 + tr as f64 * 0.071).rem_euclid(1.0) as f32);
         }
         // Rank selection: a step hits when fewer than `wanted` steps outrank it, where
         // "outranks" means a higher value, or an equal value at an earlier step. That gives

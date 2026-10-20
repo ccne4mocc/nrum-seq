@@ -31,6 +31,10 @@ pub(crate) use euclidean::lane_pulses as euclidean_lane_pulses;
 pub(crate) use nbody::substep_budget as nbody_substep_budget;
 pub(crate) use logistic::r_of as logistic_r;
 
+// The mode enum is the host parameter type, shared with the generators: one list of modes,
+// one order, no mapping table to keep in sync.
+use crate::modes::Mode;
+
 pub const TRACKS: usize = 8;
 /// 64 keeps the whole Pattern at ~6 KiB and bounds per-lane generation to a cost the
 /// audio thread can absorb in one block. Raising this is a tuning decision, not a free change:
@@ -43,60 +47,10 @@ const PHI: f64 = 1.618_033_988_749_894_8;
 const PHI_INV: f64 = PHI - 1.0;
 const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GenKind {
-    Euclidean,
-    Eulerian,
-    Phyllotaxis,
-    Cellular,
-    Oscillator,
-    Crystallographic,
-    Logistic,
-    Markov,
-    RaisedCosine,
-    Slowcat,
-    ToussaintDistance,
-    WellFormed,
-    LSystem,
-    PhaseShift,
-    Polyrhythm,
-    Syncopation,
-    ThreeBody,
-    PebbleBox,
-}
-
-impl GenKind {
-    /// Every mode, for tests that sweep all of them. Production dispatch uses
-    /// [`from_index`] instead, so this stays compiled out of the audio path.
-    #[cfg(test)]
-    pub const ALL: [GenKind; 18] = [
-        Self::Euclidean, Self::Eulerian, Self::Phyllotaxis, Self::Cellular,
-        Self::Oscillator, Self::Crystallographic, Self::Logistic, Self::Markov,
-        Self::RaisedCosine, Self::Slowcat, Self::ToussaintDistance, Self::WellFormed,
-        Self::LSystem, Self::PhaseShift, Self::Polyrhythm, Self::Syncopation,
-        Self::ThreeBody, Self::PebbleBox,
-    ];
-
-
-    /// Inverse of the mode order. `Mode` derives its own index mapping from declaration
-    /// order, so this is where the two enums are kept aligned.
-    pub const fn from_index(index: usize) -> Self {
-        match index {
-            1 => Self::Eulerian, 2 => Self::Phyllotaxis, 3 => Self::Cellular,
-            4 => Self::Oscillator, 5 => Self::Crystallographic, 6 => Self::Logistic,
-            7 => Self::Markov, 8 => Self::RaisedCosine, 9 => Self::Slowcat,
-            10 => Self::ToussaintDistance, 11 => Self::WellFormed, 12 => Self::LSystem,
-            13 => Self::PhaseShift, 14 => Self::Polyrhythm, 15 => Self::Syncopation,
-            16 => Self::ThreeBody, 17 => Self::PebbleBox,
-            _ => Self::Euclidean,
-        }
-    }
-}
-
 /// Immutable snapshot of every value that affects generated events.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GenParams {
-    pub kind: GenKind,
+    pub kind: Mode,
     /// Number of grid cells the generators fill. Always a whole number.
     pub steps: usize,
     /// Loop length in steps. Equal to `steps` for whole-step patterns; fractional values
@@ -128,7 +82,7 @@ pub struct GenParams {
 impl Default for GenParams {
     fn default() -> Self {
         Self {
-            kind: GenKind::Euclidean, steps: 16, length: 16.0, pulses: 5, rotate: 0,
+            kind: Mode::Euclidean, steps: 16, length: 16.0, pulses: 5, rotate: 0,
             density: 0.65, probability: 1.0, velocity: 1.0, seed: 0.271, phase: 0.0, osc_rate: 2.0,
             osc_wave: 0, ca_rule: 30, symmetry: 4, variation: 0,
         }
@@ -216,6 +170,20 @@ pub(crate) fn modular_distance(pos: usize, k: usize, n: usize) -> usize {
     (pos * k) % n.max(1)
 }
 
+/// Onset test for the anchored E(k,n) word: onset j sits at floor(j*n/k) from the lane's
+/// phase origin, so a step hits when its circular distance to the next onset is under k.
+/// Shared by the Euclidean and well-formed generators so the two cannot drift apart.
+#[inline]
+pub(super) fn anchored_onset(pos: usize, k: usize, n: usize) -> bool {
+    (n - modular_distance(pos, k, n)) % n < k
+}
+
+/// The position a step occupies once the ring is rotated by a lane's phase origin.
+#[inline]
+pub(super) fn rotated_pos(i: usize, offset: usize, n: usize) -> usize {
+    (i + n - offset % n) % n
+}
+
 #[inline]
 pub(super) fn set_hit(out: &mut Pattern, track: usize, step: usize, hit: bool, accent: f32) {
     out.hit[track][step] = hit;
@@ -238,24 +206,24 @@ pub(super) fn accents(out: &mut Pattern, p: &GenParams) {
 /// Run one generator and return its raw output, before the shared post-transforms.
 fn run_mode(q: &GenParams) -> Pattern {
     match q.kind {
-        GenKind::Euclidean => euclidean::generate(q),
-        GenKind::Eulerian => eulerian::generate(q),
-        GenKind::Phyllotaxis => phyllotaxis::generate(q),
-        GenKind::Cellular => cellular::generate(q),
-        GenKind::Oscillator => oscillator::generate(q),
-        GenKind::Crystallographic => crystallographic::generate(q),
-        GenKind::Logistic => logistic::generate(q),
-        GenKind::Markov => markov::generate(q),
-        GenKind::RaisedCosine => raised_cosine::generate(q),
-        GenKind::Slowcat => slowcat::generate(q),
-        GenKind::ToussaintDistance => toussaint::generate(q),
-        GenKind::WellFormed => well_formed::generate(q),
-        GenKind::LSystem => lsystem::generate(q),
-        GenKind::PhaseShift => phase_shift::generate(q),
-        GenKind::Polyrhythm => polyrhythm::generate(q),
-        GenKind::Syncopation => syncopation::generate(q),
-        GenKind::ThreeBody => nbody::generate(q),
-        GenKind::PebbleBox => pebble::generate(q),
+        Mode::Euclidean => euclidean::generate(q),
+        Mode::Eulerian => eulerian::generate(q),
+        Mode::Phyllotaxis => phyllotaxis::generate(q),
+        Mode::Cellular => cellular::generate(q),
+        Mode::Oscillator => oscillator::generate(q),
+        Mode::Crystallographic => crystallographic::generate(q),
+        Mode::Logistic => logistic::generate(q),
+        Mode::Markov => markov::generate(q),
+        Mode::RaisedCosine => raised_cosine::generate(q),
+        Mode::Slowcat => slowcat::generate(q),
+        Mode::ToussaintDistance => toussaint::generate(q),
+        Mode::WellFormed => well_formed::generate(q),
+        Mode::LSystem => lsystem::generate(q),
+        Mode::PhaseShift => phase_shift::generate(q),
+        Mode::Polyrhythm => polyrhythm::generate(q),
+        Mode::Syncopation => syncopation::generate(q),
+        Mode::ThreeBody => nbody::generate(q),
+        Mode::PebbleBox => pebble::generate(q),
     }
 }
 
@@ -264,7 +232,7 @@ pub fn generate(p: &GenParams) -> Pattern {
     let steps = p.steps.clamp(1, MAX_STEPS);
     let mut q = *p;
     q.steps = steps;
-    q.pulses = if q.kind == GenKind::Cellular { q.pulses.min(CA_ROWS - 1) } else { q.pulses.min(steps) };
+    q.pulses = if q.kind == Mode::Cellular { q.pulses.min(CA_ROWS - 1) } else { q.pulses.min(steps) };
     q.rotate %= steps;
     q.symmetry = q.symmetry.clamp(1, 8);
     q.osc_wave %= 4;
@@ -279,7 +247,7 @@ pub fn generate(p: &GenParams) -> Pattern {
             }
         }
     }
-    if q.density <= 0.0 || (q.kind != GenKind::Cellular && q.pulses == 0) {
+    if q.density <= 0.0 || (q.kind != Mode::Cellular && q.pulses == 0) {
         for tr in 0..TRACKS { out.hit[tr][..steps].fill(false); }
         out.impact[..steps].fill([0; TRACKS]);
     }
@@ -305,8 +273,6 @@ pub fn generate(p: &GenParams) -> Pattern {
     out
 }
 
-#[inline]
-pub(super) fn frac(x: f64) -> f64 { x - x.floor() }
 
 #[cfg(test)]
 mod tests {
@@ -340,7 +306,7 @@ mod tests {
         // only; `ALLOCS.with` outside the closure would register the access itself.
         ALLOCS.with(|c| {
             c.set(0);
-            for kind in GenKind::ALL {
+            for kind in Mode::all() {
                 for steps in [1usize, 2, 7, 16, 32, MAX_STEPS] {
                     let p = GenParams { kind, steps, length: steps as f32, pulses: steps / 2, density: 0.8, probability: 1.0, ..GenParams::default() };
                     std::hint::black_box(generate(&p));
@@ -355,7 +321,7 @@ mod tests {
     #[ignore = "timing run; use cargo test --release bench_generation_at_max_steps -- --ignored --nocapture"]
     fn bench_generation_at_max_steps() {
         use std::time::Instant;
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             let p = GenParams { kind, steps: MAX_STEPS, length: MAX_STEPS as f32, pulses: MAX_STEPS / 2, density: 1.0, probability: 1.0, ..GenParams::default() };
             let mut times = [0u64; 200];
             for t in times.iter_mut() {
@@ -371,7 +337,7 @@ mod tests {
 
     #[test]
     fn all_modes_are_deterministic_and_bounded() {
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             let p = GenParams { kind, ..GenParams::default() };
             let a = generate(&p);
             let b = generate(&p);
@@ -383,7 +349,7 @@ mod tests {
 
     #[test]
     fn probability_zero_suppresses_all_hits_and_one_preserves_algorithm_hits() {
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             let zero = generate(&GenParams { kind, probability: 0.0, ..GenParams::default() });
             assert!(zero.hit.iter().all(|lane| lane[..zero.steps].iter().all(|hit| !hit)), "{kind:?}");
         }
@@ -404,7 +370,7 @@ mod tests {
         for steps in [1usize, 7, 16, 17, 32, 63, 64] {
             for pulses in [0usize, 1, 2, 3, 5, 8, 16, 32, 64] {
                 for density in [0.0f32, 0.07, 0.25, 0.5, 0.65, 1.0] {
-                    let p = GenParams { kind: GenKind::RaisedCosine, steps, pulses, density, probability: 1.0, ..GenParams::default() };
+                    let p = GenParams { kind: Mode::RaisedCosine, steps, pulses, density, probability: 1.0, ..GenParams::default() };
                     let pat = generate(&p);
                     for tr in 0..TRACKS {
                         let requested = if pulses == 0 { 0 } else { (pulses + tr % 3).min(steps.max(1)) };
@@ -421,7 +387,7 @@ mod tests {
     fn raised_cosine_onsets_stay_evenly_spaced() {
         for steps in [7usize, 13, 16, 31, 64] {
             for pulses in [2usize, 3, 5, 8] {
-                let pat = generate(&GenParams { kind: GenKind::RaisedCosine, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
+                let pat = generate(&GenParams { kind: Mode::RaisedCosine, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
                 for tr in 0..TRACKS {
                     let positions: Vec<usize> = (0..steps).filter(|&i| pat.hit[tr][i]).collect();
                     if positions.len() > 1 {
@@ -439,7 +405,7 @@ mod tests {
 
     #[test]
     fn every_mode_supports_all_step_lengths() {
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             for steps in 1..=MAX_STEPS {
                 let p = GenParams { kind, steps, pulses: steps / 2, ..GenParams::default() };
                 let pat = generate(&p);
@@ -453,7 +419,7 @@ mod tests {
 
     #[test]
     fn rotation_is_a_circular_shift_for_every_mode() {
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             let p = GenParams { kind, density: 0.82, probability: 0.67, steps: 17, pulses: 7, rotate: 0, ..GenParams::default() };
             let a = generate(&p); let b = generate(&GenParams { rotate: 3, ..p });
             for tr in 0..TRACKS { for i in 0..p.steps { assert_eq!(b.hit[tr][i], a.hit[tr][(i + p.steps - 3) % p.steps], "{kind:?}"); } }
@@ -462,7 +428,7 @@ mod tests {
 
     #[test]
     fn distance_and_well_formed_generators_preserve_exact_requested_pulse_counts() {
-        for kind in [GenKind::ToussaintDistance, GenKind::WellFormed] {
+        for kind in [Mode::ToussaintDistance, Mode::WellFormed] {
             for steps in [1usize, 2, 7, 16, 31, 63, 64] {
                 for pulses in [0usize, 1, 2, 3, 7, 16, 32, 64] {
                     for density in [0.0f32, 0.17, 0.35, 0.5, 0.82, 1.0] {
@@ -485,7 +451,7 @@ mod tests {
         for steps in [7usize, 17, 31, 63, 64] {
             for pulses in [1usize, 2, 3, steps / 2, steps.saturating_sub(1), steps] {
                 for density in [0.17f32, 0.5, 1.0] {
-                    let pat = generate(&GenParams { kind: GenKind::WellFormed, steps, pulses, density, probability: 1.0, ..GenParams::default() });
+                    let pat = generate(&GenParams { kind: Mode::WellFormed, steps, pulses, density, probability: 1.0, ..GenParams::default() });
                     for tr in 0..TRACKS {
                         let positions: Vec<usize> = (0..steps).filter(|&i| pat.hit[tr][i]).collect();
                         if positions.len() > 1 {
@@ -503,10 +469,10 @@ mod tests {
 
     #[test]
     fn zero_density_and_zero_pulses_silence_pulse_based_modes() {
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             let zero_density = generate(&GenParams { kind, density: 0.0, ..GenParams::default() });
             assert!(zero_density.hit.iter().all(|lane| lane[..zero_density.steps].iter().all(|hit| !hit)), "{kind:?} at zero density");
-            if kind != GenKind::Cellular {
+            if kind != Mode::Cellular {
                 let zero_pulses = generate(&GenParams { kind, pulses: 0, ..GenParams::default() });
                 assert!(zero_pulses.hit.iter().all(|lane| lane[..zero_pulses.steps].iter().all(|hit| !hit)), "{kind:?} at zero pulses");
             }
@@ -515,7 +481,7 @@ mod tests {
 
     #[test]
     fn variation_changes_patterns_even_for_closed_form_modes() {
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             let p = GenParams { kind, steps: 17, pulses: 7, density: 0.82, probability: 0.67, ..GenParams::default() };
             assert_ne!(generate(&p).hit, generate(&GenParams { variation: 1, ..p }).hit, "{kind:?}");
         }
@@ -526,7 +492,7 @@ mod tests {
         let ratios = [(1usize, 1usize), (3, 2), (2, 1), (5, 2), (4, 3), (2, 3), (5, 4), (3, 4)];
         let steps = 64usize;
         let pulses = 8usize;
-        let pat = generate(&GenParams { kind: GenKind::Polyrhythm, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
+        let pat = generate(&GenParams { kind: Mode::Polyrhythm, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
         for tr in 0..TRACKS {
             let (num, den) = ratios[tr];
             let expected = ((pulses * num + den / 2) / den).min(steps);
@@ -537,7 +503,7 @@ mod tests {
 
     #[test]
     fn phase_shift_lanes_are_circular_copies_of_the_same_motif() {
-        let p = GenParams { kind: GenKind::PhaseShift, steps: 32, pulses: 7, density: 1.0, probability: 1.0, phase: 0.0, seed: 0.0, variation: 0, rotate: 0, ..GenParams::default() };
+        let p = GenParams { kind: Mode::PhaseShift, steps: 32, pulses: 7, density: 1.0, probability: 1.0, phase: 0.0, seed: 0.0, variation: 0, rotate: 0, ..GenParams::default() };
         let pat = generate(&p);
         let reference_count = pat.hit[0][..p.steps].iter().filter(|&&hit| hit).count();
         for tr in 1..TRACKS {
@@ -556,7 +522,7 @@ mod tests {
         for steps in [7usize, 16, 31, 63, 64] {
             let pulses = (steps / 4).max(1);
             for density in [0.25f32, 0.5, 1.0] {
-                let pat = generate(&GenParams { kind: GenKind::Syncopation, steps, pulses, density, probability: 1.0, ..GenParams::default() });
+                let pat = generate(&GenParams { kind: Mode::Syncopation, steps, pulses, density, probability: 1.0, ..GenParams::default() });
                 for tr in 0..TRACKS {
                     let expected = ((pulses as f32 * density * (0.45 + DENSITY_PROFILE[tr])).round() as usize).min(steps);
                     let actual = pat.hit[tr][..steps].iter().filter(|&&hit| hit).count();
@@ -575,7 +541,7 @@ mod tests {
             for steps in [1usize, 2, 7, 16, 21, 32, 64] {
                 for pulses in [1usize, 2, 3, 5, 8, 21, 64] {
                     for density in [0.25f32, 0.65, 1.0] {
-                        let p = GenParams { kind: GenKind::Oscillator, steps, pulses, density, probability: 1.0, osc_wave: wave, ..GenParams::default() };
+                        let p = GenParams { kind: Mode::Oscillator, steps, pulses, density, probability: 1.0, osc_wave: wave, ..GenParams::default() };
                         let pat = generate(&p);
                         for tr in 0..TRACKS {
                             let wanted = (((pulses.min(steps)) as f32 * density * (0.5 + DENSITY_PROFILE[tr])).round() as usize).min(steps);
@@ -594,7 +560,7 @@ mod tests {
         // played on 3,7,11,15 and a "four on the floor" kick missed the downbeat.
         for steps in [1usize, 2, 7, 8, 16, 17, 31, 64] {
             for pulses in 1..=steps.min(24) {
-                let p = GenParams { kind: GenKind::Euclidean, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() };
+                let p = GenParams { kind: Mode::Euclidean, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() };
                 let pat = generate(&p);
                 for tr in 0..TRACKS {
                     let want = ((pulses as f32 * (0.35 + DENSITY_PROFILE[tr]) + 0.5).floor() as usize).min(steps);
@@ -612,12 +578,12 @@ mod tests {
             }
         }
         // The concrete case from the bug report.
-        let pat = generate(&GenParams { kind: GenKind::Euclidean, steps: 16, pulses: 16, density: 0.3, probability: 1.0, ..GenParams::default() });
+        let pat = generate(&GenParams { kind: Mode::Euclidean, steps: 16, pulses: 16, density: 0.3, probability: 1.0, ..GenParams::default() });
         let kick: Vec<usize> = (0..16).filter(|&i| pat.hit[0][i]).collect();
         assert_eq!(kick, vec![0, 4, 8, 12]);
         // Regression: every lane used to anchor at step 0, so one step of every pattern (and
         // every variation, which only rotates) carried all eight drums.
-        let pat = generate(&GenParams { kind: GenKind::Euclidean, steps: 16, pulses: 5, density: 0.65, probability: 1.0, ..GenParams::default() });
+        let pat = generate(&GenParams { kind: Mode::Euclidean, steps: 16, pulses: 5, density: 0.65, probability: 1.0, ..GenParams::default() });
         let full: Vec<usize> = (0..16).filter(|&i| (0..TRACKS).all(|tr| pat.hit[tr][i])).collect();
         assert!(full.is_empty(), "all lanes fire together at {full:?}");
     }
@@ -627,7 +593,7 @@ mod tests {
         // A shared phase anchor (Euclidean) or a shared trigger (Logistic, RaisedCosine) put
         // all eight lanes on one step in *every* variation: rotation moved the column but never
         // removed it. An occasional coincidence is fine; a structural one is not.
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             for steps in [7usize, 16, 32] {
                 for density in [0.5f32, 0.65] {
                     let p = GenParams { kind, steps, length: steps as f32, pulses: 5, density, probability: 1.0, seed: 0.271, ..GenParams::default() };
@@ -645,7 +611,7 @@ mod tests {
     #[test]
     fn every_lane_sounds_across_a_seed_sweep() {
         // Catches a lane that is structurally dead rather than merely resting on one seed.
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             for tr in 0..TRACKS {
                 let sounded = [0.0f32, 0.13, 0.271, 0.42, 0.58, 0.71, 0.86, 1.0].iter().any(|&seed| {
                     let p = GenParams { kind, steps: 16, length: 16.0, pulses: 5, density: 0.65, probability: 1.0, seed, ..GenParams::default() };
@@ -663,7 +629,7 @@ mod tests {
         for seed in [0.0f32, 0.13, 0.271, 0.5, 0.86, 1.0] {
             for steps in [4usize, 7, 16, 32] {
                 for symmetry in [1usize, 4, 8] {
-                    let p = GenParams { kind: GenKind::Crystallographic, steps, pulses: 5, density: 0.65, symmetry, probability: 1.0, seed, ..GenParams::default() };
+                    let p = GenParams { kind: Mode::Crystallographic, steps, pulses: 5, density: 0.65, symmetry, probability: 1.0, seed, ..GenParams::default() };
                     let pat = generate(&p);
                     for tr in 0..TRACKS {
                         assert!(pat.hit[tr][..steps].iter().any(|&hit| hit),
@@ -678,7 +644,7 @@ mod tests {
     fn well_formed_first_lane_starts_on_step_zero() {
         for steps in [8usize, 16, 17, 32, 64] {
             for pulses in [1usize, 2, 3, 5, 7] {
-                let pat = generate(&GenParams { kind: GenKind::WellFormed, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
+                let pat = generate(&GenParams { kind: Mode::WellFormed, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
                 assert!(pat.hit[0][0], "steps={steps} pulses={pulses}");
             }
         }
@@ -688,11 +654,11 @@ mod tests {
     /// density. It was missing from the suite, and the logistic map failed it at two steps.
     #[test]
     fn every_mode_produces_hits_at_one_step_and_at_full_density() {
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             let one = generate(&GenParams { kind, steps: 1, pulses: 1, density: 1.0, probability: 1.0, ..GenParams::default() });
             assert!((0..TRACKS).any(|t| one.hit[t][0]), "{kind:?} is silent at steps=1");
             for steps in 1..=MAX_STEPS {
-                let pulses = if kind == GenKind::Cellular { 5.min(steps) } else { steps };
+                let pulses = if kind == Mode::Cellular { 5.min(steps) } else { steps };
                 let pat = generate(&GenParams { kind, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() });
                 assert!((0..TRACKS).any(|t| pat.hit[t][..steps].iter().any(|&h| h)), "{kind:?} is silent at steps={steps}, full density");
             }
@@ -702,7 +668,7 @@ mod tests {
     #[test]
     fn eulerian_circuit_seam_does_not_double_the_rest() {
         // Degree 1 is the plain ring 0,1,..,8,0. Repeating the closed circuit played rest twice.
-        let pat = generate(&GenParams { kind: GenKind::Eulerian, steps: 64, pulses: 0, density: 1.0, probability: 1.0, ..GenParams::default() });
+        let pat = generate(&GenParams { kind: Mode::Eulerian, steps: 64, pulses: 0, density: 1.0, probability: 1.0, ..GenParams::default() });
         // pulses == 0 silences hits but the walk itself is still recorded in `state`.
         for i in 0..63 { assert!(!(pat.state[i] == 0 && pat.state[i + 1] == 0), "double rest at {i}: {:?}", &pat.state[..64]); }
     }
@@ -710,7 +676,7 @@ mod tests {
     #[test]
     fn metric_accents_stay_on_the_grid_when_the_pattern_rotates() {
         // Cellular hits all carry mode accent 1.0, so their final accent is the metric shape alone.
-        let base = GenParams { kind: GenKind::Cellular, steps: 16, pulses: 3, density: 0.9, probability: 1.0, ..GenParams::default() };
+        let base = GenParams { kind: Mode::Cellular, steps: 16, pulses: 3, density: 0.9, probability: 1.0, ..GenParams::default() };
         let a = generate(&base);
         let b = generate(&GenParams { rotate: 5, ..base });
         let mut compared = 0;
@@ -722,7 +688,7 @@ mod tests {
     fn logistic_short_patterns_survive_the_critical_r() {
         for seed in [0.0f32, 0.1, 0.271, 0.5, 0.9, 1.0] {
             for steps in 1..=8usize {
-                let pat = generate(&GenParams { kind: GenKind::Logistic, steps, pulses: steps, density: 1.0, probability: 1.0, seed, ..GenParams::default() });
+                let pat = generate(&GenParams { kind: Mode::Logistic, steps, pulses: steps, density: 1.0, probability: 1.0, seed, ..GenParams::default() });
                 assert!((0..TRACKS).any(|t| pat.hit[t][..steps].iter().any(|&h| h)), "seed={seed} steps={steps}");
             }
         }
@@ -730,7 +696,7 @@ mod tests {
 
     #[test]
     fn full_step_range_is_supported() {
-        for kind in GenKind::ALL {
+        for kind in Mode::all() {
             let pat = generate(&GenParams { kind, steps: MAX_STEPS, pulses: 32, density: 0.8, ..GenParams::default() });
             assert_eq!(pat.steps, MAX_STEPS);
             for tr in 0..TRACKS { assert!(pat.accent[tr][..MAX_STEPS].iter().all(|a| a.is_finite() && (0.0..=1.0).contains(a))); }

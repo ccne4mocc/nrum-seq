@@ -14,14 +14,12 @@ edition = "2021"
 name = "slint-baseview"
 version = "0.1.0"
 authors = ["Aidan Martins <aidanmartins23@gmail.com>"]
-build = "build.rs"
 autolib = false
 autobins = false
 autoexamples = false
 autotests = false
 autobenches = false
 description = "A baseview backend for Slint — run a Slint UI inside a baseview window (e.g. an audio plugin editor)"
-readme = "README.md"
 keywords = [
     "slint",
     "baseview",
@@ -39,10 +37,6 @@ default = []
 [lib]
 name = "slint_baseview"
 path = "src/lib.rs"
-
-[[example]]
-name = "counter"
-path = "examples/counter/main.rs"
 
 [dependencies.baseview]
 version = "0.1.1"
@@ -72,6 +66,3 @@ features = [
     "compat-1-2",
 ]
 default-features = false
-
-[build-dependencies.slint-build]
-version = "=1.16.1"

@@ -39,5 +39,12 @@ WindowEvent::PointerScrolled {
 
 Drop the `path` in the root `Cargo.toml` and delete `vendor/`. Worth checking first whether a
 released `slint-baseview` has fixed this upstream; if so, bump the version instead of
-re-patching. The rest of this directory should stay byte-identical to the published crate so
-the diff stays reviewable.
+re-patching.
+
+## Local trim
+
+The vendored copy is trimmed to the library only: the `counter` example, its `build.rs`
+(which compiled the example's `.slint` file on every build of this crate) and the crates.io
+packaging metadata (`README.md`, `Cargo.toml.orig`, `.cargo_vcs_info.json`) are removed.
+`src/lib.rs` and `src/translate.rs` stay byte-identical to the published crate apart from the
+one patched line above, so the diff stays reviewable.

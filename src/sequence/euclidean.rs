@@ -1,4 +1,4 @@
-use super::{set_hit, GenParams, Pattern, Rng, TRACKS};
+use super::{anchored_onset, rotated_pos, set_hit, GenParams, Pattern, Rng, TRACKS};
 
 /// Onset count for E(k, n): the pulse count scaled by density and the lane's density profile.
 /// Shared with the help text so the displayed `k` is the one the generator builds.
@@ -21,11 +21,11 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         // went away. Lane 0 keeps the downbeat anchor so the kick still plays on beat one.
         let phase = (tr * n / TRACKS) % n;
         for i in 0..n {
-            let pos = (i + n - phase) % n;
+            let pos = rotated_pos(i, phase, n);
             // Anchored: the first onset sits on the lane's phase origin and the rest follow at
             // floor(j*n/k), the usual E(k,n) necklace. The old bucket form placed the first
             // onset at the end of its bucket, so e.g. E(4,16) landed on 3,7,11,15.
-            let hit = (n - (pos * pulses) % n) % n < pulses;
+            let hit = anchored_onset(pos, pulses, n);
             let accent = if i % 4 == 0 { 1.0 } else { 0.72 + 0.15 * rng.unit() };
             set_hit(&mut out, tr, i, hit, accent);
         }

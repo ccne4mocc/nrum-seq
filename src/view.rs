@@ -1,5 +1,6 @@
 //! Pure GUI geometry. Keep this free of Slint and plug-in types so every view can be tested.
-use crate::sequence::{GenKind, GenParams, Pattern, MAX_STEPS, TRACKS, CA_ROWS};
+use crate::sequence::{GenParams, Pattern, MAX_STEPS, TRACKS, CA_ROWS};
+use crate::modes::Mode;
 use std::f32::consts::TAU;
 use std::fmt::Write;
 
@@ -51,17 +52,12 @@ fn orbit_scale(pat: &Pattern, n: usize) -> f32 {
     if extent > 1e-3 { PLOT / extent } else { PLOT / 3.2 }
 }
 
-#[inline]
-fn osc_value(wave: usize, phase: f32) -> f32 {
-    crate::sequence::oscillator_value(wave, phase)
-}
-
 pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
     let n = p.steps.clamp(1, MAX_STEPS);
     let play = (cur >= 0 && (cur as usize) < n).then_some(cur as usize);
     let mut v = View::default();
     match params.kind {
-        GenKind::Euclidean => {
+        Mode::Euclidean => {
             // Per-lane rings rather than one aggregate ring: the lanes have different densities,
             // and collapsing them hid that (and showed hits for lanes the user disabled).
             for tr in 0..TRACKS {
@@ -81,7 +77,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 }
             }
         }
-        GenKind::Eulerian | GenKind::Markov => {
+        Mode::Eulerian | Mode::Markov => {
             let vertices = TRACKS + 1;
             let pos = |state: usize| polar(78.0, state as f32 / vertices as f32);
             let labels = ["R", "K", "S", "CH", "OH", "CL", "RM", "T", "P"];
@@ -105,7 +101,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
-        GenKind::Phyllotaxis => {
+        Mode::Phyllotaxis => {
             let max_r = 88.0;
             for i in 0..n {
                 let a = i as f32 * GOLDEN_ANGLE + params.phase * TAU;
@@ -116,7 +112,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
             }
         }
-        GenKind::Cellular => {
+        Mode::Cellular => {
             let cw = 184.0 / n as f32;
             let ch = 172.0 / CA_ROWS as f32;
             // Each lane reads its own generation, so mark every lane's row rather than the one
@@ -140,12 +136,12 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let y = 18.0 + row as f32 * ch; mv(&mut v.edges, 12.0, y); ln(&mut v.edges, 198.0, y);
             }
         }
-        GenKind::Oscillator => {
+        Mode::Oscillator => {
             mv(&mut v.edges, 12.0, 105.0); ln(&mut v.edges, 198.0, 105.0);
             let points = (n * 3).max(24);
             for j in 0..points {
                 let phase = (j as f32 / points as f32 * params.osc_rate + params.phase).fract();
-                let value = osc_value(params.osc_wave, phase);
+                let value = crate::sequence::oscillator_value(params.osc_wave, phase);
                 let x = 12.0 + j as f32 / (points - 1) as f32 * 186.0;
                 let y = 176.0 - value * 130.0;
                 if j == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
@@ -156,11 +152,11 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             for i in 0..n {
                 let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
                 let phase = (i as f32 / n as f32 * params.osc_rate + params.phase).fract();
-                let value = osc_value(params.osc_wave, phase);
+                let value = crate::sequence::oscillator_value(params.osc_wave, phase);
                 v.nodes.push(Node { x, y: 176.0 - value * 130.0, r: 3.0, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
             }
         }
-        GenKind::Crystallographic => {
+        Mode::Crystallographic => {
             let cw = 184.0 / n as f32;
             let ch = 168.0 / TRACKS as f32;
             for tr in 0..TRACKS {
@@ -183,7 +179,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.lines, x, 16.0); ln(&mut v.lines, x, 194.0);
             }
         }
-        GenKind::RaisedCosine => {
+        Mode::RaisedCosine => {
             // The generator's own envelope and cutoff, so the drawn curve is the curve that
             // produced the hits. Orbit lane 0's envelope because that is the one it publishes.
             mv(&mut v.edges, 12.0, 180.0); ln(&mut v.edges, 198.0, 180.0);
@@ -209,7 +205,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
             if let Some(i) = play { let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0; mv(&mut v.hand, x, 18.0); ln(&mut v.hand, x, 194.0); }
         }
-        GenKind::Slowcat => {
+        Mode::Slowcat => {
             // Phrase timeline: one band per lane, ticks at that lane's motif boundaries, onsets
             // as nodes on the band. Motif length comes from the generator.
             let cw = 184.0 / n as f32;
@@ -233,7 +229,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 16.0); ln(&mut v.hand, x, 196.0); }
         }
-        GenKind::ToussaintDistance => {
+        Mode::ToussaintDistance => {
             // Distance circle: one ring per lane. Every onset sits at its *actual* step angle on
             // the lane's ring, with a radial spoke to the rim and a tick for each grid step, so
             // the two inter-onset gaps read directly against the step grid.
@@ -262,7 +258,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
             if let Some(i) = play { let (x, y) = polar(100.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
         }
-        GenKind::WellFormed => {
+        Mode::WellFormed => {
             // One band per lane: the Bresenham remainder climbs from the lane's baseline and
             // resets at each onset, so the two inter-onset lengths are visible as the slope
             // changes. Stacked bands keep eight lanes from collapsing into one sawtooth pile.
@@ -287,7 +283,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 12.0); ln(&mut v.hand, x, 196.0); }
         }
-        GenKind::LSystem => {
+        Mode::LSystem => {
             // Nesting depth per step, recovered by walking the lane's onsets: a hit that starts
             // a new run raises the level, consecutive hits hold it. Bars make the grammar's
             // branching readable where a plain grid only showed on/off.
@@ -312,7 +308,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             for tr in 0..=TRACKS { let y = 21.0 + tr as f32 * ch; mv(&mut v.edges, 11.0, y); ln(&mut v.edges, 199.0, y); }
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 18.0); ln(&mut v.hand, x, 192.0); }
         }
-        GenKind::PhaseShift => {
+        Mode::PhaseShift => {
             // Every lane is the same motif at a different circular offset, so draw the motif
             // itself on one ring per lane: eight congruent outlines rotated against each other.
             // The old first-onset spokes showed only the offsets and hid the shared rhythm.
@@ -344,7 +340,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
-        GenKind::Polyrhythm => {
+        Mode::Polyrhythm => {
             // Ratio stack: a dot ring per lane shows the pulse count, but sized by accent so the
             // long/short relationship of the ratios is visible rather than just counted.
             circle(&mut v.edges, C, C, 8.0);
@@ -360,7 +356,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
             if let Some(i) = play { let (x, y) = polar(24.0 + 7.0 * 9.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
         }
-        GenKind::Syncopation => {
+        Mode::Syncopation => {
             // The generator publishes lane 0's metrical score, so the bars are the weights that
             // drove the selection rather than a re-derivation of them.
             mv(&mut v.edges, 12.0, 176.0); ln(&mut v.edges, 198.0, 176.0);
@@ -377,7 +373,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 20.0); ln(&mut v.hand, x, 192.0); }
         }
-        GenKind::ThreeBody => {
+        Mode::ThreeBody => {
             // The orbit itself: bodies 1 and 2 traced relative to body 0, with a step marker on
             // the third body. This is the only panel whose picture *is* the generator's state.
             // Relative positions can span twice the clamp radius, so fit to the actual extent;
@@ -408,7 +404,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
-        GenKind::Logistic => {
+        Mode::Logistic => {
             // Return map: the parabola is y = r·x·(1−x) for the density's r, and the samples are
             // the orbit's (x[n], x[n+1]) pairs connected in order. The old centre cross was not
             // an axis at all; the actual axes sit at the plot origin.
@@ -439,7 +435,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 if i == 0 { mv(&mut v.lines, ox, oy); } else { ln(&mut v.lines, ox, oy); }
             }
         }
-        GenKind::PebbleBox => {
+        Mode::PebbleBox => {
             // The box, with each pebble at its recorded position for this step. Slint tweens
             // x/y between steps, so this is the same simulation the scheduler is playing.
             mv(&mut v.edges, 14.0, 14.0); ln(&mut v.edges, 196.0, 14.0);
@@ -491,15 +487,15 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sequence::{generate, GenKind};
+    use crate::sequence::generate;
     #[test]
     fn oscillator_view_matches_each_selected_waveform() {
-        assert!((osc_value(0, 0.25) - 1.0).abs() < 1e-5);
-        assert!((osc_value(1, 0.25) - 0.5).abs() < 1e-5);
-        assert!((osc_value(2, 0.25) - 0.25).abs() < 1e-5);
-        assert_eq!(osc_value(3, 0.25), 1.0);
-        assert_eq!(osc_value(3, 0.75), 0.0);
-        for wave in 0..4 { for i in 0..=100 { assert!((0.0..=1.0).contains(&osc_value(wave, i as f32 / 100.0))); } }
+        assert!((crate::sequence::oscillator_value(0, 0.25) - 1.0).abs() < 1e-5);
+        assert!((crate::sequence::oscillator_value(1, 0.25) - 0.5).abs() < 1e-5);
+        assert!((crate::sequence::oscillator_value(2, 0.25) - 0.25).abs() < 1e-5);
+        assert_eq!(crate::sequence::oscillator_value(3, 0.25), 1.0);
+        assert_eq!(crate::sequence::oscillator_value(3, 0.75), 0.0);
+        for wave in 0..4 { for i in 0..=100 { assert!((0.0..=1.0).contains(&crate::sequence::oscillator_value(wave, i as f32 / 100.0))); } }
     }
 
     #[test]
@@ -507,7 +503,7 @@ mod tests {
         // Every mode must produce panel geometry; a mode that falls through the match would
         // otherwise render as an empty box with no compile error.
         let p = GenParams::default();
-        for k in GenKind::ALL {
+        for k in Mode::all() {
             let g = GenParams { kind: k, ..p };
             let view = build(&g, &generate(&g), -1);
             assert!(!view.nodes.is_empty(), "{k:?} produced no view nodes");
@@ -524,7 +520,7 @@ mod tests {
 
     #[test]
     fn pebble_hits_are_drawn_on_the_wall_they_struck() {
-        let g = GenParams { kind: GenKind::PebbleBox, steps: 32, pulses: 8, density: 1.0, ca_rule: 200, ..GenParams::default() };
+        let g = GenParams { kind: Mode::PebbleBox, steps: 32, pulses: 8, density: 1.0, ca_rule: 200, ..GenParams::default() };
         let pat = generate(&g);
         let mut hits = 0;
         for step in 0..32 {
@@ -562,7 +558,7 @@ mod tests {
     fn every_panel_stays_inside_the_viewbox() {
         // A mode whose geometry escapes the 210x210 panel is clipped by Slint and reads as a
         // blank or half-drawn box. Every mode, at the sizes most likely to overflow.
-        for k in GenKind::ALL {
+        for k in Mode::all() {
             for steps in [1usize, 2, 7, 16, 32, MAX_STEPS] {
                 for density in [0.0f32, 0.5, 1.0] {
                     let g = GenParams { kind: k, steps, pulses: steps, density, probability: 1.0, ..GenParams::default() };
@@ -581,7 +577,7 @@ mod tests {
     fn polyrhythm_rings_grow_with_the_lane() {
         // Lane tr is drawn on radius 24 + tr*9; the test reads those radii back out of the path
         // data rather than restating them as constants, so the two cannot drift apart.
-        let g = GenParams { kind: GenKind::Polyrhythm, steps: 16, pulses: 8, density: 1.0, ..GenParams::default() };
+        let g = GenParams { kind: Mode::Polyrhythm, steps: 16, pulses: 8, density: 1.0, ..GenParams::default() };
         let view = build(&g, &generate(&g), -1);
         // `circle` writes two half-arcs, so each radius appears twice per lane ring.
         let mut radii: Vec<f32> = view.edges.split('A').skip(1)
@@ -602,7 +598,7 @@ mod tests {
     fn phase_shift_rings_trace_each_lane_motif() {
         // One ring per lane; every onset sits on the lane's ring and the labelled node marks
         // the lane's first onset. The outlines are the shared motif, rotated per lane.
-        let g = GenParams { kind: GenKind::PhaseShift, steps: 16, pulses: 4, density: 1.0, ..GenParams::default() };
+        let g = GenParams { kind: Mode::PhaseShift, steps: 16, pulses: 4, density: 1.0, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, -1);
         let labels = ["K", "S", "CH", "OH", "CL", "RM", "T", "P"];
@@ -625,7 +621,7 @@ mod tests {
     #[test]
     fn chaos_panel_traces_the_recorded_orbit() {
         // The panel must draw the generator's own trajectory, not a default-constructed one.
-        let g = GenParams { kind: GenKind::ThreeBody, steps: 32, pulses: 8, density: 1.0, ..GenParams::default() };
+        let g = GenParams { kind: Mode::ThreeBody, steps: 32, pulses: 8, density: 1.0, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, 3);
         let expected = C + pat.traj[3][2] * orbit_scale(&pat, 32);
@@ -638,7 +634,7 @@ mod tests {
     fn chaos_panel_fits_the_whole_orbit() {
         // A fixed scale either clipped the trace or left it as a blob in the middle: the fit
         // must map the recorded extent exactly onto the panel plot radius.
-        let g = GenParams { kind: GenKind::ThreeBody, steps: 32, pulses: 8, density: 1.0, phase: 0.9, ..GenParams::default() };
+        let g = GenParams { kind: Mode::ThreeBody, steps: 32, pulses: 8, density: 1.0, phase: 0.9, ..GenParams::default() };
         let pat = generate(&g);
         let extent = (0..32).flat_map(|i| (0..4).map(move |k| pat.traj[i][k].abs()))
             .fold(0.0f32, f32::max);
@@ -651,7 +647,7 @@ mod tests {
     #[test]
     fn well_formed_traces_one_band_per_lane() {
         // Regression: all eight lanes shared one 55px strip at the bottom and became a pile.
-        let g = GenParams { kind: GenKind::WellFormed, steps: 32, pulses: 5, density: 0.7, ..GenParams::default() };
+        let g = GenParams { kind: Mode::WellFormed, steps: 32, pulses: 5, density: 0.7, ..GenParams::default() };
         let view = build(&g, &generate(&g), -1);
         let mut rows: Vec<f32> = view.nodes.iter().map(|n| n.y).collect();
         rows.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -670,7 +666,7 @@ mod tests {
     fn logistic_dots_sit_on_the_drawn_return_map() {
         // The parabola is y = r*x*(1-x) for the density's r; every plotted pair must lie on it.
         let (steps, density) = (32usize, 0.65f32);
-        let g = GenParams { kind: GenKind::Logistic, steps, density, ..GenParams::default() };
+        let g = GenParams { kind: Mode::Logistic, steps, density, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, -1);
         let r = crate::sequence::logistic_r(density) as f32;
@@ -688,7 +684,7 @@ mod tests {
     fn pebble_panel_reads_the_recorded_frame() {
         // The Slint panel tweens node x/y between steps, so each step's eight nodes must be the
         // recorded simulation positions in stable lane order.
-        let g = GenParams { kind: GenKind::PebbleBox, steps: 16, pulses: 5, density: 0.8, ..GenParams::default() };
+        let g = GenParams { kind: Mode::PebbleBox, steps: 16, pulses: 5, density: 0.8, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, 5);
         assert_eq!(view.nodes.len(), TRACKS);
@@ -706,7 +702,7 @@ mod tests {
         // Regression: nodes sat at the ordinal angle j/k while the spokes used the true step,
         // so every spoke crossed the circle and the picture was a star.
         let n = 16;
-        let g = GenParams { kind: GenKind::ToussaintDistance, steps: n, pulses: 5, density: 0.8, ..GenParams::default() };
+        let g = GenParams { kind: Mode::ToussaintDistance, steps: n, pulses: 5, density: 0.8, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, -1);
         let mut nodes = 0;
@@ -727,7 +723,7 @@ mod tests {
     fn cellular_highlights_the_generation_each_lane_reads() {
         // Regression: the panel marked `pulses % CA_ROWS`, ignoring the phase offset and the
         // per-lane step, so a marker could sit on a row the generator never plays.
-        let g = GenParams { kind: GenKind::Cellular, steps: 16, pulses: 5, phase: 0.5, ..GenParams::default() };
+        let g = GenParams { kind: Mode::Cellular, steps: 16, pulses: 5, phase: 0.5, ..GenParams::default() };
         let view = build(&g, &generate(&g), 0);
         let row_y = |row: usize| 18.0 + (row as f32 + 0.5) * (172.0 / CA_ROWS as f32);
         let marked: Vec<f32> = view.nodes.iter().filter(|n| n.cur).map(|n| n.y).collect();
@@ -739,65 +735,3 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod dump {
-    use super::*;
-    use crate::sequence::{generate, GenKind, GenParams};
-
-    /// `DUMP_SVG=/dir cargo test --offline dump_svgs` writes one SVG per mode for eyeballing
-    /// the 300px panel geometry. Inactive without the environment variable.
-    #[test]
-    fn dump_svgs() {
-        let Ok(dir) = std::env::var("DUMP_SVG") else { return };
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut cases: Vec<(String, GenParams)> = GenKind::ALL
-            .iter()
-            .map(|&kind| {
-                (format!("{kind:?}"), GenParams {
-                    kind, steps: 16, length: 16.0, pulses: 5, density: 0.65,
-                    probability: 1.0, seed: 0.271, ..GenParams::default()
-                })
-            })
-            .collect();
-        for (name, phase) in [("ThreeBody-phase0", 0.0f32), ("ThreeBody-phase50", 0.5), ("ThreeBody-phase90", 0.9)] {
-            cases.push((name.into(), GenParams {
-                kind: GenKind::ThreeBody, steps: 32, length: 32.0, pulses: 8,
-                density: 0.8, probability: 1.0, seed: 0.271, phase, ..GenParams::default()
-            }));
-        }
-        for (name, g) in cases {
-            write(&dir, &name, &build(&g, &generate(&g), 3));
-        }
-        // Pebble motion at a denser shaker setting: four frames of the same box.
-        let g = GenParams {
-            kind: GenKind::PebbleBox, steps: 32, length: 32.0, pulses: 16,
-            density: 0.8, probability: 1.0, seed: 0.271, ..GenParams::default()
-        };
-        let pat = generate(&g);
-        for step in [0usize, 4, 9, 20] {
-            write(&dir, &format!("PebbleBox-step{step}"), &build(&g, &pat, step as i32));
-        }
-    }
-
-    fn write(dir: &str, name: &str, v: &View) {
-        let mut s = String::from("<svg xmlns='http://www.w3.org/2000/svg' width='420' height='420' viewBox='0 0 210 210'><rect width='210' height='210' fill='#1b1e24'/>");
-        s += &format!("<path d='{}' fill='none' stroke='#3b4350' stroke-width='1'/>", v.edges);
-        s += &format!("<path d='{}' fill='none' stroke='#5eead4' stroke-width='1.2'/>", v.lines);
-        s += &format!("<path d='{}' fill='none' stroke='#fb923c' stroke-width='2'/>", v.hand);
-        for n in &v.nodes {
-            s += &format!(
-                "<circle cx='{:.1}' cy='{:.1}' r='{:.1}' fill='{}' stroke='#4b5563'/>",
-                n.x, n.y, n.r,
-                if n.cur { "#fb923c" } else if n.on { "#2dd4bf" } else { "#2a2e35" },
-            );
-            if !n.label.is_empty() {
-                s += &format!(
-                    "<text x='{:.1}' y='{:.1}' font-size='8' text-anchor='middle' dominant-baseline='central' fill='#04201d'>{}</text>",
-                    n.x, n.y, n.label,
-                );
-            }
-        }
-        s += "</svg>";
-        std::fs::write(format!("{dir}/{name}.svg"), s).unwrap();
-    }
-}

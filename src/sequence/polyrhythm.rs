@@ -1,4 +1,4 @@
-use super::{set_hit, GenParams, Pattern, TRACKS};
+use super::{rotated_pos, set_hit, GenParams, Pattern, TRACKS};
 
 /// Simultaneous integer-ratio pulse trains. Every lane spans the same pattern duration, but uses a
 /// different rational pulse ratio (for example 3:2, 5:4, or 2:3) to create true polyrhythmic layers.
@@ -15,7 +15,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let k = ((scaled as f32 * p.density.clamp(0.0, 1.0)).round() as usize).min(n);
         let phase = (seed_phase + tr * n / TRACKS) % n;
         for i in 0..n {
-            let pos = (i + n - phase) % n;
+            let pos = rotated_pos(i, phase, n);
             let hit = ((pos + 1) * k / n) != (pos * k / n);
             let accent = if pos % 4 == 0 { 1.0 } else if pos % 2 == 0 { 0.82 } else { 0.64 };
             set_hit(&mut out, tr, i, hit, accent);

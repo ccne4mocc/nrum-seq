@@ -27,7 +27,7 @@ struct SlintEditor {
 }
 
 /// Snapshot the user-global settings out of the parameters, for `globals::save`.
-fn global_settings(p: Arc<DrumParams>, scale: f32) -> globals::GlobalSettings {
+fn global_settings(p: &DrumParams, scale: f32) -> globals::GlobalSettings {
     globals::GlobalSettings {
         theme: Some(p.theme.value().to_index()),
         scale: if scale > 0.0 { Some(scale) } else { None },
@@ -49,7 +49,7 @@ impl Drop for SlintEditorHandle {
         // change the theme and observe what the close path writes. The fix is structural --
         // there is no snapshot field left to go stale.
         globals::save_now(&global_settings(
-            self.params.clone(),
+            &self.params,
             f32::from_bits(self.scale.load(Relaxed)),
         ));
         self.window.close();
@@ -264,16 +264,6 @@ impl Editor for SlintEditor {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_round_steps(move || set(&c, &p.round_steps, !p.round_steps.value()));
             }
-            // Typed entry from the settings spin boxes; these bypass the slider's drag path
-            // so an exact value can be reached regardless of pixel density.
-            {
-                let (p, c) = (setup_params.clone(), setup_ctx.clone());
-                ui.on_spin_steps(move |v| set_opt(&c, &p, 0, v));
-            }
-            {
-                let (p, c) = (setup_params.clone(), setup_ctx.clone());
-                ui.on_spin_opt(move |key, v| set_opt(&c, &p, key, v));
-            }
         };
 
         let cache = Arc::new(Mutex::new(Cache { gen_key: None, pattern: Pattern::default(), view_key: None }));
@@ -305,10 +295,7 @@ impl Editor for SlintEditor {
                 ui.set_theme_index(theme_index);
                 // Theme is user-global, so persist it outside the project as it changes.
                 // Both fields are known here, so no read is needed.
-                globals::save(&globals::GlobalSettings {
-                    theme: Some(theme_index as usize),
-                    scale: if update_scale > 0.0 { Some(update_scale) } else { None },
-                });
+                globals::save(&global_settings(p, update_scale));
             }
             ui.set_steps(p.steps.value());
             ui.set_round_steps(p.round_steps.value());

@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn same_snapshot_gives_the_same_bounces_and_frames() {
-        let p = GenParams { kind: super::super::GenKind::PebbleBox, steps: 16, pulses: 5, density: 0.7, seed: 0.42, ..GenParams::default() };
+        let p = GenParams { kind: super::super::Mode::PebbleBox, steps: 16, pulses: 5, density: 0.7, seed: 0.42, ..GenParams::default() };
         let a = generate(&p);
         let b = generate(&p);
         assert_eq!(a.hit, b.hit);
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn frames_are_recorded_for_every_step_and_pebble() {
-        let p = GenParams { kind: super::super::GenKind::PebbleBox, steps: 32, pulses: 5, density: 0.8, ..GenParams::default() };
+        let p = GenParams { kind: super::super::Mode::PebbleBox, steps: 32, pulses: 5, density: 0.8, ..GenParams::default() };
         let pat = generate(&p);
         for i in 0..32 {
             assert_ne!(pat.pebbles[i], [0; TRACKS * 2], "frame {i} was never recorded");
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn density_raises_the_impact_threshold() {
-        let base = GenParams { kind: super::super::GenKind::PebbleBox, steps: 32, pulses: 8, seed: 0.271, ..GenParams::default() };
+        let base = GenParams { kind: super::super::Mode::PebbleBox, steps: 32, pulses: 8, seed: 0.271, ..GenParams::default() };
         let count = |density| {
             let pat = generate(&GenParams { density, ..base });
             (0..32).map(|i| (0..TRACKS).filter(|&tr| pat.hit[tr][i]).count()).sum::<usize>()
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn every_hit_records_the_wall_it_struck() {
-        let p = GenParams { kind: super::super::GenKind::PebbleBox, steps: 64, pulses: 8, density: 1.0, ca_rule: 255, ..GenParams::default() };
+        let p = GenParams { kind: super::super::Mode::PebbleBox, steps: 64, pulses: 8, density: 1.0, ca_rule: 255, ..GenParams::default() };
         let pat = generate(&p);
         for i in 0..64 {
             for tr in 0..TRACKS {
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn gravity_and_substeps_change_the_bounce() {
-        let base = GenParams { kind: super::super::GenKind::PebbleBox, steps: 32, pulses: 6, seed: 0.314, ..GenParams::default() };
+        let base = GenParams { kind: super::super::Mode::PebbleBox, steps: 32, pulses: 6, seed: 0.314, ..GenParams::default() };
         let a = generate(&base);
         let heavy = generate(&GenParams { ca_rule: 255, ..base });
         let fine = generate(&GenParams { osc_rate: 16.0, ..base });

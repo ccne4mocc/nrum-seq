@@ -1,4 +1,4 @@
-use super::{set_hit, GenParams, Pattern, TRACKS};
+use super::{rotated_pos, set_hit, GenParams, Pattern, TRACKS};
 
 /// Toussaint-inspired modular-distance rhythm. Integer boundary crossings select a maximally-even
 /// onset word; the seed selects a circular origin, and modular distance shapes the onset accents.
@@ -11,7 +11,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let lane_offset = (seed_offset + tr * n / TRACKS) % n;
         let k = super::pulse_hits(p.pulses, p.density.clamp(0.0, 1.0), tr, n);
         for i in 0..n {
-            let pos = (i + n - lane_offset) % n;
+            let pos = rotated_pos(i, lane_offset, n);
             let before = pos * k / n;
             let after = (pos + 1) * k / n;
             let hit = after != before;

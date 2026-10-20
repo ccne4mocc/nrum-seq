@@ -79,6 +79,7 @@ The existing melody/tuning-specific material (pitch contours, scales, tuning/EDO
 ```text
 src/
   lib.rs                  nih-plug parameters, transport scheduler, CLAP/VST3 exports
+  modes.rs                the eighteen generation modes, as the host parameter and the dispatch key
   editor.rs               Slint adapter; host parameter callbacks; UI model updates
   view.rs                 pure geometry for the eighteen generation-mode panels
   sequence/
@@ -104,16 +105,4 @@ docs/                     reference map, architecture, wishlist, agent ownership
 
 This is a functional starter architecture, not a release-certified plugin. The next steps are to build and smoke-test it in at least one CLAP host and one VST3 host; validate tempo/loop/transport edge cases; verify Slint layout on Linux/macOS/Windows; add swing, ratchets, probability per hit, ghost notes and presets; and then add user-facing MIDI export or optional internal sound generation only if that becomes a requirement.
 
-
-## Additional rhythm algorithms
-
-The four researched additions are alongside Euclidean, Eulerian, Phyllotaxis, Cellular Automaton, Oscillator, Crystallographic, Logistic Map, Markov Walk, Raised-Cos Threshold, Slowcat Rhythm, Toussaint Distance, and Well-Formed Rhythm:
-
-- **L-System Grammar** — bounded Fibonacci-style symbol rewriting mapped to drum accents and lane roles.
-- **Phase Shift / Reich** — the same maximally-even pulse train is circularly offset across lanes to form interlocking phases.
-- **Polyrhythm Stack** — simultaneous integer-ratio pulse trains (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over a shared pattern duration.
-- **Weighted Syncopation** — deterministic weighted selection emphasizes offbeats and weak subdivisions while preserving a density-scaled number of hits.
-
-Research rationale and source links are in [`docs/ALGORITHM_RESEARCH.md`](docs/ALGORITHM_RESEARCH.md).
-
-See [`docs/ALGORITHM_RESEARCH.md`](docs/ALGORITHM_RESEARCH.md) for the research rationale and citations.
+Research rationale and citations for the algorithms are in [`docs/ALGORITHM_RESEARCH.md`](docs/ALGORITHM_RESEARCH.md).

@@ -3,39 +3,16 @@
 mod editor;
 mod globals;
 mod help;
+mod modes;
 mod sequence;
 mod view;
 
+pub use modes::Mode;
+
 use nih_plug::prelude::*;
-use sequence::{generate, GenKind, GenParams, Pattern, MAX_STEPS, TRACKS};
+use sequence::{generate, GenParams, Pattern, MAX_STEPS, TRACKS};
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 use std::sync::Arc;
-
-#[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
-pub enum Mode {
-    #[id = "euclidean"] #[name = "Euclidean"] Euclidean,
-    #[id = "eulerian"] #[name = "Eulerian Walk"] Eulerian,
-    #[id = "phyllotaxis"] #[name = "Golden Ratio / Phyllotaxis"] Phyllotaxis,
-    #[id = "cellular"] #[name = "Cellular Automaton"] Cellular,
-    #[id = "oscillator"] #[name = "Oscillator / Phase"] Oscillator,
-    #[id = "crystallographic"] #[name = "Crystallographic"] Crystallographic,
-    #[id = "logistic"] #[name = "Logistic Map"] Logistic,
-    #[id = "markov"] #[name = "Markov Walk"] Markov,
-    #[id = "raised_cosine"] #[name = "Raised-Cos Threshold"] RaisedCosine,
-    #[id = "slowcat"] #[name = "Slowcat Rhythm"] Slowcat,
-    #[id = "toussaint_distance"] #[name = "Toussaint Distance"] ToussaintDistance,
-    #[id = "well_formed"] #[name = "Well-Formed Rhythm"] WellFormed,
-    #[id = "l_system"] #[name = "L-System Grammar"] LSystem,
-    #[id = "phase_shift"] #[name = "Phase Shift / Reich"] PhaseShift,
-    #[id = "polyrhythm"] #[name = "Polyrhythm Stack"] Polyrhythm,
-    #[id = "syncopation"] #[name = "Weighted Syncopation"] Syncopation,
-    #[id = "three_body"] #[name = "Three-Body Chaos"] ThreeBody,
-    #[id = "pebble_box"] #[name = "Pebble Box"] PebbleBox,
-}
-impl Mode {
-    /// Declaration order is the enum index, which `GenKind` relies on.
-    fn kind(self) -> GenKind { GenKind::from_index(self as usize) }
-}
 
 #[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Theme {
@@ -221,7 +198,7 @@ impl DrumParams {
         // Rounding off leaves `length` fractional, so the loop wraps between grid cells.
         let cells = self.cell_count() as f32;
         GenParams {
-            kind: self.mode.value().kind(),
+            kind: self.mode.value(),
             steps: cells as usize,
             // With snapping on the loop is exactly `cells` long. Passing the raw value through
             // made a slider drag to e.g. 16.37 (displayed as "16") wrap mid-cell and drift.
@@ -310,15 +287,12 @@ fn resume_cursor(carried: Option<i64>, jumped: bool, start: f64, end: f64, spb: 
 fn randomizations_in_block(start: f64, end: f64, every_beats: i64) -> u32 {
     if end <= start || every_beats <= 0 { return 0; }
     let interval = every_beats as f64;
-    let mut slot = (start / interval).floor() as i64 + 1;
-    let mut due = 0u32;
-    loop {
-        let boundary = slot as f64 * interval;
-        if boundary > end + 1e-9 { break; }
-        if boundary > start + 1e-9 { due = due.saturating_add(1); }
-        slot += 1;
-    }
-    due
+    // The boundaries are the multiples of `interval` inside the block, so the count is the
+    // number of whole intervals between the two edges. The epsilon keeps a boundary that
+    // lands exactly on an edge inside the block it belongs to.
+    let first = ((start + 1e-9) / interval).floor();
+    let last = ((end + 1e-9) / interval).floor();
+    (last - first).max(0.0) as u32
 }
 
 #[derive(Clone, Copy)]
@@ -560,10 +534,35 @@ mod tests {
             assert!(!flags.contains(ParamFlags::HIDDEN), "{id} is hidden");
         }
     }
+    /// The UI addresses modes by index (`root.mode == 4` shows the wave selector), so the enum
+    /// order is a host-visible contract. This pins the indices the UI hardcodes to the mode
+    /// each one means, and checks the UI's own mode-name list against the enum length.
     #[test]
-    fn mode_indices_round_trip_to_generator_indices() {
-        for index in 0..18 { assert_eq!(Mode::from_index(index).kind(), GenKind::from_index(index)); }
-        assert_eq!(Mode::from_index(99).kind(), GenKind::Euclidean);
+    fn mode_indices_match_the_ui() {
+        // (index, mode, what the UI does at that index)
+        for (index, mode, ui_meaning) in [
+            (0, Mode::Euclidean, "target pulses label"),
+            (1, Mode::Eulerian, "degree label"),
+            (2, Mode::Phyllotaxis, "spiral phase label"),
+            (3, Mode::Cellular, "generation label"),
+            (4, Mode::Oscillator, "wave selector"),
+            (5, Mode::Crystallographic, "symmetry slider"),
+            (6, Mode::Logistic, "growth label"),
+            (7, Mode::Markov, "walk activity label"),
+            (8, Mode::RaisedCosine, "envelope phase label"),
+            (9, Mode::Slowcat, "motif pulses label"),
+            (13, Mode::PhaseShift, "phase offset label"),
+            (15, Mode::Syncopation, "target onsets label"),
+            (16, Mode::ThreeBody, "solver detail label"),
+            (17, Mode::PebbleBox, "substeps and gravity"),
+        ] {
+            assert_eq!(Mode::from_index(index), mode, "mode {index} is {ui_meaning} in the UI");
+        }
+        // The UI's mode list must have one entry per mode.
+        let ui = include_str!("../ui/app.slint");
+        let names = ui.split("mode-names: [").nth(1).expect("no mode-name list in the UI");
+        let count = names.split(']').next().unwrap().matches('"').count() / 2;
+        assert_eq!(count, Mode::all().count(), "the UI lists {count} modes");
     }
 
 
@@ -778,7 +777,7 @@ fn walk_block(start: f64, block_beats: f64, swing: f64, cursor: Option<i64>) -> 
         let p = DrumParams::default();
         assert_eq!((p.track_note(0), p.track_note(1), p.track_note(2), p.track_note(3)), (36, 38, 42, 46));
         assert!(p.track_enabled(0) && p.track_enabled(1) && p.track_enabled(2));
-        assert_eq!(p.gen_params().kind, GenKind::Euclidean);
+        assert_eq!(p.gen_params().kind, Mode::Euclidean);
     }
 
     #[test]

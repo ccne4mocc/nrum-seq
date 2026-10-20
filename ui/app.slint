@@ -13,7 +13,7 @@ export global Theme {
 export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string }
 export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float }
 export struct TrackRow { index: int, name: string, enabled: bool, cells: [StepCell] }
-export struct Opt { label: string, min: float, max: float, value: float, text: string, key: int, step: float }
+export struct Opt { label: string, min: float, max: float, value: float, text: string, step: float }
 
 component Selector inherits Rectangle {
     in property <[string]> options;
@@ -54,36 +54,31 @@ component Selector inherits Rectangle {
     }
 }
 
-component ParamSlider inherits Rectangle {
-    in property <string> label;
-    in property <string> value-text;
-    in property <float> minimum: 0;
-    in property <float> maximum: 1;
-    in property <float> value: 0;
-    in property <float> step-size: 0.01;
+component OptSlider inherits Rectangle {
+    in property <Opt> opt;
     callback changed(float);
     height: 25px;
     border-radius: 4px; background: #282d34; clip: true;
     Rectangle {
         x: 0px; y: 0px; height: parent.height;
-        width: parent.width * Math.clamp((root.value - root.minimum) / (root.maximum - root.minimum), 0, 1);
+        width: parent.width * Math.clamp((root.opt.value - root.opt.min) / (root.opt.max - root.opt.min), 0, 1);
         background: @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%);
         opacity: 0.55;
     }
-    Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.label; color: #e5e7eb; font-size: 11px; vertical-alignment: center; }
-    Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.value-text; color: #f3f4f6; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+    Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.opt.label; color: #e5e7eb; font-size: 11px; vertical-alignment: center; }
+    Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.opt.text; color: #f3f4f6; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
     ta := TouchArea {
         pointer-event(e) => {
             if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
-                root.changed(root.minimum + Math.clamp(ta.mouse-x / ta.width, 0, 1) * (root.maximum - root.minimum));
+                root.changed(root.opt.min + Math.clamp(ta.mouse-x / ta.width, 0, 1) * (root.opt.max - root.opt.min));
             }
         }
-        moved => { if (ta.pressed) { root.changed(root.minimum + Math.clamp(ta.mouse-x / ta.width, 0, 1) * (root.maximum - root.minimum)); } }
+        moved => { if (ta.pressed) { root.changed(root.opt.min + Math.clamp(ta.mouse-x / ta.width, 0, 1) * (root.opt.max - root.opt.min)); } }
         // Wheel editing is active only while this control is hovered. Snap to the
         // parameter's step grid first, then move exactly one step per wheel notch.
         scroll-event(e) => {
             if (e.delta-y != 0px) {
-                root.changed(Math.clamp(root.minimum + Math.round((root.value - root.minimum) / root.step-size + (e.delta-y < 0px ? 1 : -1)) * root.step-size, root.minimum, root.maximum));
+                root.changed(Math.clamp(root.opt.min + Math.round((root.opt.value - root.opt.min) / root.opt.step + (e.delta-y < 0px ? 1 : -1)) * root.opt.step, root.opt.min, root.opt.max));
                 accept
             } else {
                 reject
@@ -164,13 +159,6 @@ component NumBox inherits Rectangle {
             return reject;
         }
     }
-}
-
-
-component OptSlider inherits ParamSlider {
-    in property <Opt> opt;
-    label: root.opt.label; minimum: root.opt.min; maximum: root.opt.max;
-    value: root.opt.value; value-text: root.opt.text; step-size: root.opt.step;
 }
 
 component ModePanel inherits Rectangle {
@@ -256,8 +244,6 @@ export component AppWindow inherits Window {
     callback set-osc-wave(int);
     callback set-theme(int);
     callback set-opt(int, float);
-    callback spin-steps(float);
-    callback spin-opt(int, float);
     callback toggle-round-steps();
     callback toggle-track(int);
     callback toggle-free-run();
@@ -339,20 +325,20 @@ export component AppWindow inherits Window {
         "Bounces eight pebbles, one per lane, in a box whose gravity can be tilted and strengthened. Each shaker impulse kicks a rotating third of them; a pebble triggers its drum when its wall impact is harder than the density-derived threshold. The panel animates the recorded positions and flashes the wall each hit struck."
     ];
     property <[Opt]> opts: [
-        { label: "Steps", min: 1, max: 64, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", key: 0, step: root.round-steps ? 1 : 0.25 },
-        { label: root.pulse-label(root.mode), min: 0, max: root.pulses-max(root.mode), value: Math.min(root.pulses, root.pulses-max(root.mode)), text: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", key: 1, step: 1 },
-        { label: "Rotate", min: 0, max: Math.max(Math.ceil(root.steps) - 1, 0), value: Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)), text: "\{Math.round(Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)))}", key: 2, step: 1 },
-        { label: root.density-label(root.mode), min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", key: 3, step: 0.01 },
-        { label: "Seed", min: 0, max: 1, value: root.seed, text: "\{Math.round(root.seed * 1000) / 1000}", key: 4, step: 0.001 },
-        { label: root.phase-label(root.mode), min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", key: 5, step: 0.01 },
-        { label: root.osc-label(root.mode), min: root.mode == 17 ? 1 : 0.125, max: root.mode == 17 ? 16 : 8, value: root.mode == 17 ? Math.max(root.osc-rate, 1) : root.osc-rate, text: root.mode == 17 ? "\{Math.round(Math.max(root.osc-rate, 1))}" : "\{Math.round(root.osc-rate * 100) / 100}", key: 6, step: root.mode == 17 ? 1 : 0.125 },
-        { label: root.ca-label(root.mode), min: 0, max: 255, value: root.ca-rule, text: root.mode == 17 ? "\{Math.round(root.ca-rule / 255 * 100)}%" : "\{Math.round(root.ca-rule)}", key: 7, step: 1 },
-        { label: "Probability", min: 0, max: 1, value: root.probability, text: "\{Math.round(root.probability * 100)}%", key: 8, step: 0.01 },
-        { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", key: 9, step: 0.01 },
-        { label: "Regenerate after (lengths, 0=off)", min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", key: 10, step: 1 },
-        { label: "Symmetry", min: 1, max: 8, value: root.symmetry, text: "\{Math.round(root.symmetry)}", key: 11, step: 1 },
-        { label: "After beats", min: 1, max: 256, value: root.randomize-after-beats, text: "\{Math.round(root.randomize-after-beats)}", key: 12, step: 1 },
-        { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", key: 13, step: 0.01 }
+        { label: "Steps", min: 1, max: 64, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", step: root.round-steps ? 1 : 0.25 },
+        { label: root.pulse-label(root.mode), min: 0, max: root.pulses-max(root.mode), value: Math.min(root.pulses, root.pulses-max(root.mode)), text: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", step: 1 },
+        { label: "Rotate", min: 0, max: Math.max(Math.ceil(root.steps) - 1, 0), value: Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)), text: "\{Math.round(Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)))}", step: 1 },
+        { label: root.density-label(root.mode), min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", step: 0.01 },
+        { label: "Seed", min: 0, max: 1, value: root.seed, text: "\{Math.round(root.seed * 1000) / 1000}", step: 0.001 },
+        { label: root.phase-label(root.mode), min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", step: 0.01 },
+        { label: root.osc-label(root.mode), min: root.mode == 17 ? 1 : 0.125, max: root.mode == 17 ? 16 : 8, value: root.mode == 17 ? Math.max(root.osc-rate, 1) : root.osc-rate, text: root.mode == 17 ? "\{Math.round(Math.max(root.osc-rate, 1))}" : "\{Math.round(root.osc-rate * 100) / 100}", step: root.mode == 17 ? 1 : 0.125 },
+        { label: root.ca-label(root.mode), min: 0, max: 255, value: root.ca-rule, text: root.mode == 17 ? "\{Math.round(root.ca-rule / 255 * 100)}%" : "\{Math.round(root.ca-rule)}", step: 1 },
+        { label: "Probability", min: 0, max: 1, value: root.probability, text: "\{Math.round(root.probability * 100)}%", step: 0.01 },
+        { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", step: 0.01 },
+        { label: "Regenerate after (lengths, 0=off)", min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", step: 1 },
+        { label: "Symmetry", min: 1, max: 8, value: root.symmetry, text: "\{Math.round(root.symmetry)}", step: 1 },
+        { label: "After beats", min: 1, max: 256, value: root.randomize-after-beats, text: "\{Math.round(root.randomize-after-beats)}", step: 1 },
+        { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", step: 0.01 }
     ];
 
     // Everything lives inside one fixed 860x760 coordinate space. The window never resizes;
@@ -406,7 +392,7 @@ export component AppWindow inherits Window {
                 Text { text: root.mode-math; color: #7f8a99; font-size: 9px; wrap: word-wrap; }
                 Rectangle { height: 5px; }
                 Text { text: "GENERATOR OPTIONS"; color: #788394; font-size: 9px; }
-                HorizontalLayout { spacing: 5px; for i in 4: OptSlider { opt: root.opts[i]; changed(v) => { root.set-opt(root.opts[i].key, v); } } }
+                HorizontalLayout { spacing: 5px; for i in 4: OptSlider { opt: root.opts[i]; changed(v) => { root.set-opt(i, v); } } }
                 HorizontalLayout {
                     spacing: 5px;
                     OptSlider { opt: root.opts[4]; changed(v) => { root.set-opt(4, v); } }
@@ -517,16 +503,16 @@ export component AppWindow inherits Window {
                 NumBox {
                     label: "Steps"; value: root.steps; minimum: 1; maximum: 64;
                     step: root.round-steps ? 1 : 0.25; decimals: root.round-steps ? 0 : 2;
-                    changed(v) => { root.spin-steps(v); }
+                    changed(v) => { root.set-opt(0, v); }
                 }
-                NumBox { label: "Pulses"; value: root.pulses; minimum: 0; maximum: Math.ceil(root.steps); step: 1; changed(v) => { root.spin-opt(1, v); } }
+                NumBox { label: "Pulses"; value: root.pulses; minimum: 0; maximum: Math.ceil(root.steps); step: 1; changed(v) => { root.set-opt(1, v); } }
             }
             HorizontalLayout { spacing: 6px;
-                NumBox { label: "Rotate"; value: root.rotate; minimum: 0; maximum: Math.max(Math.ceil(root.steps) - 1, 0); step: 1; changed(v) => { root.spin-opt(2, v); } }
-                NumBox { label: "Symmetry"; value: root.symmetry; minimum: 1; maximum: 8; step: 1; changed(v) => { root.spin-opt(11, v); } }
+                NumBox { label: "Rotate"; value: root.rotate; minimum: 0; maximum: Math.max(Math.ceil(root.steps) - 1, 0); step: 1; changed(v) => { root.set-opt(2, v); } }
+                NumBox { label: "Symmetry"; value: root.symmetry; minimum: 1; maximum: 8; step: 1; changed(v) => { root.set-opt(11, v); } }
             }
-            NumBox { label: "Regen after"; value: root.regenerate-every; minimum: 0; maximum: 256; step: 1; changed(v) => { root.spin-opt(10, v); } }
-            NumBox { label: "Rand after beats"; value: root.randomize-after-beats; minimum: 1; maximum: 256; step: 1; changed(v) => { root.spin-opt(12, v); } }
+            NumBox { label: "Regen after"; value: root.regenerate-every; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(10, v); } }
+            NumBox { label: "Rand after beats"; value: root.randomize-after-beats; minimum: 1; maximum: 256; step: 1; changed(v) => { root.set-opt(12, v); } }
             Text {
                 text: "RANDOMIZE uses the top button; enable Auto Randomize in the transport row. Type exact values here, or use the arrows and wheel.";
                 color: #8b95a5; font-size: 9px; wrap: word-wrap; vertical-stretch: 1; vertical-alignment: top;

@@ -4,7 +4,7 @@ This map records the supplied melody sequencer's existing view conventions so fo
 
 ## Reference modes and current counterparts
 
-The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`GenKind`), `src/view.rs` (`build()`), and `ui/app.slint` (`pulses-labels`, `shape-label`, `ModePanel`).
+The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`GenKind`), `src/view.rs` (`build()`), and `ui/app.slint` (`pulses-labels`, `shape-label`, `ModePanel`). AlgoDrumNemShine keeps one mode enum instead of the reference's two: `Mode` in `src/modes.rs` is both the host parameter and the generator's dispatch key.
 
 | Reference mode | Reference generator | Reference view | AlgoDrumNemShine adaptation |
 |---|---|---|---|
@@ -21,7 +21,7 @@ These replacements prioritize relevant drum sequencing methods. The new names an
 
 ## New mode → view index
 
-The `GenKind::index()` value in `src/sequence/mod.rs`, the `View.kind` in `src/view.rs`, and the mode order in `ui/app.slint` must match:
+The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hardcoded mode indices in the UI's `shows-param`/`pulse-label` functions must match:
 
 | Index | Mode | Visualization |
 |---:|---|---|
@@ -53,7 +53,7 @@ Three-Body Chaos is not a reference-project mode; it follows the same chaos fami
 existing Logistic Map but with genuinely different controls (`phase` widens the third orbit,
 `osc_rate` sets integration resolution) and a different panel.
 
-When adding or reordering a mode, update together: `Mode`, `GenKind`, `GenKind::ALL`, `GenKind::index()`, dispatch in `sequence::generate()`, `view::build()`, `Mode` labels in Slint, the editor's `from_index()` bound, and the expected parameter/view tests.
+When adding or reordering a mode, update together: the `Mode` enum in `src/modes.rs`, dispatch in `sequence::generate()`, `view::build()`, the `Mode` labels in Slint, the mode indices the UI hardcodes, the editor's `from_index()` bound, and the expected parameter/view tests.
 
 ## Per-mode controls
 

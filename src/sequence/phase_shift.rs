@@ -1,4 +1,4 @@
-use super::{set_hit, GenParams, Pattern, TRACKS};
+use super::{rotated_pos, set_hit, GenParams, Pattern, TRACKS};
 
 /// Reich-inspired phase shifting: every lane repeats the same maximally-even pulse train at a
 /// different circular offset, creating interlocking copies over one shared pattern length.
@@ -18,7 +18,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     for tr in 0..TRACKS {
         let shift = (tr * phase_span + user_phase + seed_phase) % n;
         for i in 0..n {
-            let src = (i + n - shift) % n;
+            let src = rotated_pos(i, shift, n);
             let hit = base[src];
             let accent = if src % 4 == 0 { 1.0 } else if src % 2 == 0 { 0.82 } else { 0.66 };
             set_hit(&mut out, tr, i, hit, accent);
