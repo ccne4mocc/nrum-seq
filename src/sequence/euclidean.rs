@@ -1,14 +1,19 @@
 use super::{set_hit, GenParams, Pattern, Rng, TRACKS};
 
+/// Onset count for E(k, n): the pulse count scaled by density and the lane's density profile.
+/// Shared with the help text so the displayed `k` is the one the generator builds.
+pub(crate) fn lane_pulses(pulses: usize, density: f32, tr: usize, n: usize) -> usize {
+    let weight = super::DENSITY_PROFILE[tr];
+    let k = ((pulses as f32 * density.clamp(0.0, 1.0) * (0.35 + weight)) + 0.5).floor() as usize;
+    k.min(n)
+}
+
 /// Bjorklund-style bucket distribution: lane density scales the requested pulse count, then spaces the resulting hits around the ring.
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let n = p.steps.max(1);
     for tr in 0..TRACKS {
-        let weight = super::DENSITY_PROFILE[tr];
-        let pulses = ((p.pulses as f32 * p.density.clamp(0.0, 1.0) * (0.35 + weight)) + 0.5)
-            .floor() as usize;
-        let pulses = pulses.min(n);
+        let pulses = lane_pulses(p.pulses, p.density, tr, n);
         let mut rng = Rng::new(p.seed, p.variation, 0xE0C1_1D00 + tr as u64);
         // Each lane anchors its word on its own phase origin, the rule `well_formed` already
         // uses. Anchoring every lane on step 0 put all eight lanes on the same step in every

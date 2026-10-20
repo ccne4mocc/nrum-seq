@@ -349,8 +349,10 @@ impl<T: slint::ComponentHandle> SlintWindowHandler<T> {
                 scale_factor: scale,
             });
 
-        // Tell the integration about the new logical size.
-        (self.on_resize)(logical_size.width as u32, logical_size.height as u32);
+        // Deliberately does NOT invoke `on_resize`: this path runs for host- and scale-driven
+        // window info, and an integration that calls `GuiContext::request_resize()` there would
+        // ask the host to apply the size it just sent, which fights user drags and can loop.
+        // Only an explicit `resize` (a plugin-initiated size change) notifies the host.
     }
 
     /// Queue a resize to be applied next frame. Use this from Slint callbacks
@@ -596,10 +598,10 @@ impl SlintWindow {
     /// - `setup` runs once after the component is shown — register UI callbacks
     ///   here.
     /// - `update` runs every frame — push parameter/state values into the UI.
-    /// - `on_resize` is invoked whenever the window size changes (from a
-    ///   [`SlintWindowHandler::resize`] / queued resize, or a host/scale change),
-    ///   with the new logical `(width, height)`. Integrations use it to notify
-    ///   their host; pass `|_, _| {}` if not needed.
+    /// - `on_resize` is invoked after an explicit [`SlintWindowHandler::resize`] /
+    ///   queued resize, with the new logical `(width, height)`. Integrations use it
+    ///   to notify their host; pass `|_, _| {}` if not needed. Host/scale-driven
+    ///   window info does not invoke it, so a host notification cannot echo back.
     ///
     /// `options.gl_config` must request an OpenGL context (see
     /// [`default_gl_config`]); the FemtoVG renderer requires it.

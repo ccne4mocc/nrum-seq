@@ -2,8 +2,8 @@
 //!
 //! nih-plug already persists every parameter plus `#[persist]` fields with the host's
 //! project, so this file only holds preferences that should follow the user across every
-//! project: the colour theme and the editor's scale factor. Everything musical stays in the
-//! project state.
+//! project: the colour theme, the host scale factor, and the editor window-size preset.
+//! Everything musical stays in the project state.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -20,6 +20,9 @@ pub(crate) struct GlobalSettings {
     pub theme: Option<usize>,
     /// Editor scale factor as the host reports it; `None` means "follow the system".
     pub scale: Option<f32>,
+    /// Index into the window-size presets (60/80/100/120 %). Absent or out of range falls back
+    /// to 100 %. Separate from `scale`, which is the host's DPI factor.
+    pub window_scale: Option<usize>,
 }
 
 /// `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json`, falling back to
@@ -84,12 +87,15 @@ mod tests {
 
     #[test]
     fn settings_round_trip_through_json() {
-        let s = GlobalSettings { theme: Some(2), scale: Some(1.25) };
+        let s = GlobalSettings { theme: Some(2), scale: Some(1.25), window_scale: Some(1) };
         let json = serde_json::to_string(&s).unwrap();
-        assert_eq!(json, r#"{"theme":2,"scale":1.25}"#);
+        assert_eq!(json, r#"{"theme":2,"scale":1.25,"window_scale":1}"#);
         let back: GlobalSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.theme, Some(2));
         assert_eq!(back.scale, Some(1.25));
+        assert_eq!(back.window_scale, Some(1));
+        // A file written before the window-size preset existed must still load.
+        assert_eq!(serde_json::from_str::<GlobalSettings>(r#"{"theme":0}"#).unwrap().window_scale, None);
     }
 
     #[test]

@@ -6,37 +6,82 @@ use crate::{cell_count_for, DrumParams, Mode, OscWave, Rate, Shared, Theme as Pl
 use nih_plug::prelude::*;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use slint_baseview::{default_gl_config, Size, SlintWindow, WindowHandle, WindowOpenOptions, WindowScalePolicy};
-use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 
 slint::include_modules!();
-const WIDTH: u32 = 760;
-const HEIGHT: u32 = 690;
+const WIDTH: u32 = 860;
+const HEIGHT: u32 = 760;
+/// Window-size presets. The layout always computes at 860x760 logical units; a preset scales
+/// the window and the rendered content together, so nothing reflows.
+const ZOOM: [f32; 4] = [0.6, 0.8, 1.0, 1.2];
+const DEFAULT_ZOOM: usize = 2;
+
+fn scaled_size(index: usize) -> (u32, u32) {
+    let z = ZOOM[index.min(ZOOM.len() - 1)];
+    (((WIDTH as f32 * z).round()) as u32, ((HEIGHT as f32 * z).round()) as u32)
+}
+/// Pack a logical size into one atomic so `Editor::size()` stays lock-free.
+fn pack(w: u32, h: u32) -> u64 { (w as u64) << 32 | h as u64 }
+fn unpack(v: u64) -> (u32, u32) { ((v >> 32) as u32, v as u32) }
 
 pub fn create(params: Arc<DrumParams>, shared: Arc<Shared>) -> Box<dyn Editor> {
-    Box::new(SlintEditor { params, shared, scale: Arc::new(AtomicU32::new(0)) })
+    Box::new(SlintEditor {
+        params, shared,
+        scale: Arc::new(AtomicU32::new(0)),
+        zoom: Arc::new(AtomicU32::new(DEFAULT_ZOOM as u32)),
+        pending_zoom: Arc::new(AtomicU32::new(DEFAULT_ZOOM as u32)),
+        size: Arc::new(AtomicU64::new(pack(WIDTH, HEIGHT))),
+        last_good: Arc::new(AtomicU64::new(pack(WIDTH, HEIGHT))),
+        want_resize: Arc::new(AtomicU64::new(0)),
+    })
 }
-struct SlintEditor { params: Arc<DrumParams>, shared: Arc<Shared>, scale: Arc<AtomicU32> }
+struct SlintEditor {
+    params: Arc<DrumParams>,
+    shared: Arc<Shared>,
+    /// Host DPI factor. `0` means "not reported yet".
+    scale: Arc<AtomicU32>,
+    /// Preset actually applied to the window (the UI reflects this).
+    zoom: Arc<AtomicU32>,
+    /// Preset the user asked for, until the host accepts or refuses.
+    pending_zoom: Arc<AtomicU32>,
+    /// Logical size the host should allocate, reported by `Editor::size()`.
+    size: Arc<AtomicU64>,
+    /// Last size the host accepted; the revert target.
+    last_good: Arc<AtomicU64>,
+    /// Packed size to apply on the next frame; `0` means none.
+    want_resize: Arc<AtomicU64>,
+}
 
 /// Snapshot the user-global settings out of the parameters, for `globals::save`.
-fn global_settings(p: Arc<DrumParams>, scale: f32) -> globals::GlobalSettings {
+fn global_settings(p: Arc<DrumParams>, scale: f32, zoom: usize) -> globals::GlobalSettings {
     globals::GlobalSettings {
         theme: Some(p.theme.value().to_index()),
         scale: if scale > 0.0 { Some(scale) } else { None },
+        window_scale: Some(zoom),
     }
 }
-struct SlintEditorHandle { window: WindowHandle, params: Arc<DrumParams>, scale: f32 }
+struct SlintEditorHandle {
+    window: WindowHandle,
+    params: Arc<DrumParams>,
+    scale: Arc<AtomicU32>,
+    zoom: Arc<AtomicU32>,
+}
 unsafe impl Send for SlintEditorHandle {}
 impl Drop for SlintEditorHandle {
     fn drop(&mut self) {
         // Editor closing is the last chance to persist, so bypass the debounce.
-        // Theme and scale must be read from live state *here*: a snapshot taken at spawn is
-        // stale by the time the user closes the editor, and writing it back would revert
-        // every theme or scale change made during the session. No unit test covers this:
+        // Theme, host scale and window preset are read from live state *here*: a snapshot
+        // taken at spawn is stale by the time the user closes the editor, and writing it back
+        // would revert every change made during the session. No unit test covers this:
         // nih-plug's `Param` trait is read-only outside a `GuiContext`, so a test cannot
         // change the theme and observe what the close path writes. The fix is structural --
         // there is no snapshot field left to go stale.
-        globals::save_now(&global_settings(self.params.clone(), self.scale));
+        globals::save_now(&global_settings(
+            self.params.clone(),
+            f32::from_bits(self.scale.load(Relaxed)),
+            self.zoom.load(Relaxed) as usize,
+        ));
         self.window.close();
     }
 }
@@ -154,6 +199,15 @@ impl Editor for SlintEditor {
         // follows the user rather than whatever the project last stored.
         let stored = globals::load();
         let scale = stored.scale.filter(|s| *s > 0.0).unwrap_or_else(|| f32::from_bits(self.scale.load(Relaxed)));
+        // Keep the host factor in the atomic even when the host never calls
+        // `set_scale_factor`: the close path reads it, and an unset value used to drop it.
+        if scale > 0.0 && self.scale.load(Relaxed) == 0 { self.scale.store(scale.to_bits(), Relaxed); }
+        let zoom_index = stored.window_scale.filter(|i| *i < ZOOM.len()).unwrap_or(DEFAULT_ZOOM);
+        let (open_w, open_h) = scaled_size(zoom_index);
+        self.zoom.store(zoom_index as u32, Relaxed);
+        self.pending_zoom.store(zoom_index as u32, Relaxed);
+        self.size.store(pack(open_w, open_h), Relaxed);
+        self.last_good.store(pack(open_w, open_h), Relaxed);
         if let Some(theme) = stored.theme {
             // `from_index` falls back to the first variant, so a corrupt file cannot panic.
             let theme = PluginTheme::from_index(theme);
@@ -163,13 +217,33 @@ impl Editor for SlintEditor {
             setter.end_set_parameter(&self.params.theme);
         }
         let options = WindowOpenOptions {
-            title: "AlgoDrumNemShine".to_string(), size: Size::new(WIDTH as f64, HEIGHT as f64),
+            title: "AlgoDrumNemShine".to_string(), size: Size::new(open_w as f64, open_h as f64),
             scale: if scale > 0.0 { WindowScalePolicy::ScaleFactor(scale as f64) } else { WindowScalePolicy::SystemScaleFactor },
             gl_config: Some(default_gl_config()),
         };
         let (setup_params, setup_ctx) = (self.params.clone(), context.clone());
+        // `spawn` returns before any closure runs, and the closures must be `'static`, so the
+        // shared state is cloned out here rather than captured through `&self`.
+        let (pending_cell, size_cell, want_cell) =
+            (self.pending_zoom.clone(), self.size.clone(), self.want_resize.clone());
+        let (update_zoom_cell, update_want_cell) = (self.zoom.clone(), self.want_resize.clone());
+        let (resize_size_cell, resize_good_cell) = (self.size.clone(), self.last_good.clone());
+        let (resize_want_cell, resize_applied, resize_pending) =
+            (self.want_resize.clone(), self.zoom.clone(), self.pending_zoom.clone());
         let setup = move |h: &slint_baseview::SlintWindowHandler<AppWindow>, _w: &mut slint_baseview::Window| {
             let ui = h.component();
+            {
+                // Window-size preset. The update loop applies the resize (it owns `&mut Window`),
+                // then `on_resize` asks the host to follow and reverts if it refuses.
+                let (pending, size, want) = (pending_cell.clone(), size_cell.clone(), want_cell.clone());
+                ui.on_set_zoom(move |i| {
+                    let i = i.clamp(0, ZOOM.len() as i32 - 1) as usize;
+                    let (w, h) = scaled_size(i);
+                    pending.store(i as u32, Relaxed);
+                    size.store(pack(w, h), Relaxed);
+                    want.store(pack(w, h), Relaxed);
+                });
+            }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_set_mode(move |v| {
@@ -249,7 +323,14 @@ impl Editor for SlintEditor {
         // rather than by borrowing the editor.
         let update_scale_cell = self.scale.clone();
         let last_randomize_request = AtomicU32::new(update_shared.randomize_request.load(Relaxed));
-        let update = move |h: &slint_baseview::SlintWindowHandler<AppWindow>, _w: &mut slint_baseview::Window| {
+        let update = move |h: &slint_baseview::SlintWindowHandler<AppWindow>, window: &mut slint_baseview::Window| {
+            // A preset change is applied here because a Slint callback has no `&mut Window`.
+            let want = update_want_cell.load(Relaxed);
+            if want != 0 {
+                update_want_cell.store(0, Relaxed);
+                let (w, hgt) = unpack(want);
+                h.resize(window, w, hgt);
+            }
             let requested = update_shared.randomize_request.load(Relaxed);
             let previous = last_randomize_request.swap(requested, Relaxed);
             let pending = requested.wrapping_sub(previous).min(16);
@@ -260,6 +341,9 @@ impl Editor for SlintEditor {
             }
             let p = &update_params;
             let ui = h.component();
+            let zoom_index = update_zoom_cell.load(Relaxed) as usize;
+            ui.set_zoom(ZOOM[zoom_index.min(ZOOM.len() - 1)]);
+            if ui.get_zoom_index() != zoom_index as i32 { ui.set_zoom_index(zoom_index as i32); }
             ui.set_mode(p.mode.value() as i32);
             let selected_theme = p.theme.value();
             let theme_index = selected_theme.to_index() as i32;
@@ -275,6 +359,7 @@ impl Editor for SlintEditor {
                 globals::save(&globals::GlobalSettings {
                     theme: Some(theme_index as usize),
                     scale: if update_scale > 0.0 { Some(update_scale) } else { None },
+                    window_scale: Some(update_zoom_cell.load(Relaxed) as usize),
                 });
             }
             ui.set_steps(p.steps.value());
@@ -304,6 +389,7 @@ impl Editor for SlintEditor {
             let mut c = update_cache.lock().unwrap();
             if c.gen_key != Some(gen_key) {
                 c.pattern = generate(&gen_key);
+                ui.set_mode_math(SharedString::from(crate::help::math(&gen_key)));
                 c.gen_key = Some(gen_key);
             }
             let view_key = (gen_key, cur, mask, vel_key);
@@ -333,10 +419,39 @@ impl Editor for SlintEditor {
                 c.view_key = Some(view_key);
             }
         };
-        let window = SlintWindow::open_parented(&parent, options, || AppWindow::new(), setup, update, |_, _| {});
-        Box::new(SlintEditorHandle { window, params: self.params.clone(), scale })
+        let initial_zoom = ZOOM[zoom_index];
+        let factory = move || {
+            let ui = AppWindow::new()?;
+            // Set the preset before the first frame so a saved 60 % open does not flash at 100 %.
+            ui.set_zoom(initial_zoom);
+            ui.set_zoom_index(zoom_index as i32);
+            Ok(ui)
+        };
+        // Called from the `resize` above (never from a host-initiated window-info event), so
+        // this is exactly the point where the host needs to follow the new editor size.
+        let on_resize = move |w: u32, hgt: u32| {
+            if context.request_resize() {
+                resize_good_cell.store(pack(w, hgt), Relaxed);
+                resize_size_cell.store(pack(w, hgt), Relaxed);
+                resize_applied.store(resize_pending.load(Relaxed), Relaxed);
+            } else if pack(w, hgt) != resize_good_cell.load(Relaxed) {
+                // The host refused: return to the last size it accepted rather than leaving a
+                // half-scaled window. The size guard stops this from looping every frame.
+                let back = resize_good_cell.load(Relaxed);
+                resize_size_cell.store(back, Relaxed);
+                resize_want_cell.store(back, Relaxed);
+                resize_pending.store(resize_applied.load(Relaxed), Relaxed);
+            }
+        };
+        let window = SlintWindow::open_parented(&parent, options, factory, setup, update, on_resize);
+        Box::new(SlintEditorHandle {
+            window,
+            params: self.params.clone(),
+            scale: self.scale.clone(),
+            zoom: self.zoom.clone(),
+        })
     }
-    fn size(&self) -> (u32, u32) { (WIDTH, HEIGHT) }
+    fn size(&self) -> (u32, u32) { unpack(self.size.load(Relaxed)) }
     fn set_scale_factor(&self, factor: f32) -> bool {
         self.scale.store(factor.to_bits(), Relaxed);
         // Editor scale is a user preference, not project state: persist it globally.
@@ -357,5 +472,18 @@ mod tests {
     fn track_mask_covers_eight_lanes() {
         let p = DrumParams::default();
         assert_eq!(enabled_mask(&p) & 0b0000_0111, 0b0000_0111);
+    }
+
+    #[test]
+    fn zoom_presets_scale_the_base_layout_and_round_trip_through_the_atomic() {
+        assert_eq!(scaled_size(0), (516, 456));
+        assert_eq!(scaled_size(1), (688, 608));
+        assert_eq!(scaled_size(2), (WIDTH, HEIGHT));
+        assert_eq!(scaled_size(3), (1032, 912));
+        // An out-of-range index falls back to the largest preset instead of panicking.
+        assert_eq!(scaled_size(99), scaled_size(3));
+        for (w, h) in [(0u32, 0u32), (1, 65_535), (WIDTH, HEIGHT)] {
+            assert_eq!(unpack(pack(w, h)), (w, h));
+        }
     }
 }

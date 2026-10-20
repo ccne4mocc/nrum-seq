@@ -2,6 +2,7 @@
 //! The plug-in intentionally has no audio renderer: route it to a drum sampler / rack.
 mod editor;
 mod globals;
+mod help;
 mod sequence;
 mod view;
 

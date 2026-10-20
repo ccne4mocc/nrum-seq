@@ -24,6 +24,10 @@ mod nbody;
 pub(crate) use oscillator::{threshold as oscillator_threshold, value as oscillator_value};
 pub(crate) use raised_cosine::{cutoff as raised_cosine_cutoff, envelope as raised_cosine_envelope, phase_offset as raised_cosine_phase};
 pub(crate) use slowcat::motif_len as slowcat_motif_len;
+// Help text shows these derived quantities, so it reads them from the generators instead of
+// restating the formula.
+pub(crate) use euclidean::lane_pulses as euclidean_lane_pulses;
+pub(crate) use nbody::substep_budget as nbody_substep_budget;
 
 pub const TRACKS: usize = 8;
 /// 64 keeps the whole Pattern at ~3.8 KiB and bounds per-lane generation to a cost the
@@ -179,7 +183,7 @@ impl Rng {
     pub(super) fn below(&mut self, n: usize) -> usize { if n == 0 { 0 } else { (self.next_u64() % n as u64) as usize } }
 }
 
-pub(super) const DENSITY_PROFILE: [f32; TRACKS] = [0.50, 0.30, 1.00, 0.12, 0.18, 0.15, 0.12, 0.28];
+pub(crate) const DENSITY_PROFILE: [f32; TRACKS] = [0.50, 0.30, 1.00, 0.12, 0.18, 0.15, 0.12, 0.28];
 
 #[inline]
 pub(super) fn enabled_threshold(p: &GenParams, track: usize) -> f32 {

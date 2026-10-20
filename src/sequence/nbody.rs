@@ -48,7 +48,8 @@ fn clamp_state(r: &mut [f64; W], v: &mut [f64; W]) {
 }
 
 /// Bounded substeps for one generation: resolution follows `osc_rate`, total work is capped.
-fn substep_budget(steps: usize, osc_rate: f32) -> usize {
+/// Shared with the help text so the displayed budget matches the integrator's.
+pub(crate) fn substep_budget(steps: usize, osc_rate: f32) -> usize {
     (steps * (8 + 32 * osc_rate.clamp(0.125, 8.0) as usize)).clamp(64, 2048)
 }
 
