@@ -198,12 +198,19 @@ component ModePanel inherits Rectangle {
 
 export component AppWindow inherits Window {
     title: "AlgoDrumNemShine";
-    // The layout always computes at this size; `zoom` scales the window and the drawing.
+    // Fixed layout size: the window never resizes (a live resize glitched the GL surface),
+    // so the host cannot be fought over it.
     in property <length> base-width: 860px;
     in property <length> base-height: 760px;
-    in property <percent> zoom: 100%;
-    in property <int> zoom-index: 2;
-    preferred-width: root.base-width * root.zoom; preferred-height: root.base-height * root.zoom;
+    preferred-width: root.base-width; preferred-height: root.base-height;
+    // Sequencer size: scales the pattern-matrix cells only, in both directions. Past 100 %
+    // the lane names stay fixed and the cell grid scrolls horizontally.
+    in property <float> sequencer-scale: 1.0;
+    in property <int> sequencer-scale-index: 2;
+    property <length> seq-row: 20px * root.sequencer-scale;
+    property <length> seq-content-width: (root.base-width - 28px - 76px) * root.sequencer-scale;
+    in-out property <length> grid-scroll-x: 0px;
+    changed sequencer-scale => { root.grid-scroll-x = 0px; }
     background: @linear-gradient(135deg, Theme.bg1 0%, Theme.bg2 50%, Theme.bg3 100%);
     in property <int> mode: 0;
     // The mode list is taller than its viewport, and the wheel now changes the mode instead
@@ -235,8 +242,8 @@ export component AppWindow inherits Window {
     in property <int> osc-wave: 0;
     in property <int> theme-index: 0;
     in-out property <bool> settings-open: false;
-    // Settings slide in from the right edge of the unscaled 860px layout; see the panel at the
-    // bottom of this component. `root.width` is the window size, which changes with the zoom.
+    // Settings slide in from the right edge of the fixed 860px layout; see the panel at the
+    // bottom of this component.
     in-out property <length> settings-x: root.base-width;
     changed settings-open => {
         root.settings-x = root.settings-open ? 0px : root.base-width;
@@ -250,7 +257,7 @@ export component AppWindow inherits Window {
     in property <string> view-hand: "M0 0";
     in property <string> mode-math: "";
     callback set-mode(int);
-    callback set-zoom(int);
+    callback set-sequencer-scale(int);
     callback set-rate(int);
     callback set-osc-wave(int);
     callback set-theme(int);
@@ -301,13 +308,10 @@ export component AppWindow inherits Window {
         { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", key: 13, step: 0.01 }
     ];
 
-    // Everything lives inside one fixed 860x760 coordinate space. `zoom` scales only the
-    // drawing; Slint maps pointer events back through the transform, so hit-testing follows.
+    // Everything lives inside one fixed 860x760 coordinate space. The window never resizes;
+    // only the pattern-matrix cells scale, so nothing reflows.
     Rectangle {
         width: root.base-width; height: root.base-height;
-        transform-origin: { x: 0px, y: 0px };
-        transform-scale-x: root.zoom;
-        transform-scale-y: root.zoom;
 
     VerticalLayout {
         padding: 14px; spacing: 8px;
@@ -391,24 +395,53 @@ export component AppWindow inherits Window {
             }
         }
         Text { text: "PATTERN MATRIX  ·  velocity = brightness  ·  probability = opacity  ·  playhead in amber"; color: #788394; font-size: 10px; }
-        VerticalLayout {
-            spacing: 4px;
-            for track in root.tracks: HorizontalLayout {
-                height: 22px; spacing: 0px;
-                Text { width: 76px; text: track.name; color: track.enabled ? #d1d5db : #505965; font-size: 9px; vertical-alignment: center; }
-                for cell in track.cells: Rectangle {
-                    // Derived from the fixed layout width, not from `parent.width`: binding to
-                    // a layout width is a binding loop. base-width - 2x14 padding - the 76px
-                    // name column fills the row exactly on both sides of the zoom.
-                    width: max(2px, (root.base-width - 28px - 76px) / (track.cells.length * 1.0));
-                    height: 20px;
-                    Rectangle {
-                        x: 0px; y: 0px;
-                        width: max(parent.width - 1px, 0px); height: parent.height;
-                        border-radius: 2px;
-                        background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : #242930;
-                        opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
-                        border-width: cell.playing ? 2px : 0px; border-color: Theme.hi;
+        // The lanes keep their fixed name column; only the cell grid scales. Wrapping the grid
+        // in a ScrollView adds horizontal scrolling past 100 % instead of clipping the cells.
+        HorizontalLayout {
+            // Seven 3px row gaps, plus a 14px gutter only when the cells grow past 100 % so
+            // the horizontal scrollbar does not eat into the last row.
+            height: root.seq-row * 8 + 21px + (root.sequencer-scale > 1.0 ? 14px : 0px);
+            spacing: 0px;
+            VerticalLayout {
+                width: 76px; spacing: 3px;
+                for track in root.tracks: Text {
+                    height: root.seq-row;
+                    text: track.name; color: track.enabled ? #d1d5db : #505965;
+                    font-size: 9px; vertical-alignment: center;
+                }
+            }
+            ScrollView {
+                horizontal-stretch: 1;
+                // Vertical scrolling is never needed: the grid height always fits the row.
+                vertical-scrollbar-policy: always-off;
+                viewport-x <=> root.grid-scroll-x;
+                VerticalLayout {
+                    width: root.seq-content-width;
+                    spacing: 3px;
+                    for track in root.tracks: HorizontalLayout {
+                        height: root.seq-row; spacing: 0px;
+                        for cell in track.cells: Rectangle {
+                            width: max(2px, root.seq-content-width / (track.cells.length * 1.0));
+                            height: 18px * root.sequencer-scale;
+                            Rectangle {
+                                x: 0px; y: 0px;
+                                width: max(parent.width - 1px, 0px); height: parent.height;
+                                border-radius: 2px;
+                                background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : #242930;
+                                opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
+                                border-width: cell.playing ? 2px : 0px; border-color: Theme.hi;
+                            }
+                            // Wheel scrolls the scaled grid sideways (the bar below is small).
+                            TouchArea {
+                                scroll-event(e) => {
+                                    if (e.delta-y != 0px) {
+                                        root.grid-scroll-x = Math.max(756px * (1 - root.sequencer-scale), Math.min(0px, root.grid-scroll-x - e.delta-y));
+                                        return accept;
+                                    }
+                                    return reject;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -460,10 +493,10 @@ export component AppWindow inherits Window {
                 }
                 round-touch := TouchArea { clicked => { root.toggle-round-steps(); } }
             }
-            Text { text: "WINDOW SIZE"; color: #788394; font-size: 9px; }
-            // Scales the whole editor and asks the host to follow. 100% is always a valid
-            // fallback if the host refuses a live resize.
-            Selector { options: ["60%", "80%", "100%", "120%"]; current: root.zoom-index; text-size: 10px; selected(i) => { root.set-zoom(i); } }
+            Text { text: "SEQUENCER SIZE"; color: #788394; font-size: 9px; }
+            // Scales the pattern-matrix cells only. The window stays fixed at 860x760, so a
+            // host can never refuse (or glitch on) a resize request.
+            Selector { options: ["60%", "80%", "100%", "120%"]; current: root.sequencer-scale-index; text-size: 10px; selected(i) => { root.set-sequencer-scale(i); } }
             Text { text: "PATTERN NUMBERS"; color: #788394; font-size: 9px; }
             HorizontalLayout { spacing: 6px;
                 NumBox {
