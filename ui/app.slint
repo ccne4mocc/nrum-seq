@@ -178,31 +178,37 @@ component ModePanel inherits Rectangle {
     in property <string> edges: "M0 0";
     in property <string> lines: "M0 0";
     in property <string> hand: "M0 0";
-    width: 210px; height: 210px; background: #1b1e24; border-radius: 6px; clip: true;
-    Path { x: 0px; y: 0px; width: 210px; height: 210px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.edges; fill: transparent; stroke: #3b4350; stroke-width: 1px; }
-    Path { x: 0px; y: 0px; width: 210px; height: 210px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.lines; fill: transparent; stroke: Theme.c3; stroke-width: 1.4px; }
-    Path { x: 0px; y: 0px; width: 210px; height: 210px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.hand; fill: transparent; stroke: Theme.hi; stroke-width: 2px; }
+    // view.rs builds every panel in a 210-unit space. The paths scale through the viewbox;
+    // the node rectangles are scaled by hand so dots and labels grow with the box.
+    property <float> px-per-unit: 1.3333334;   // 280px panel / 210-unit geometry
+    width: 210px * root.px-per-unit; height: 210px * root.px-per-unit;
+    background: #1b1e24; border-radius: 6px; clip: true;
+    Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.edges; fill: transparent; stroke: #3b4350; stroke-width: 1px; }
+    Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.lines; fill: transparent; stroke: Theme.c3; stroke-width: 1.4px; }
+    Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.hand; fill: transparent; stroke: Theme.hi; stroke-width: 2px; }
     for n in root.nodes: Rectangle {
-        x: n.x - n.r; y: n.y - n.r; width: n.r * 2; height: n.r * 2; border-radius: n.r;
+        x: (n.x - n.r) * root.px-per-unit; y: (n.y - n.r) * root.px-per-unit;
+        width: n.r * 2 * root.px-per-unit; height: n.r * 2 * root.px-per-unit;
+        border-radius: n.r * root.px-per-unit;
         background: n.cur ? Theme.hi : (n.on ? Theme.c1 : #2a2e35);
         border-width: 1px; border-color: #4b5563;
-        Text { width: parent.width; height: parent.height; text: n.label; font-size: 7px; color: #04201d; horizontal-alignment: center; vertical-alignment: center; }
+        Text { width: parent.width; height: parent.height; text: n.label; font-size: 7px * root.px-per-unit; color: #04201d; horizontal-alignment: center; vertical-alignment: center; }
     }
 }
 
 export component AppWindow inherits Window {
     title: "AlgoDrumNemShine";
-    preferred-width: 760px; preferred-height: 690px;
+    preferred-width: 860px; preferred-height: 760px;
     background: @linear-gradient(135deg, Theme.bg1 0%, Theme.bg2 50%, Theme.bg3 100%);
     in property <int> mode: 0;
     // The mode list is taller than its viewport, and the wheel now changes the mode instead
     // of scrolling it, so the list has to follow the selection. 32px per row (28px + 4px
-    // spacing) x 17 modes = 544px of content in a 244px viewport => 300px of travel.
+    // spacing) x 17 modes = 544px of content in a 280px viewport => 264px of travel.
     // A Flickable/ScrollView viewport moves up by going NEGATIVE; the previous positive value
     // was clamped to 0, so modes 8-15 could be selected but never scrolled into view.
     in-out property <length> mode-scroll-y: 0px;
     changed mode => {
-        root.mode-scroll-y = -Math.max(0px, Math.min(mode * 32px - 108px, 300px));
+        root.mode-scroll-y = -Math.max(0px, Math.min(mode * 32px - 108px, 264px));
     }
     in property <float> steps: 16;
     in property <bool> round-steps: true;
@@ -297,9 +303,9 @@ export component AppWindow inherits Window {
             Rectangle { width: 86px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : #30343c; Text { text: "⚙ SETTINGS"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
         }
         HorizontalLayout {
-            height: 244px; spacing: 10px;
+            height: 280px; spacing: 10px;
             mode-list := ScrollView {
-                width: 126px; height: 244px;
+                width: 126px; height: 280px;
                 viewport-y <=> root.mode-scroll-y;
                 VerticalLayout { spacing: 4px;
                     for i in root.mode-names.length: Rectangle {
@@ -326,7 +332,7 @@ export component AppWindow inherits Window {
                 spacing: 5px;
                 Text { text: root.mode-names[root.mode]; color: Theme.c1; font-size: 16px; font-weight: 700; }
                 Text { text: root.mode-help[root.mode]; color: #c1c8d2; font-size: 11px; wrap: word-wrap; vertical-stretch: 1; vertical-alignment: center; }
-                Text { text: "CLOCK / GENERATOR OPTIONS"; color: #788394; font-size: 9px; }
+                Text { text: "GENERATOR OPTIONS"; color: #788394; font-size: 9px; }
                 HorizontalLayout { spacing: 5px; for i in 4: OptSlider { opt: root.opts[i]; changed(v) => { root.set-opt(root.opts[i].key, v); } } }
                 HorizontalLayout {
                     spacing: 5px;
@@ -337,16 +343,21 @@ export component AppWindow inherits Window {
                 }
                 HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[8]; changed(v) => { root.set-opt(8, v); } } OptSlider { opt: root.opts[9]; changed(v) => { root.set-opt(9, v); } } }
                 HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } } if root.mode == 5: OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
-                HorizontalLayout {
-                    Text { text: "RATE"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
-                    Selector { options: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"]; current: root.rate; text-size: 9px; selected(i) => { root.set-rate(i); } }
-                    OptSlider { width: 132px; opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
-                }
                 if root.mode == 4: HorizontalLayout {
                     Text { text: "WAVE"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
                     Selector { options: ["Sine", "Triangle", "Saw", "Square"]; current: root.osc-wave; text-size: 9px; selected(i) => { root.set-osc-wave(i); } }
                 }
             }
+        }
+        // Rate and swing are clock controls, so they get their own full-width row under the
+        // generator options instead of sharing the cramped options column.
+        HorizontalLayout {
+            height: 28px; spacing: 8px;
+            Text { text: "CLOCK"; color: #788394; font-size: 9px; vertical-alignment: center; }
+            Text { text: "RATE"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
+            Selector { width: 200px; options: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"]; current: root.rate; text-size: 9px; selected(i) => { root.set-rate(i); } }
+            Text { text: "SWING"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
+            OptSlider { horizontal-stretch: 1; opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
         }
         Text { text: "DRUM LANES     ·     MIDI channel 10 / GM-style note map"; color: #788394; font-size: 10px; }
         HorizontalLayout {
@@ -367,9 +378,9 @@ export component AppWindow inherits Window {
                 for cell in track.cells: Rectangle {
                     // A constant, deliberately: binding this to `root.width` or `parent.width`
                     // is a binding loop (Slint warns it may panic) because the window width
-                    // itself derives from layout info. The editor is fixed at 760px, so
-                    // 656 = 760 - 2x14 padding - the 76px name column fills the row exactly.
-                    width: max(2px, 656px / (track.cells.length * 1.0));
+                    // itself derives from layout info. The editor is fixed at 860px, so
+                    // 756 = 860 - 2x14 padding - the 76px name column fills the row exactly.
+                    width: max(2px, 756px / (track.cells.length * 1.0));
                     height: 20px;
                     Rectangle {
                         x: 0px; y: 0px;

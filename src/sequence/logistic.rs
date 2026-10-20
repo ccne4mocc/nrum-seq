@@ -13,23 +13,32 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         x = r * x * (1.0 - x);
         out.orbit[i] = x as f32;
     }
+    // Each lane reads the orbit from a different phase, otherwise every lane triggers on the
+    // same high samples and all eight drums fire together (measured: a third of all steps at
+    // the default settings). The offset only moves *where* a lane looks, never the values.
+    let stride = (p.steps / TRACKS).max(1);
     for tr in 0..TRACKS {
         let pulse_ratio = p.pulses as f32 / p.steps as f32;
         let threshold = (pulse_ratio * (0.3 + 0.7 * p.density.clamp(0.0, 1.0))
             * (0.5 + super::DENSITY_PROFILE[tr])).clamp(0.03, 0.97);
         // Hit at orbit peaks relative to a density/pulse quantile, not on every high value.
         let cutoff = 1.0 - threshold;
+        let offset = (tr * stride) % p.steps;
         for i in 0..p.steps {
-            let x = out.orbit[i];
+            let slot = (i + offset) % p.steps;
+            let x = out.orbit[slot];
             // One sample cannot clear a cutoff tuned for a ring, and prev/next both wrap
             // onto this step. A single-step pattern is a plain trigger instead.
             if p.steps == 1 {
                 set_hit(&mut out, tr, i, true, 0.55 + x * 0.45);
                 continue;
             }
-            let prev = out.orbit[(i + p.steps - 1) % p.steps];
-            let local_peak = x >= prev && x > out.orbit[(i + 1) % p.steps];
-            set_hit(&mut out, tr, i, x >= cutoff && (local_peak || x > 0.75), 0.55 + x * 0.45);
+            // A two-step ring has the same neighbour on both sides, so no sample can be a
+            // strict local peak; fall back to the cutoff alone there.
+            let prev = out.orbit[(slot + p.steps - 1) % p.steps];
+            let next = out.orbit[(slot + 1) % p.steps];
+            let peak = p.steps <= 2 || (x >= prev && x > next);
+            set_hit(&mut out, tr, i, x >= cutoff && peak, 0.55 + x * 0.45);
         }
     }
     out

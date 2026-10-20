@@ -35,9 +35,14 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         }
         if hits == 0 { continue; }
         let threshold = cutoff(hits, n);
+        // Every lane thresholds the same envelope, so lanes that request the same `hits`
+        // produced identical words and fired together (all eight drums on the same step in
+        // every variation). Rotating each lane by its own step offset keeps the exact count
+        // while making the lanes independent; lane 0 stays on the downbeat.
+        let offset = tr % n;
         for i in 0..n {
             let raised = envelope(i, n, hits, phase);
-            set_hit(&mut out, tr, i, raised >= threshold, (0.55 + raised * 0.45).clamp(0.05, 1.0));
+            set_hit(&mut out, tr, (i + offset) % n, raised >= threshold, (0.55 + raised * 0.45).clamp(0.05, 1.0));
         }
     }
     out

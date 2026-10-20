@@ -27,10 +27,6 @@ fn circle(s: &mut String, cx: f32, cy: f32, r: f32) {
     let _ = write!(s, "M{:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} ", cx + r, cy, cx - r, cy, cx + r, cy);
 }
 fn aggregate_hit(p: &Pattern, i: usize) -> bool { (0..TRACKS).any(|t| p.hit[t][i]) }
-/// Count of onsets in one lane.
-fn lane_count(p: &Pattern, tr: usize, n: usize) -> usize {
-    (0..n).filter(|&i| p.hit[tr][i]).count()
-}
 
 /// Generation the cellular generator reads for one lane. Must match `cellular::generate`;
 /// it also collapses to row 0 at one step, where the ring wraps onto itself.
@@ -301,17 +297,36 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 18.0); ln(&mut v.hand, x, 192.0); }
         }
         GenKind::PhaseShift => {
-            // Every lane is the same motif at a different circular offset, so the structure is
-            // the offsets: draw one spoke per lane to its first onset, plus a playhead radius.
-            circle(&mut v.edges, C, C, 94.0);
+            // Every lane is the same motif at a different circular offset, so draw the motif
+            // itself on one ring per lane: eight congruent outlines rotated against each other.
+            // The old first-onset spokes showed only the offsets and hid the shared rhythm.
             let labels = ["K", "S", "CH", "OH", "CL", "RM", "T", "P"];
+            let mut outer = 0.0;
             for tr in 0..TRACKS {
-                let first = (0..n).find(|&i| p.hit[tr][i]).unwrap_or(0);
-                let (x, y) = polar(94.0, first as f32 / n as f32);
-                mv(&mut v.lines, C, C); ln(&mut v.lines, x, y);
-                v.nodes.push(Node { x, y, r: 7.0, on: lane_count(p, tr, n) > 0, cur: play == Some(first), label: labels[tr].into() });
+                let radius = 26.0 + tr as f32 * 9.0;
+                outer = radius;
+                circle(&mut v.edges, C, C, radius);
+                let mut first_point = None;
+                for i in 0..n {
+                    if !p.hit[tr][i] { continue; }
+                    let (x, y) = polar(radius, i as f32 / n as f32);
+                    let first = first_point.is_none();
+                    if first { mv(&mut v.lines, x, y); first_point = Some((x, y)); } else { ln(&mut v.lines, x, y); }
+                    v.nodes.push(Node {
+                        x, y,
+                        r: if first { 6.4 } else { 3.4 },
+                        on: true,
+                        cur: play == Some(i),
+                        label: if first { labels[tr].into() } else { String::new() },
+                    });
+                }
+                // Close the polygon so each lane reads as one rotated copy of the motif.
+                if let Some((x, y)) = first_point { ln(&mut v.lines, x, y); }
             }
-            if let Some(i) = play { let (x, y) = polar(94.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
+            if let Some(i) = play {
+                let (x, y) = polar(outer + 6.0, i as f32 / n as f32);
+                mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
+            }
         }
         GenKind::Polyrhythm => {
             // Ratio stack: a dot ring per lane shows the pulse count, but sized by accent so the
@@ -470,17 +485,26 @@ mod tests {
     }
 
     #[test]
-    fn phase_shift_spokes_follow_each_lane_offset() {
-        // The spokes encode where each lane's motif starts, so each must sit on that lane's onset.
+    fn phase_shift_rings_trace_each_lane_motif() {
+        // One ring per lane; every onset sits on the lane's ring and the labelled node marks
+        // the lane's first onset. The outlines are the shared motif, rotated per lane.
         let g = GenParams { kind: GenKind::PhaseShift, steps: 16, pulses: 4, density: 1.0, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, -1);
         let labels = ["K", "S", "CH", "OH", "CL", "RM", "T", "P"];
         for tr in 0..TRACKS {
-            let first = (0..16).find(|&i| pat.hit[tr][i]).unwrap_or(0);
-            let (x, y) = polar(94.0, first as f32 / 16.0);
-            assert!(view.nodes.iter().any(|nd| nd.label == labels[tr]
-                && (nd.x - x).abs() < 0.6 && (nd.y - y).abs() < 0.6), "lane {tr} spoke misplaced");
+            let radius = 26.0 + tr as f32 * 9.0;
+            let first = (0..16).find(|&i| pat.hit[tr][i]).expect("lane has an onset");
+            let (fx, fy) = polar(radius, first as f32 / 16.0);
+            let label_node = view.nodes.iter().find(|nd| nd.label == labels[tr]).expect("labelled first onset");
+            assert!((label_node.x - fx).abs() < 0.6 && (label_node.y - fy).abs() < 0.6,
+                "lane {tr} label is not on its first onset");
+            for i in 0..16 {
+                if !pat.hit[tr][i] { continue; }
+                let (x, y) = polar(radius, i as f32 / 16.0);
+                assert!(view.nodes.iter().any(|nd| (nd.x - x).abs() < 0.6 && (nd.y - y).abs() < 0.6),
+                    "lane {tr} onset {i} missing from its ring");
+            }
         }
     }
 

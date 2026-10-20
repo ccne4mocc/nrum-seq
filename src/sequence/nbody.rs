@@ -150,8 +150,15 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         // the third body's orbital sweep, so the eight lanes are not nested subsets.
         let w_sweep = 1.0 - 0.55 * profile;
         let w_close = 0.25 + 1.75 * profile;
+        // Every lane reads the same physical events, so without a per-lane phase the highest
+        // ranked steps are shared and all eight drums land together (measured: 10% of steps).
+        // Offsetting only moves where a lane looks, never the events themselves.
+        let offset = (tr * (n / TRACKS).max(1)) % n;
         let mut score = [0.0f32; MAX_STEPS];
-        for i in 0..n { score[i] = w_sweep * sweep[i] + w_close * close[i]; }
+        for i in 0..n {
+            let slot = (i + offset) % n;
+            score[i] = w_sweep * sweep[slot] + w_close * close[slot];
+        }
         // Rank selection, same rule as the oscillator: a step hits when fewer than `wanted`
         // steps outrank it, with earlier steps winning ties. Exact count, no sort, no alloc.
         for i in 0..n {

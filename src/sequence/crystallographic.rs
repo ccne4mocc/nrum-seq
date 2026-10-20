@@ -5,7 +5,10 @@ use super::{set_hit, GenParams, Pattern, Rng, TRACKS, MAX_STEPS};
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let order = p.symmetry.clamp(1, 8);
-    let unit = (p.steps / order).max(1);
+    // A one-slot cell maps every step onto the same motif value, so the lane becomes a solid
+    // wall or a silent one (and at the default 7-step / order-4 setting it was a wall). When
+    // the symmetry order leaves no room for a cell, let the motif cover the whole pattern.
+    let unit = if p.steps / order >= 2 { p.steps / order } else { p.steps.max(1) };
     for tr in 0..TRACKS {
         let pulse_ratio = (p.pulses.max(1) as f32 / p.steps as f32).clamp(0.02, 0.95);
         // Density scales the cutoff directly rather than multiplying into it. Multiplying
@@ -17,6 +20,12 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let mut motif = [false; MAX_STEPS];
         for i in 0..unit {
             motif[i] = rng.unit() < threshold;
+        }
+        // A random unit cell can come out empty, which tiles silence across the whole lane:
+        // at the default 4-slot cell that silenced the kick on ~40% of seeds. A non-zero
+        // threshold has to speak, so force one deterministic onset.
+        if threshold > 0.0 && !motif[..unit].iter().any(|&hit| hit) {
+            motif[rng.below(unit)] = true;
         }
         for i in 0..p.steps {
             let cell = i / unit;

@@ -36,7 +36,7 @@
 | Toussaint Distance | Seeded circular offset, integer boundary-crossing onset word, and modular-distance accents | Distance circle |
 | Well-Formed Rhythm | Christoffel/Bresenham word with two interval lengths | Bresenham slack plot |
 | L-System Grammar | Bounded Fibonacci-style parallel symbol rewriting interpreted as lane and accent roles | Nesting-depth bars |
-| Phase Shift / Reich | Common maximally-even motif circularly offset per lane | Per-lane offset spokes |
+| Phase Shift / Reich | Common maximally-even motif circularly offset per lane | Per-lane motif rings, each a rotated copy |
 | Polyrhythm Stack | Rational pulse ratios across lanes over a shared duration | Ratio rings |
 | Weighted Syncopation | Metric/offbeat scoring with deterministic top-k hit selection | Metrical score bars |
 | Three-Body Chaos | Soft-gravity 3-body leapfrog orbit; chaotic score ranked into onsets, rotating-line crossings accent | Live orbit trace |

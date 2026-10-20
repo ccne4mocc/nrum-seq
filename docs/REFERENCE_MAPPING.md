@@ -38,7 +38,7 @@ The `GenKind::index()` value in `src/sequence/mod.rs`, the `View.kind` in `src/v
 | 10 | Toussaint Distance | Distance circle: onsets on lag rings, rim ticks for the step grid |
 | 11 | Well-Formed Rhythm | Christoffel/Bresenham slack plot — the two inter-onset lengths |
 | 12 | L-System Grammar | Nesting-depth bars recovered from the onset runs |
-| 13 | Phase Shift / Reich | One spoke per lane at its circular offset |
+| 13 | Phase Shift / Reich | One motif ring per lane, each a rotated copy of the shared outline |
 | 14 | Polyrhythm Stack | Concentric ratio rings, dot size by accent |
 | 15 | Weighted Syncopation | The generator's metrical score as bars, selection marked |
 | 16 | Three-Body Chaos | Live orbit trace of the two outer bodies about body 0 |

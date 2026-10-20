@@ -565,7 +565,9 @@ mod tests {
                     let want = ((pulses as f32 * (0.35 + DENSITY_PROFILE[tr]) + 0.5).floor() as usize).min(steps);
                     let pos: Vec<usize> = (0..steps).filter(|&i| pat.hit[tr][i]).collect();
                     assert_eq!(pos.len(), want, "steps={steps} pulses={pulses} lane={tr}");
-                    if want > 0 { assert_eq!(pos[0], 0, "not anchored: steps={steps} pulses={pulses} lane={tr} {pos:?}"); }
+                    // Lane 0 keeps the downbeat; the other lanes start on their own phase
+                    // origin so they cannot all land on step 0.
+                    if tr == 0 && want > 0 { assert_eq!(pos[0], 0, "not anchored: steps={steps} pulses={pulses} {pos:?}"); }
                     if pos.len() > 1 {
                         let mut gaps: Vec<usize> = pos.windows(2).map(|w| w[1] - w[0]).collect();
                         gaps.push(steps - pos[pos.len() - 1] + pos[0]);
@@ -578,6 +580,63 @@ mod tests {
         let pat = generate(&GenParams { kind: GenKind::Euclidean, steps: 16, pulses: 16, density: 0.3, probability: 1.0, ..GenParams::default() });
         let kick: Vec<usize> = (0..16).filter(|&i| pat.hit[0][i]).collect();
         assert_eq!(kick, vec![0, 4, 8, 12]);
+        // Regression: every lane used to anchor at step 0, so one step of every pattern (and
+        // every variation, which only rotates) carried all eight drums.
+        let pat = generate(&GenParams { kind: GenKind::Euclidean, steps: 16, pulses: 5, density: 0.65, probability: 1.0, ..GenParams::default() });
+        let full: Vec<usize> = (0..16).filter(|&i| (0..TRACKS).all(|tr| pat.hit[tr][i])).collect();
+        assert!(full.is_empty(), "all lanes fire together at {full:?}");
+    }
+
+    #[test]
+    fn no_mode_stacks_every_lane_on_most_variations() {
+        // A shared phase anchor (Euclidean) or a shared trigger (Logistic, RaisedCosine) put
+        // all eight lanes on one step in *every* variation: rotation moved the column but never
+        // removed it. An occasional coincidence is fine; a structural one is not.
+        for kind in GenKind::ALL {
+            for steps in [7usize, 16, 32] {
+                for density in [0.5f32, 0.65] {
+                    let p = GenParams { kind, steps, length: steps as f32, pulses: 5, density, probability: 1.0, seed: 0.271, ..GenParams::default() };
+                    let mut with_column = 0;
+                    for variation in 0..12u32 {
+                        let pat = generate(&GenParams { variation, ..p });
+                        if (0..steps).any(|i| (0..TRACKS).all(|tr| pat.hit[tr][i])) { with_column += 1; }
+                    }
+                    assert!(with_column <= 2, "{kind:?} fires all 8 lanes on one step in {with_column}/12 variations (steps={steps}, density={density})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_lane_sounds_across_a_seed_sweep() {
+        // Catches a lane that is structurally dead rather than merely resting on one seed.
+        for kind in GenKind::ALL {
+            for tr in 0..TRACKS {
+                let sounded = [0.0f32, 0.13, 0.271, 0.42, 0.58, 0.71, 0.86, 1.0].iter().any(|&seed| {
+                    let p = GenParams { kind, steps: 16, length: 16.0, pulses: 5, density: 0.65, probability: 1.0, seed, ..GenParams::default() };
+                    generate(&p).hit[tr][..16].iter().any(|&hit| hit)
+                });
+                assert!(sounded, "{kind:?} lane {tr} never fires across the seed sweep");
+            }
+        }
+    }
+
+    #[test]
+    fn crystallographic_cell_is_never_empty_at_positive_density() {
+        // A random unit cell could come out empty and tile silence across the lane; at the
+        // default cell size that silenced the kick on ~40% of seeds.
+        for seed in [0.0f32, 0.13, 0.271, 0.5, 0.86, 1.0] {
+            for steps in [4usize, 7, 16, 32] {
+                for symmetry in [1usize, 4, 8] {
+                    let p = GenParams { kind: GenKind::Crystallographic, steps, pulses: 5, density: 0.65, symmetry, probability: 1.0, seed, ..GenParams::default() };
+                    let pat = generate(&p);
+                    for tr in 0..TRACKS {
+                        assert!(pat.hit[tr][..steps].iter().any(|&hit| hit),
+                            "silent lane: seed={seed} steps={steps} symmetry={symmetry} lane={tr}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]
