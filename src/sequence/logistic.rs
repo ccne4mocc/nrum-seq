@@ -1,9 +1,15 @@
 use super::{set_hit, GenParams, Pattern, TRACKS};
 
+/// Growth rate for the current density. Shared with the view's return-map curve so the drawn
+/// parabola is the one the orbit actually follows.
+pub(crate) fn r_of(density: f32) -> f64 {
+    3.5 + density.clamp(0.0, 1.0) as f64 * 0.5
+}
+
 /// Logistic-map orbit x[n+1] = r*x[n]*(1-x[n]). A lane's density sets its trigger threshold.
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
-    let r = 3.5 + p.density.clamp(0.0, 1.0) as f64 * 0.5;
+    let r = r_of(p.density);
     let mut x = (0.13 + p.seed as f64 * 0.73 + p.phase as f64 * 0.11).clamp(0.001, 0.999);
     for _ in 0..24 { x = r * x * (1.0 - x); }
     // At r near 4 the burn-in can end next to 0, where the orbit needs several steps to climb

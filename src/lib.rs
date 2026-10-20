@@ -30,6 +30,7 @@ pub enum Mode {
     #[id = "polyrhythm"] #[name = "Polyrhythm Stack"] Polyrhythm,
     #[id = "syncopation"] #[name = "Weighted Syncopation"] Syncopation,
     #[id = "three_body"] #[name = "Three-Body Chaos"] ThreeBody,
+    #[id = "pebble_box"] #[name = "Pebble Box"] PebbleBox,
 }
 impl Mode {
     /// Declaration order is the enum index, which `GenKind` relies on.
@@ -561,7 +562,7 @@ mod tests {
     }
     #[test]
     fn mode_indices_round_trip_to_generator_indices() {
-        for index in 0..17 { assert_eq!(Mode::from_index(index).kind(), GenKind::from_index(index)); }
+        for index in 0..18 { assert_eq!(Mode::from_index(index).kind(), GenKind::from_index(index)); }
         assert_eq!(Mode::from_index(99).kind(), GenKind::Euclidean);
     }
 

@@ -4,7 +4,7 @@ use crate::sequence::{generate, GenParams, Pattern, Rng, MAX_STEPS, TRACKS};
 use crate::view::{self, View};
 use crate::{cell_count_for, DrumParams, Mode, OscWave, Rate, Shared, Theme as PluginTheme};
 use nih_plug::prelude::*;
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use slint_baseview::{default_gl_config, Size, SlintWindow, WindowHandle, WindowOpenOptions, WindowScalePolicy};
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
@@ -12,20 +12,11 @@ use std::sync::{Arc, Mutex};
 slint::include_modules!();
 const WIDTH: u32 = 860;
 const HEIGHT: u32 = 760;
-/// Pattern-matrix size presets. The window never resizes: a preset scales only the sequencer's
-/// cells, in both directions, and the grid scrolls horizontally past 100 %.
-const SEQUENCER_SCALES: [f32; 4] = [0.6, 0.8, 1.0, 1.2];
-const DEFAULT_SEQUENCER: usize = 2;
-
-fn sequencer_scale(index: usize) -> f32 {
-    SEQUENCER_SCALES[index.min(SEQUENCER_SCALES.len() - 1)]
-}
 
 pub fn create(params: Arc<DrumParams>, shared: Arc<Shared>) -> Box<dyn Editor> {
     Box::new(SlintEditor {
         params, shared,
         scale: Arc::new(AtomicU32::new(0)),
-        sequencer: Arc::new(AtomicU32::new(DEFAULT_SEQUENCER as u32)),
     })
 }
 struct SlintEditor {
@@ -33,29 +24,25 @@ struct SlintEditor {
     shared: Arc<Shared>,
     /// Host DPI factor. `0` means "not reported yet".
     scale: Arc<AtomicU32>,
-    /// Index into `SEQUENCER_SCALES`; the value the UI currently shows.
-    sequencer: Arc<AtomicU32>,
 }
 
 /// Snapshot the user-global settings out of the parameters, for `globals::save`.
-fn global_settings(p: Arc<DrumParams>, scale: f32, sequencer: usize) -> globals::GlobalSettings {
+fn global_settings(p: Arc<DrumParams>, scale: f32) -> globals::GlobalSettings {
     globals::GlobalSettings {
         theme: Some(p.theme.value().to_index()),
         scale: if scale > 0.0 { Some(scale) } else { None },
-        sequencer_scale: Some(sequencer),
     }
 }
 struct SlintEditorHandle {
     window: WindowHandle,
     params: Arc<DrumParams>,
     scale: Arc<AtomicU32>,
-    sequencer: Arc<AtomicU32>,
 }
 unsafe impl Send for SlintEditorHandle {}
 impl Drop for SlintEditorHandle {
     fn drop(&mut self) {
         // Editor closing is the last chance to persist, so bypass the debounce.
-        // Theme, host scale and sequencer preset are read from live state *here*: a snapshot
+        // Theme and host scale are read from live state *here*: a snapshot
         // taken at spawn is stale by the time the user closes the editor, and writing it back
         // would revert every change made during the session. No unit test covers this:
         // nih-plug's `Param` trait is read-only outside a `GuiContext`, so a test cannot
@@ -64,7 +51,6 @@ impl Drop for SlintEditorHandle {
         globals::save_now(&global_settings(
             self.params.clone(),
             f32::from_bits(self.scale.load(Relaxed)),
-            self.sequencer.load(Relaxed) as usize,
         ));
         self.window.close();
     }
@@ -133,7 +119,7 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let variation = p.variation.fetch_add(1, Relaxed).wrapping_add(nonce);
     let mut rng = Rng::new(p.seed.value(), variation, 0xA1_60_D2_0A_5EED);
 
-    let mode = Mode::from_index(rng.below(17));
+    let mode = Mode::from_index(rng.below(18));
     let cells = 8 + rng.below(MAX_STEPS - 7); // 8..=MAX_STEPS
     // Keep randomize on the grid; fractional spacing stays a deliberate user choice.
     let steps = cells as f32;
@@ -169,9 +155,22 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
 }
 
 fn push_view(ui: &AppWindow, v: &View) {
-    ui.set_view_nodes(ModelRc::new(VecModel::from(v.nodes.iter().map(|n| ViewNode {
-        x: n.x, y: n.y, r: n.r, on: n.on, cur: n.cur, label: SharedString::from(n.label.as_str()),
-    }).collect::<Vec<_>>())));
+    // Update rows in place when the count is unchanged: replacing the model resets the
+    // repeater, and a reset element does not tween. Pebble Box relies on `animate x, y`, and
+    // in-place rows also stop every other panel from recreating its nodes each step.
+    let model = ui.get_view_nodes();
+    if model.row_count() == v.nodes.len() {
+        for (i, n) in v.nodes.iter().enumerate() {
+            let node = ViewNode {
+                x: n.x, y: n.y, r: n.r, on: n.on, cur: n.cur, label: SharedString::from(n.label.as_str()),
+            };
+            if model.row_data(i).as_ref() != Some(&node) { model.set_row_data(i, node); }
+        }
+    } else {
+        ui.set_view_nodes(ModelRc::new(VecModel::from(v.nodes.iter().map(|n| ViewNode {
+            x: n.x, y: n.y, r: n.r, on: n.on, cur: n.cur, label: SharedString::from(n.label.as_str()),
+        }).collect::<Vec<_>>())));
+    }
     ui.set_view_edges(SharedString::from(v.edges.as_str()));
     ui.set_view_lines(SharedString::from(v.lines.as_str()));
     ui.set_view_hand(SharedString::from(v.hand.as_str()));
@@ -186,8 +185,6 @@ impl Editor for SlintEditor {
         // Keep the host factor in the atomic even when the host never calls
         // `set_scale_factor`: the close path reads it, and an unset value used to drop it.
         if scale > 0.0 && self.scale.load(Relaxed) == 0 { self.scale.store(scale.to_bits(), Relaxed); }
-        let sequencer_index = stored.sequencer_scale.filter(|i| *i < SEQUENCER_SCALES.len()).unwrap_or(DEFAULT_SEQUENCER);
-        self.sequencer.store(sequencer_index as u32, Relaxed);
         if let Some(theme) = stored.theme {
             // `from_index` falls back to the first variant, so a corrupt file cannot panic.
             let theme = PluginTheme::from_index(theme);
@@ -204,29 +201,12 @@ impl Editor for SlintEditor {
         let (setup_params, setup_ctx) = (self.params.clone(), context.clone());
         // `spawn` returns before any closure runs, and the closures must be `'static`, so the
         // shared state is cloned out here rather than captured through `&self`.
-        let setup_sequencer_cell = self.sequencer.clone();
-        let update_sequencer_cell = self.sequencer.clone();
         let setup = move |h: &slint_baseview::SlintWindowHandler<AppWindow>, _w: &mut slint_baseview::Window| {
             let ui = h.component();
             {
-                // Sequencer-size preset. The callback updates the properties itself because
-                // changing the atomic alone does not dirty the window (no frame would follow);
-                // the update loop re-syncs in case a value changed elsewhere.
-                let sequencer = setup_sequencer_cell.clone();
-                let weak = ui.as_weak();
-                ui.on_set_sequencer_scale(move |i| {
-                    let i = i.clamp(0, SEQUENCER_SCALES.len() as i32 - 1) as usize;
-                    sequencer.store(i as u32, Relaxed);
-                    if let Some(ui) = weak.upgrade() {
-                        ui.set_sequencer_scale(sequencer_scale(i));
-                        ui.set_sequencer_scale_index(i as i32);
-                    }
-                });
-            }
-            {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_set_mode(move |v| {
-                    let mode = Mode::from_index(v.clamp(0, 16) as usize);
+                    let mode = Mode::from_index(v.clamp(0, 17) as usize);
                     set(&c, &p.mode, mode);
                     let max_pulses = if mode == Mode::Cellular { 15 } else { p.cell_count() };
                     if p.pulses.value() > max_pulses { set(&c, &p.pulses, max_pulses); }
@@ -313,12 +293,6 @@ impl Editor for SlintEditor {
             }
             let p = &update_params;
             let ui = h.component();
-            let sequencer_index = update_sequencer_cell.load(Relaxed) as usize;
-            let sequencer = sequencer_scale(sequencer_index);
-            if ui.get_sequencer_scale() != sequencer { ui.set_sequencer_scale(sequencer); }
-            if ui.get_sequencer_scale_index() != sequencer_index as i32 {
-                ui.set_sequencer_scale_index(sequencer_index as i32);
-            }
             ui.set_mode(p.mode.value() as i32);
             let selected_theme = p.theme.value();
             let theme_index = selected_theme.to_index() as i32;
@@ -334,7 +308,6 @@ impl Editor for SlintEditor {
                 globals::save(&globals::GlobalSettings {
                     theme: Some(theme_index as usize),
                     scale: if update_scale > 0.0 { Some(update_scale) } else { None },
-                    sequencer_scale: Some(sequencer_index),
                 });
             }
             ui.set_steps(p.steps.value());
@@ -394,21 +367,16 @@ impl Editor for SlintEditor {
                 c.view_key = Some(view_key);
             }
         };
-        let initial_sequencer = sequencer_scale(sequencer_index);
         let factory = move || {
             let ui = AppWindow::new()?;
-            // Set the preset before the first frame so a saved 60 % open does not flash at 100 %.
-            ui.set_sequencer_scale(initial_sequencer);
-            ui.set_sequencer_scale_index(sequencer_index as i32);
             Ok(ui)
         };
-        // The window never changes size any more; the sequencer scales inside it.
+        // The window never changes size: the editor reports a fixed 860x760 logical size.
         let window = SlintWindow::open_parented(&parent, options, factory, setup, update, |_, _| {});
         Box::new(SlintEditorHandle {
             window,
             params: self.params.clone(),
             scale: self.scale.clone(),
-            sequencer: self.sequencer.clone(),
         })
     }
     fn size(&self) -> (u32, u32) { (WIDTH, HEIGHT) }
@@ -432,13 +400,5 @@ mod tests {
     fn track_mask_covers_eight_lanes() {
         let p = DrumParams::default();
         assert_eq!(enabled_mask(&p) & 0b0000_0111, 0b0000_0111);
-    }
-
-    #[test]
-    fn sequencer_size_presets_are_ordered_and_clamped() {
-        assert_eq!(SEQUENCER_SCALES, [0.6, 0.8, 1.0, 1.2]);
-        assert_eq!(sequencer_scale(DEFAULT_SEQUENCER), 1.0);
-        // An out-of-range index falls back to the largest preset instead of panicking.
-        assert_eq!(sequencer_scale(99), 1.2);
     }
 }

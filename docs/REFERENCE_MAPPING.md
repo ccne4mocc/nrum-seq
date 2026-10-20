@@ -42,8 +42,9 @@ The `GenKind::index()` value in `src/sequence/mod.rs`, the `View.kind` in `src/v
 | 14 | Polyrhythm Stack | Concentric ratio rings, dot size by accent |
 | 15 | Weighted Syncopation | The generator's metrical score as bars, selection marked |
 | 16 | Three-Body Chaos | Live orbit trace of the two outer bodies about body 0 |
+| 17 | Pebble Box | Animated pebble box; eight lane pebbles at their recorded per-step positions |
 
-Indices 8–16 all draw their own panel. There is no shared step-lattice fallback: a mode whose
+Indices 8–17 all draw their own panel. There is no shared step-lattice fallback: a mode whose
 structure is not a grid shows that structure instead. Each panel draws the generator's own
 formula (envelope, cutoff, slack, motif length, orbital state), reached through helpers exported
 from the generator module — a panel must never restate an algorithm's math.

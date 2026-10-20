@@ -56,7 +56,7 @@ pub(crate) fn math(p: &GenParams) -> String {
             format!("n={n}: order={order}, unit={unit} (whole pattern if <2 slots); motif cell filled at T={threshold:.3}; op=({order}−1) mod 8 applied per cell")
         }
         GenKind::Logistic => {
-            let r = 3.5 + d as f64 * 0.5;
+            let r = crate::sequence::logistic_r(d);
             let x0 = (0.13 + p.seed as f64 * 0.73 + p.phase as f64 * 0.11).clamp(0.001, 0.999);
             let threshold = ((p.pulses as f32 / n as f32) * (0.3 + 0.7 * d) * (0.5 + w0))
                 .clamp(0.03, 0.97);
@@ -116,6 +116,12 @@ pub(crate) fn math(p: &GenParams) -> String {
             let sub = nbody_substep_budget(n, p.osc_rate);
             let wanted = ((p.pulses as f32 * d * (0.45 + w0)).round() as usize).min(n);
             format!("n={n}: substeps=clamp({n}·(8+32·{:.3}),64,2048)={sub}, dt=0.004; wanted={wanted}; rank w_sweep·sweep+w_close·close", p.osc_rate)
+        }
+        GenKind::PebbleBox => {
+            let substeps = ((p.osc_rate * 8.0).round() as usize).clamp(1, 16);
+            let shaker = p.pulses.clamp(1, n);
+            let stride = (n / shaker).max(1);
+            format!("n={n}: {substeps} substep(s)/step; gravity tilted {:.0}°; shaker impulse every {stride} step(s) kicks a rotating third of 8 pebbles; a lane fires when its wall impact exceeds {:.2}", p.phase * 360.0, (1.0 - d) * 4.2)
         }
     }
 }

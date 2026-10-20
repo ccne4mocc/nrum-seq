@@ -18,6 +18,7 @@ mod well_formed;
 mod oscillator;
 mod phyllotaxis;
 mod nbody;
+mod pebble;
 
 // The panel draws these algorithms' own curves and cutoffs rather than restating their
 // formulas, so these re-exports exist for `crate::view` alone.
@@ -28,9 +29,10 @@ pub(crate) use slowcat::motif_len as slowcat_motif_len;
 // restating the formula.
 pub(crate) use euclidean::lane_pulses as euclidean_lane_pulses;
 pub(crate) use nbody::substep_budget as nbody_substep_budget;
+pub(crate) use logistic::r_of as logistic_r;
 
 pub const TRACKS: usize = 8;
-/// 64 keeps the whole Pattern at ~3.8 KiB and bounds per-lane generation to a cost the
+/// 64 keeps the whole Pattern at ~6 KiB and bounds per-lane generation to a cost the
 /// audio thread can absorb in one block. Raising this is a tuning decision, not a free change:
 /// generation cost scales linearly with it.
 pub const MAX_STEPS: usize = 64;
@@ -60,18 +62,19 @@ pub enum GenKind {
     Polyrhythm,
     Syncopation,
     ThreeBody,
+    PebbleBox,
 }
 
 impl GenKind {
     /// Every mode, for tests that sweep all of them. Production dispatch uses
     /// [`from_index`] instead, so this stays compiled out of the audio path.
     #[cfg(test)]
-    pub const ALL: [GenKind; 17] = [
+    pub const ALL: [GenKind; 18] = [
         Self::Euclidean, Self::Eulerian, Self::Phyllotaxis, Self::Cellular,
         Self::Oscillator, Self::Crystallographic, Self::Logistic, Self::Markov,
         Self::RaisedCosine, Self::Slowcat, Self::ToussaintDistance, Self::WellFormed,
         Self::LSystem, Self::PhaseShift, Self::Polyrhythm, Self::Syncopation,
-        Self::ThreeBody,
+        Self::ThreeBody, Self::PebbleBox,
     ];
 
 
@@ -84,7 +87,7 @@ impl GenKind {
             7 => Self::Markov, 8 => Self::RaisedCosine, 9 => Self::Slowcat,
             10 => Self::ToussaintDistance, 11 => Self::WellFormed, 12 => Self::LSystem,
             13 => Self::PhaseShift, 14 => Self::Polyrhythm, 15 => Self::Syncopation,
-            16 => Self::ThreeBody,
+            16 => Self::ThreeBody, 17 => Self::PebbleBox,
             _ => Self::Euclidean,
         }
     }
@@ -146,6 +149,8 @@ pub struct Pattern {
     pub orbit: [f32; MAX_STEPS],
     /// Three-body positions relative to body 0: `[x1, y1, x2, y2]` per step.
     pub traj: [[f32; 4]; MAX_STEPS],
+    /// Pebble-box positions, normalized 0-255 as `[x0, y0, x1, y1, …]` per step.
+    pub pebbles: [[u8; TRACKS * 2]; MAX_STEPS],
 }
 
 impl Default for Pattern {
@@ -158,6 +163,7 @@ impl Default for Pattern {
             ca: [[false; MAX_STEPS]; CA_ROWS],
             orbit: [0.0; MAX_STEPS],
             traj: [[0.0; 4]; MAX_STEPS],
+            pebbles: [[0; TRACKS * 2]; MAX_STEPS],
         }
     }
 }
@@ -245,6 +251,7 @@ fn run_mode(q: &GenParams) -> Pattern {
         GenKind::Polyrhythm => polyrhythm::generate(q),
         GenKind::Syncopation => syncopation::generate(q),
         GenKind::ThreeBody => nbody::generate(q),
+        GenKind::PebbleBox => pebble::generate(q),
     }
 }
 
@@ -278,8 +285,9 @@ pub fn generate(p: &GenParams) -> Pattern {
     if shift != 0 {
         let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
         let old_ca = out.ca; let old_orbit = out.orbit; let old_traj = out.traj;
+        let old_pebbles = out.pebbles;
         for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
-        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; out.pebbles[i] = old_pebbles[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
     }
     // The stable downbeat/backbeat accent shape is applied *after* rotation, so it stays tied to
     // the step grid (and therefore the beat) instead of travelling with the rotated pattern;

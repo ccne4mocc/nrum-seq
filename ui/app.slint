@@ -187,6 +187,9 @@ component ModePanel inherits Rectangle {
     Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.lines; fill: transparent; stroke: Theme.c3; stroke-width: 1.4px; }
     Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.hand; fill: transparent; stroke: Theme.hi; stroke-width: 2px; }
     for n in root.nodes: Rectangle {
+        // Pebble-box positions change every step; the tween reads as motion. Other panels'
+        // nodes are static, so the animation never shows there.
+        animate x, y { duration: 120ms; }
         x: (n.x - n.r) * root.px-per-unit; y: (n.y - n.r) * root.px-per-unit;
         width: n.r * 2 * root.px-per-unit; height: n.r * 2 * root.px-per-unit;
         border-radius: n.r * root.px-per-unit;
@@ -203,19 +206,11 @@ export component AppWindow inherits Window {
     in property <length> base-width: 860px;
     in property <length> base-height: 760px;
     preferred-width: root.base-width; preferred-height: root.base-height;
-    // Sequencer size: scales the pattern-matrix cells only, in both directions. Past 100 %
-    // the lane names stay fixed and the cell grid scrolls horizontally.
-    in property <float> sequencer-scale: 1.0;
-    in property <int> sequencer-scale-index: 2;
-    property <length> seq-row: 20px * root.sequencer-scale;
-    property <length> seq-content-width: (root.base-width - 28px - 76px) * root.sequencer-scale;
-    in-out property <length> grid-scroll-x: 0px;
-    changed sequencer-scale => { root.grid-scroll-x = 0px; }
     background: @linear-gradient(135deg, Theme.bg1 0%, Theme.bg2 50%, Theme.bg3 100%);
     in property <int> mode: 0;
     // The mode list is taller than its viewport, and the wheel now changes the mode instead
     // of scrolling it, so the list has to follow the selection. 32px per row (28px + 4px
-    // spacing) x 17 modes = 544px of content in a 300px viewport => 244px of travel.
+    // spacing) x 18 modes = 576px of content in a 300px viewport => 276px of travel.
     // A Flickable/ScrollView viewport moves up by going NEGATIVE; the previous positive value
     // was clamped to 0, so modes 8-15 could be selected but never scrolled into view.
     in-out property <length> mode-scroll-y: 0px;
@@ -257,7 +252,6 @@ export component AppWindow inherits Window {
     in property <string> view-hand: "M0 0";
     in property <string> mode-math: "";
     callback set-mode(int);
-    callback set-sequencer-scale(int);
     callback set-rate(int);
     callback set-osc-wave(int);
     callback set-theme(int);
@@ -271,7 +265,7 @@ export component AppWindow inherits Window {
     callback randomize-pressed();
     callback toggle-auto-randomize();
 
-    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Three-Body Chaos"];
+    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Three-Body Chaos", "Pebble Box"];
     property <[string]> mode-help: [
         "Places pulses as evenly as possible around the step ring with Bjorklund spacing. Each lane scales the pulse count by its density profile and anchors its word on a different phase, so the kit interleaves instead of stacking.",
         "Builds a balanced directed graph whose vertices are rest plus the eight drum lanes, then walks every edge once with Hierholzer's algorithm. The Euler circuit becomes the step sequence; density gates which visited lanes actually sound.",
@@ -289,16 +283,17 @@ export component AppWindow inherits Window {
         "Repeats one maximally even pulse train on every lane, each copy circularly offset by a fixed span plus user and seed phase. The result is Reich-style phasing over a shared pattern length.",
         "Gives each lane a fixed integer ratio (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over the same pattern duration. Pulse count and density scale the number of onsets per ratio.",
         "Scores every step by metric weight, a lane-dependent shifted weight, and deterministic jitter. The highest-scoring steps become onsets, biasing the result toward offbeats and late subdivisions.",
-        "Integrates a hierarchical three-body orbit with a leapfrog solver and turns orbital sweep plus close encounters into a per-step score. Rank selection keeps exactly the requested number of onsets; line crossings add accents."
+        "Integrates a hierarchical three-body orbit with a leapfrog solver and turns orbital sweep plus close encounters into a per-step score. Rank selection keeps exactly the requested number of onsets; line crossings add accents.",
+        "Bounces eight pebbles, one per lane, in a box tilted by the phase control. Each shaker impulse kicks a rotating third of them; a pebble triggers its drum when its wall impact is harder than the density threshold. The panel animates the recorded positions step by step."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: 64, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", key: 0, step: root.round-steps ? 1 : 0.25 },
-        { label: root.mode == 3 ? "Generation" : (root.mode == 5 ? "Motif density" : "Pulses"), min: 0, max: root.mode == 3 ? 15 : Math.ceil(root.steps), value: Math.min(root.pulses, root.mode == 3 ? 15 : Math.ceil(root.steps)), text: "\{Math.round(Math.min(root.pulses, root.mode == 3 ? 15 : Math.ceil(root.steps)))}", key: 1, step: 1 },
+        { label: root.mode == 3 ? "Generation" : (root.mode == 5 ? "Motif density" : (root.mode == 17 ? "Shaker impulses" : "Pulses")), min: 0, max: root.mode == 3 ? 15 : Math.ceil(root.steps), value: Math.min(root.pulses, root.mode == 3 ? 15 : Math.ceil(root.steps)), text: "\{Math.round(Math.min(root.pulses, root.mode == 3 ? 15 : Math.ceil(root.steps)))}", key: 1, step: 1 },
         { label: "Rotate", min: 0, max: Math.max(Math.ceil(root.steps) - 1, 0), value: Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)), text: "\{Math.round(Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)))}", key: 2, step: 1 },
-        { label: "Density", min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", key: 3, step: 0.01 },
+        { label: root.mode == 17 ? "Impact threshold" : "Density", min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", key: 3, step: 0.01 },
         { label: "Seed", min: 0, max: 1, value: root.seed, text: "\{Math.round(root.seed * 1000) / 1000}", key: 4, step: 0.001 },
-        { label: root.mode == 13 ? "Phase offset" : "Osc phase", min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", key: 5, step: 0.01 },
-        { label: "Osc cycles", min: 0.125, max: 8, value: root.osc-rate, text: "\{Math.round(root.osc-rate * 100) / 100}", key: 6, step: 0.125 },
+        { label: root.mode == 13 ? "Phase offset" : (root.mode == 17 ? "Gravity tilt" : "Osc phase"), min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", key: 5, step: 0.01 },
+        { label: root.mode == 17 ? "Substeps" : "Osc cycles", min: 0.125, max: 8, value: root.osc-rate, text: "\{Math.round(root.osc-rate * 100) / 100}", key: 6, step: 0.125 },
         { label: "CA rule", min: 0, max: 255, value: root.ca-rule, text: "\{Math.round(root.ca-rule)}", key: 7, step: 1 },
         { label: "Probability", min: 0, max: 1, value: root.probability, text: "\{Math.round(root.probability * 100)}%", key: 8, step: 0.01 },
         { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", key: 9, step: 0.01 },
@@ -380,9 +375,9 @@ export component AppWindow inherits Window {
             height: 28px; spacing: 8px;
             Text { text: "CLOCK"; color: #788394; font-size: 9px; vertical-alignment: center; }
             Text { text: "RATE"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
-            Selector { width: 200px; options: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"]; current: root.rate; text-size: 9px; selected(i) => { root.set-rate(i); } }
+            Selector { horizontal-stretch: 1; options: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"]; current: root.rate; text-size: 9px; selected(i) => { root.set-rate(i); } }
             Text { text: "SWING"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
-            OptSlider { horizontal-stretch: 1; opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
+            OptSlider { width: 230px; opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
         }
         Text { text: "DRUM LANES     ·     MIDI channel 10 / GM-style note map"; color: #788394; font-size: 10px; }
         HorizontalLayout {
@@ -395,53 +390,24 @@ export component AppWindow inherits Window {
             }
         }
         Text { text: "PATTERN MATRIX  ·  velocity = brightness  ·  probability = opacity  ·  playhead in amber"; color: #788394; font-size: 10px; }
-        // The lanes keep their fixed name column; only the cell grid scales. Wrapping the grid
-        // in a ScrollView adds horizontal scrolling past 100 % instead of clipping the cells.
-        HorizontalLayout {
-            // Seven 3px row gaps, plus a 14px gutter only when the cells grow past 100 % so
-            // the horizontal scrollbar does not eat into the last row.
-            height: root.seq-row * 8 + 21px + (root.sequencer-scale > 1.0 ? 14px : 0px);
-            spacing: 0px;
-            VerticalLayout {
-                width: 76px; spacing: 3px;
-                for track in root.tracks: Text {
-                    height: root.seq-row;
-                    text: track.name; color: track.enabled ? #d1d5db : #505965;
-                    font-size: 9px; vertical-alignment: center;
-                }
-            }
-            ScrollView {
-                horizontal-stretch: 1;
-                // Vertical scrolling is never needed: the grid height always fits the row.
-                vertical-scrollbar-policy: always-off;
-                viewport-x <=> root.grid-scroll-x;
-                VerticalLayout {
-                    width: root.seq-content-width;
-                    spacing: 3px;
-                    for track in root.tracks: HorizontalLayout {
-                        height: root.seq-row; spacing: 0px;
-                        for cell in track.cells: Rectangle {
-                            width: max(2px, root.seq-content-width / (track.cells.length * 1.0));
-                            height: 18px * root.sequencer-scale;
-                            Rectangle {
-                                x: 0px; y: 0px;
-                                width: max(parent.width - 1px, 0px); height: parent.height;
-                                border-radius: 2px;
-                                background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : #242930;
-                                opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
-                                border-width: cell.playing ? 2px : 0px; border-color: Theme.hi;
-                            }
-                            // Wheel scrolls the scaled grid sideways (the bar below is small).
-                            TouchArea {
-                                scroll-event(e) => {
-                                    if (e.delta-y != 0px) {
-                                        root.grid-scroll-x = Math.max(756px * (1 - root.sequencer-scale), Math.min(0px, root.grid-scroll-x - e.delta-y));
-                                        return accept;
-                                    }
-                                    return reject;
-                                }
-                            }
-                        }
+        VerticalLayout {
+            spacing: 4px;
+            for track in root.tracks: HorizontalLayout {
+                height: 22px; spacing: 0px;
+                Text { width: 76px; text: track.name; color: track.enabled ? #d1d5db : #505965; font-size: 9px; vertical-alignment: center; }
+                for cell in track.cells: Rectangle {
+                    // Derived from the fixed layout width, not from `parent.width`: binding to
+                    // a layout width is a binding loop. base-width - 2x14 padding - the 76px
+                    // name column fills the row exactly.
+                    width: max(2px, (root.base-width - 28px - 76px) / (track.cells.length * 1.0));
+                    height: 20px;
+                    Rectangle {
+                        x: 0px; y: 0px;
+                        width: max(parent.width - 1px, 0px); height: parent.height;
+                        border-radius: 2px;
+                        background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : #242930;
+                        opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
+                        border-width: cell.playing ? 2px : 0px; border-color: Theme.hi;
                     }
                 }
             }
@@ -493,10 +459,6 @@ export component AppWindow inherits Window {
                 }
                 round-touch := TouchArea { clicked => { root.toggle-round-steps(); } }
             }
-            Text { text: "SEQUENCER SIZE"; color: #788394; font-size: 9px; }
-            // Scales the pattern-matrix cells only. The window stays fixed at 860x760, so a
-            // host can never refuse (or glitch on) a resize request.
-            Selector { options: ["60%", "80%", "100%", "120%"]; current: root.sequencer-scale-index; text-size: 10px; selected(i) => { root.set-sequencer-scale(i); } }
             Text { text: "PATTERN NUMBERS"; color: #788394; font-size: 9px; }
             HorizontalLayout { spacing: 6px;
                 NumBox {

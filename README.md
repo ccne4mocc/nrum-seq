@@ -5,17 +5,17 @@
 ## What is implemented
 
 - Eight MIDI lanes: Kick, Snare, Closed Hat, Open Hat, Clap, Rim, Low Tom, and Percussion.
-- Seventeen deterministic generator modes with mode-specific visualization and mode-sensitive parameters.
-- Additional generators: Raised-Cos Threshold, Slowcat Rhythm, Toussaint Distance, Well-Formed Rhythm, L-System Grammar, Phase Shift / Reich, Polyrhythm Stack, Weighted Syncopation, and Three-Body Chaos.
-- Every mode draws a panel specific to its own algorithm: per-lane pulse rings, motif phrase timelines, modular distance circles, Christoffel slack plots, grammar nesting bars, phasing spokes, ratio rings, metrical score bars, and a live three-body orbit.
+- Eighteen deterministic generator modes with mode-specific visualization and mode-sensitive parameters.
+- Additional generators: Raised-Cos Threshold, Slowcat Rhythm, Toussaint Distance, Well-Formed Rhythm, L-System Grammar, Phase Shift / Reich, Polyrhythm Stack, Weighted Syncopation, Three-Body Chaos, and Pebble Box.
+- Every mode draws a panel specific to its own algorithm: per-lane pulse rings, motif phrase timelines, modular distance circles, Christoffel slack plots, grammar nesting bars, phasing spokes, ratio rings, metrical score bars, a live three-body orbit, and an animated pebble box.
 - Global hit probability and velocity controls, automatic regeneration after N complete pattern lengths (0 disables it), manual parameter randomization, and optional auto-randomization every N host-transport beats.
 - Host-automatable lane enables, note numbers, velocities, Gate, Swing, rate, mode, Generate, and Free Run.
 - Swing delays alternate steps in the beat domain, from straight up to a half-step shuffle; a third of a step gives triplet feel.
 - The mouse wheel edits whatever it is hovering: mode, rate, waveform, theme, every parameter slider, and the spin boxes in Settings. The wheel steps the mode list rather than scrolling it, and the list follows the selection.
 - Each mode shows a multi-sentence description plus a live math line with the current parameters substituted (onsets, thresholds, cell sizes, cutoffs). The numbers come from the generators' own helpers, so the text tracks what is audible.
 - Settings are shown only while in use; the editor window is sized for the worst case so nothing jumps when they appear.
-- A **SEQUENCER SIZE** selector in Settings offers 60 %, 80 %, 100 % and 120 %. It scales the pattern-matrix cells in both directions while the lane names stay put; past 100 % the grid scrolls horizontally with the wheel or its scrollbar. The window itself stays at 860×760 and never resizes, so no part of the layout reflows.
-- Theme, editor scale and sequencer-size preset are remembered per user in `~/.config/AlgoDrumNemShine/settings.json` (`$XDG_CONFIG_HOME` when set, `%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
+- The window is a fixed 860×760; the pattern matrix uses the full width and never reflows or scrolls.
+- Theme and editor scale are remembered per user in `~/.config/AlgoDrumNemShine/settings.json` (`$XDG_CONFIG_HOME` when set, `%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
 - Default lane notes follow a GM-style mapping: Kick 36, Snare 38, Closed Hat 42, Open Hat 46, Clap 39, Rim 37, Low Tom 45, Percussion 50. MIDI is sent on zero-based channel 9 (MIDI channel 10).
 - Fixed-size patterns support 1–64 steps. The generation path uses bounded work, and the audio callback uses fixed-size patterns without allocating or locking.
 - Settings can snap the pattern length to whole steps or leave it fractional. With snapping off, a length like 16.5 wraps mid-cell, so the pattern drifts against the step grid instead of repeating in phase. Exact values can be typed into the spin boxes rather than dragged, which matters because a 64-value range does not fit in the slider's pixel width.
@@ -44,6 +44,7 @@ The **Math** column shows the formula with the default snapshot substituted: `st
 | Polyrhythm Stack | Fixed integer ratios (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over one duration | lane 0 `k = round(5·0.65) = 3`; lane 1 (3:2) `k = round(8·0.65) = 5` | Ratio rings |
 | Weighted Syncopation | Metric, lane-shifted and jittered scores; the top-k steps become onsets | `target = round(pulses·density·(0.45+w)) = 3`; `score(i) = w(i mod 4)·w((i+3·lane) mod 4)·jitter` | Metrical score bars |
 | Three-Body Chaos | Soft-gravity three-body leapfrog orbit; sweep and close encounters are ranked into onsets | `substeps = clamp(n·(8+32·osc_rate), 64, 2048) = 1152`; `wanted = 3`; line crossings accent | Live orbit trace |
+| Pebble Box | Eight pebbles (one per lane) bounce in a box; a shaker impulse kicks a rotating third and wall impacts above the density threshold fire their lanes | `16 substeps/step`, gravity tilted `0°`; impulse every `n/pulses = 3` steps; threshold `(1−density)·4.2 = 1.47` | Animated pebble box |
 
 The crystallographic mode is an **algorithmic symmetry palette inspired by periodic/crystallographic operations**, not a claim to enumerate all formal 2D/3D crystallographic space groups.
 
@@ -79,7 +80,7 @@ The existing melody/tuning-specific material (pitch contours, scales, tuning/EDO
 src/
   lib.rs                  nih-plug parameters, transport scheduler, CLAP/VST3 exports
   editor.rs               Slint adapter; host parameter callbacks; UI model updates
-  view.rs                 pure geometry for the seventeen generation-mode panels
+  view.rs                 pure geometry for the eighteen generation-mode panels
   sequence/
     mod.rs                immutable generator params, fixed-size Pattern, dispatch, PRNG, invariants
     euclidean.rs          Euclidean rhythms

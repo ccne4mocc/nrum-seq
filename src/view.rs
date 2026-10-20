@@ -40,8 +40,16 @@ fn selected_row(params: &GenParams, tr: usize) -> usize {
 
 /// Panel half-width available for drawing, keeping 10px of margin inside the 210 viewbox.
 const PLOT: f32 = 92.0;
-/// `traj` is stored in simulation units and clamped to `R_MAX`; this maps it into the panel.
-const ORBIT_SCALE: f32 = PLOT / 3.2;
+
+/// Fit the recorded orbit to the panel. The relative positions can span twice the per-body
+/// clamp, so scale by the actual extent instead of a fixed constant.
+fn orbit_scale(pat: &Pattern, n: usize) -> f32 {
+    let mut extent = 0.0f32;
+    for i in 0..n {
+        for k in 0..4 { extent = extent.max(pat.traj[i][k].abs()); }
+    }
+    if extent > 1e-3 { PLOT / extent } else { PLOT / 3.2 }
+}
 
 #[inline]
 fn osc_value(wave: usize, phase: f32) -> f32 {
@@ -226,50 +234,58 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 16.0); ln(&mut v.hand, x, 196.0); }
         }
         GenKind::ToussaintDistance => {
-            // Distance circle: each lane's k onsets sit at evenly spaced angles, radius by lane.
-            // Tick marks on the rim give the step grid, so the circular origin each lane was
-            // rotated by is readable against them.
+            // Distance circle: one ring per lane. Every onset sits at its *actual* step angle on
+            // the lane's ring, with a radial spoke to the rim and a tick for each grid step, so
+            // the two inter-onset gaps read directly against the step grid.
+            circle(&mut v.edges, C, C, 100.0);
+            for i in 0..n {
+                let (x0, y0) = polar(94.0, i as f32 / n as f32);
+                let (x1, y1) = polar(100.0, i as f32 / n as f32);
+                mv(&mut v.edges, x0, y0); ln(&mut v.edges, x1, y1);
+            }
             for tr in 0..TRACKS {
-                let k = crate::sequence::pulse_hits(params.pulses, params.density, tr, n);
-                if k == 0 { continue; }
                 let radius = 30.0 + tr as f32 * 8.5;
-                let mut j = 0usize;
+                circle(&mut v.edges, C, C, radius);
                 for i in 0..n {
                     if !p.hit[tr][i] { continue; }
-                    let (x, y) = polar(radius, j as f32 / k as f32);
-                    let (tx, ty) = polar(100.0, i as f32 / n as f32);
-                    mv(&mut v.lines, tx, ty); ln(&mut v.lines, x, y);
-                    v.nodes.push(Node { x, y, r: 4.2, on: true, cur: play == Some(i), label: String::new() });
-                    j += 1;
+                    let (x, y) = polar(radius, i as f32 / n as f32);
+                    let (rx, ry) = polar(100.0, i as f32 / n as f32);
+                    mv(&mut v.lines, rx, ry); ln(&mut v.lines, x, y);
+                    v.nodes.push(Node {
+                        x, y,
+                        r: 3.2 + 1.8 * p.accent[tr][i],
+                        on: true,
+                        cur: play == Some(i),
+                        label: String::new(),
+                    });
                 }
             }
-            circle(&mut v.edges, C, C, 100.0);
             if let Some(i) = play { let (x, y) = polar(100.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
         }
         GenKind::WellFormed => {
-            // Christoffel slack: the Bresenham remainder rises linearly and resets at each onset,
-            // so the two inter-onset interval lengths are visible as the slope changes.
-            mv(&mut v.edges, 12.0, 186.0); ln(&mut v.edges, 198.0, 186.0);
+            // One band per lane: the Bresenham remainder climbs from the lane's baseline and
+            // resets at each onset, so the two inter-onset lengths are visible as the slope
+            // changes. Stacked bands keep eight lanes from collapsing into one sawtooth pile.
+            let band = 182.0 / TRACKS as f32;
             for tr in 0..TRACKS {
+                let baseline = 14.0 + (tr as f32 + 1.0) * band - 2.0;
+                mv(&mut v.edges, 12.0, baseline); ln(&mut v.edges, 198.0, baseline);
                 let k = crate::sequence::pulse_hits(params.pulses, params.density, tr, n);
                 if k == 0 { continue; }
+                let height = band * 0.72;
                 let phase = (tr * n / TRACKS) % n;
-                let height = 24.0 + tr as f32 * 4.5;
                 for i in 0..n {
                     let d = crate::sequence::modular_distance((i + n - phase) % n, k, n);
                     let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0;
-                    let y = 186.0 - d as f32 / n as f32 * height;
+                    let y = baseline - d as f32 / n as f32 * height;
                     if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
                     if p.hit[tr][i] {
-                        mv(&mut v.edges, x, 186.0 - height); ln(&mut v.edges, x, y);
+                        mv(&mut v.edges, x, baseline); ln(&mut v.edges, x, y);
+                        v.nodes.push(Node { x, y: baseline, r: 2.6, on: true, cur: play == Some(i), label: String::new() });
                     }
                 }
             }
-            for i in 0..n {
-                let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0;
-                v.nodes.push(Node { x, y: 186.0, r: if aggregate_hit(p, i) { 4.0 } else { 1.9 }, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
-            }
-            if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 40.0); ln(&mut v.hand, x, 190.0); }
+            if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 12.0); ln(&mut v.hand, x, 196.0); }
         }
         GenKind::LSystem => {
             // Nesting depth per step, recovered by walking the lane's onsets: a hit that starts
@@ -364,38 +380,81 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
         GenKind::ThreeBody => {
             // The orbit itself: bodies 1 and 2 traced relative to body 0, with a step marker on
             // the third body. This is the only panel whose picture *is* the generator's state.
+            // Relative positions can span twice the clamp radius, so fit to the actual extent;
+            // a fixed scale either clipped the trace or left it as a small blob in the middle.
+            let scale = orbit_scale(p, n);
             circle(&mut v.edges, C, C, 96.0);
-            for body in 0..2 {
-                for i in 0..n {
-                    let x = C + p.traj[i][body * 2] * ORBIT_SCALE;
-                    let y = C - p.traj[i][body * 2 + 1] * ORBIT_SCALE;
-                    if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
-                }
+            // Body 1 is the tight binary partner, body 2 the wide third body. Keep the tight
+            // trail in the faint slot so it does not vanish beneath the outer orbit.
+            for i in 0..n {
+                let x = C + p.traj[i][0] * scale;
+                let y = C - p.traj[i][1] * scale;
+                if i == 0 { mv(&mut v.edges, x, y); } else { ln(&mut v.edges, x, y); }
             }
             for i in 0..n {
-                let x = C + p.traj[i][2] * ORBIT_SCALE;
-                let y = C - p.traj[i][3] * ORBIT_SCALE;
+                let x = C + p.traj[i][2] * scale;
+                let y = C - p.traj[i][3] * scale;
+                if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
+            }
+            for i in 0..n {
+                let x = C + p.traj[i][2] * scale;
+                let y = C - p.traj[i][3] * scale;
                 v.nodes.push(Node { x, y, r: if aggregate_hit(p, i) { 4.4 } else { 2.4 }, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
             }
             v.nodes.push(Node { x: C, y: C, r: 3.0, on: true, cur: false, label: "0".into() });
             if let Some(i) = play {
-                let x = C + p.traj[i][2] * ORBIT_SCALE;
-                let y = C - p.traj[i][3] * ORBIT_SCALE;
+                let x = C + p.traj[i][2] * scale;
+                let y = C - p.traj[i][3] * scale;
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
         GenKind::Logistic => {
-            // Orbit diagram x[n] -> x[n+1], plus a slim orbit trace in the lower half.
+            // Return map: the parabola is y = r·x·(1−x) for the density's r, and the samples are
+            // the orbit's (x[n], x[n+1]) pairs connected in order. The old centre cross was not
+            // an axis at all; the actual axes sit at the plot origin.
+            let (bx, by, w, hgt) = (18.0, 147.0, 174.0, 125.0);
+            mv(&mut v.edges, bx, by); ln(&mut v.edges, bx + w, by);
+            mv(&mut v.edges, bx, by); ln(&mut v.edges, bx, 22.0);
+            let r = crate::sequence::logistic_r(params.density);
+            for s in 0..=48 {
+                let x = s as f32 / 48.0;
+                let y = (r * x as f64 * (1.0 - x as f64)) as f32;
+                let px = bx + x * w;
+                let py = by - y * hgt;
+                if s == 0 { mv(&mut v.edges, px, py); } else { ln(&mut v.edges, px, py); }
+            }
+            // Dots on the parabola: each pair (x[n], x[n+1]) is one iteration, and the wrap from
+            // the last step back to the first is not an iteration, so it is skipped. Connecting
+            // them drew chords that do not exist in the map.
+            for i in 0..n.saturating_sub(1) {
+                let x = bx + p.orbit[i] * w;
+                let y = by - p.orbit[i + 1] * hgt;
+                let hit = aggregate_hit(p, i);
+                v.nodes.push(Node { x, y, r: if hit { 4.8 } else { 2.4 }, on: true, cur: play == Some(i), label: String::new() });
+            }
+            // Slim orbit trace in the lower half.
             for i in 0..n {
-                let x = 18.0 + p.orbit[i] * 174.0;
-                let y = 22.0 + (1.0 - p.orbit[(i + 1) % n]) * 125.0;
-                v.nodes.push(Node { x, y, r: if aggregate_hit(p, i) { 4.8 } else { 2.6 }, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
                 let ox = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
                 let oy = 185.0 - p.orbit[i] * 32.0;
                 if i == 0 { mv(&mut v.lines, ox, oy); } else { ln(&mut v.lines, ox, oy); }
             }
-            mv(&mut v.edges, 18.0, 84.0); ln(&mut v.edges, 192.0, 84.0);
-            mv(&mut v.edges, 105.0, 20.0); ln(&mut v.edges, 105.0, 151.0);
+        }
+        GenKind::PebbleBox => {
+            // The box, with each pebble at its recorded position for this step. Slint tweens
+            // x/y between steps, so this is the same simulation the scheduler is playing.
+            mv(&mut v.edges, 14.0, 14.0); ln(&mut v.edges, 196.0, 14.0);
+            ln(&mut v.edges, 196.0, 196.0); ln(&mut v.edges, 14.0, 196.0); ln(&mut v.edges, 14.0, 14.0);
+            let frame = play.unwrap_or(0).min(n - 1);
+            for tr in 0..TRACKS {
+                let x = 14.0 + p.pebbles[frame][tr * 2] as f32 / 255.0 * 182.0;
+                let y = 14.0 + p.pebbles[frame][tr * 2 + 1] as f32 / 255.0 * 182.0;
+                let hit = p.hit[tr][frame];
+                v.nodes.push(Node { x, y, r: if hit { 6.4 } else { 4.6 }, on: true, cur: hit, label: String::new() });
+            }
+            // Gravity tilt, so `phase` is visible: the arrow points down at 0°.
+            let tilt = params.phase.clamp(0.0, 1.0) * std::f32::consts::TAU;
+            mv(&mut v.edges, C, C);
+            ln(&mut v.edges, C + tilt.sin() * 18.0, C + tilt.cos() * 18.0);
         }
     }
     v
@@ -514,10 +573,99 @@ mod tests {
         let g = GenParams { kind: GenKind::ThreeBody, steps: 32, pulses: 8, density: 1.0, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, 3);
-        let expected = C + pat.traj[3][2] * ORBIT_SCALE;
+        let expected = C + pat.traj[3][2] * orbit_scale(&pat, 32);
         assert!(view.nodes.iter().any(|n| n.cur && (n.x - expected).abs() < 0.6), "playhead node not on the orbit");
         // A default Pattern would collapse every trail point onto the centre.
         assert!(view.nodes.iter().filter(|n| (n.x - C).abs() > 1.0).count() > 5, "orbit collapsed to the centre");
+    }
+
+    #[test]
+    fn chaos_panel_fits_the_whole_orbit() {
+        // A fixed scale either clipped the trace or left it as a blob in the middle: the fit
+        // must map the recorded extent exactly onto the panel plot radius.
+        let g = GenParams { kind: GenKind::ThreeBody, steps: 32, pulses: 8, density: 1.0, phase: 0.9, ..GenParams::default() };
+        let pat = generate(&g);
+        let extent = (0..32).flat_map(|i| (0..4).map(move |k| pat.traj[i][k].abs()))
+            .fold(0.0f32, f32::max);
+        assert!(extent > 1.0);
+        assert!((orbit_scale(&pat, 32) * extent - PLOT).abs() < 0.01);
+        let view = build(&g, &pat, -1);
+        assert!(view.nodes.iter().all(|n| (n.x - C).abs() <= PLOT + 0.6 && (n.y - C).abs() <= PLOT + 0.6));
+    }
+
+    #[test]
+    fn well_formed_traces_one_band_per_lane() {
+        // Regression: all eight lanes shared one 55px strip at the bottom and became a pile.
+        let g = GenParams { kind: GenKind::WellFormed, steps: 32, pulses: 5, density: 0.7, ..GenParams::default() };
+        let view = build(&g, &generate(&g), -1);
+        let mut rows: Vec<f32> = view.nodes.iter().map(|n| n.y).collect();
+        rows.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        rows.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+        assert!(rows.len() >= 6, "lanes collapsed into {} rows", rows.len());
+        // Every baseline is one band apart and inside the panel.
+        let band = 182.0 / TRACKS as f32;
+        for row in &rows {
+            let lane = (row - 14.0 + 2.0) / band - 1.0;
+            assert!((lane - lane.round()).abs() < 0.02, "row {row} is not a lane baseline");
+            assert!((14.0..=196.0).contains(row));
+        }
+    }
+
+    #[test]
+    fn logistic_dots_sit_on_the_drawn_return_map() {
+        // The parabola is y = r*x*(1-x) for the density's r; every plotted pair must lie on it.
+        let (steps, density) = (32usize, 0.65f32);
+        let g = GenParams { kind: GenKind::Logistic, steps, density, ..GenParams::default() };
+        let pat = generate(&g);
+        let view = build(&g, &pat, -1);
+        let r = crate::sequence::logistic_r(density) as f32;
+        let (bx, by, w, hgt) = (18.0, 147.0, 174.0, 125.0);
+        assert_eq!(view.nodes.len(), steps - 1, "the wrap pair is not an iteration");
+        for (i, n) in view.nodes.iter().enumerate() {
+            let x = (n.x - bx) / w;
+            assert!((0.0..=1.0).contains(&x), "dot {i} outside the domain");
+            let want = by - r * x * (1.0 - x) * hgt;
+            assert!((n.y - want).abs() < 0.5, "dot {i} off the parabola: {} vs {want}", n.y);
+        }
+    }
+
+    #[test]
+    fn pebble_panel_reads_the_recorded_frame() {
+        // The Slint panel tweens node x/y between steps, so each step's eight nodes must be the
+        // recorded simulation positions in stable lane order.
+        let g = GenParams { kind: GenKind::PebbleBox, steps: 16, pulses: 5, density: 0.8, ..GenParams::default() };
+        let pat = generate(&g);
+        let view = build(&g, &pat, 5);
+        assert_eq!(view.nodes.len(), TRACKS);
+        for tr in 0..TRACKS {
+            let x = 14.0 + pat.pebbles[5][tr * 2] as f32 / 255.0 * 182.0;
+            let y = 14.0 + pat.pebbles[5][tr * 2 + 1] as f32 / 255.0 * 182.0;
+            assert!((view.nodes[tr].x - x).abs() < 0.01 && (view.nodes[tr].y - y).abs() < 0.01,
+                "lane {tr} does not sit on its recorded pebble");
+        }
+        assert_ne!(pat.pebbles[5], pat.pebbles[6], "no motion between frames");
+    }
+
+    #[test]
+    fn toussaint_places_onsets_at_their_real_step_angle() {
+        // Regression: nodes sat at the ordinal angle j/k while the spokes used the true step,
+        // so every spoke crossed the circle and the picture was a star.
+        let n = 16;
+        let g = GenParams { kind: GenKind::ToussaintDistance, steps: n, pulses: 5, density: 0.8, ..GenParams::default() };
+        let pat = generate(&g);
+        let view = build(&g, &pat, -1);
+        let mut nodes = 0;
+        for tr in 0..TRACKS {
+            let radius = 30.0 + tr as f32 * 8.5;
+            for i in 0..n {
+                if !pat.hit[tr][i] { continue; }
+                let (x, y) = polar(radius, i as f32 / n as f32);
+                assert!(view.nodes.iter().any(|nd| (nd.x - x).abs() < 0.6 && (nd.y - y).abs() < 0.6),
+                    "lane {tr} onset {i} is not at its step angle");
+                nodes += 1;
+            }
+        }
+        assert!(nodes > 0);
     }
 
     #[test]
@@ -533,5 +681,68 @@ mod tests {
         // the panel has to mark each lane's own generation.
         assert_ne!(selected_row(&g, 0), selected_row(&g, 1));
         assert!(marked.iter().any(|y| (*y - row_y(selected_row(&g, 1))).abs() < 0.6), "lane 1 row missing: {marked:?}");
+    }
+}
+
+#[cfg(test)]
+mod dump {
+    use super::*;
+    use crate::sequence::{generate, GenKind, GenParams};
+
+    /// `DUMP_SVG=/dir cargo test --offline dump_svgs` writes one SVG per mode for eyeballing
+    /// the 300px panel geometry. Inactive without the environment variable.
+    #[test]
+    fn dump_svgs() {
+        let Ok(dir) = std::env::var("DUMP_SVG") else { return };
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut cases: Vec<(String, GenParams)> = GenKind::ALL
+            .iter()
+            .map(|&kind| {
+                (format!("{kind:?}"), GenParams {
+                    kind, steps: 16, length: 16.0, pulses: 5, density: 0.65,
+                    probability: 1.0, seed: 0.271, ..GenParams::default()
+                })
+            })
+            .collect();
+        for (name, phase) in [("ThreeBody-phase0", 0.0f32), ("ThreeBody-phase50", 0.5), ("ThreeBody-phase90", 0.9)] {
+            cases.push((name.into(), GenParams {
+                kind: GenKind::ThreeBody, steps: 32, length: 32.0, pulses: 8,
+                density: 0.8, probability: 1.0, seed: 0.271, phase, ..GenParams::default()
+            }));
+        }
+        for (name, g) in cases {
+            write(&dir, &name, &build(&g, &generate(&g), 3));
+        }
+        // Pebble motion at a denser shaker setting: four frames of the same box.
+        let g = GenParams {
+            kind: GenKind::PebbleBox, steps: 32, length: 32.0, pulses: 16,
+            density: 0.8, probability: 1.0, seed: 0.271, ..GenParams::default()
+        };
+        let pat = generate(&g);
+        for step in [0usize, 4, 9, 20] {
+            write(&dir, &format!("PebbleBox-step{step}"), &build(&g, &pat, step as i32));
+        }
+    }
+
+    fn write(dir: &str, name: &str, v: &View) {
+        let mut s = String::from("<svg xmlns='http://www.w3.org/2000/svg' width='420' height='420' viewBox='0 0 210 210'><rect width='210' height='210' fill='#1b1e24'/>");
+        s += &format!("<path d='{}' fill='none' stroke='#3b4350' stroke-width='1'/>", v.edges);
+        s += &format!("<path d='{}' fill='none' stroke='#5eead4' stroke-width='1.2'/>", v.lines);
+        s += &format!("<path d='{}' fill='none' stroke='#fb923c' stroke-width='2'/>", v.hand);
+        for n in &v.nodes {
+            s += &format!(
+                "<circle cx='{:.1}' cy='{:.1}' r='{:.1}' fill='{}' stroke='#4b5563'/>",
+                n.x, n.y, n.r,
+                if n.cur { "#fb923c" } else if n.on { "#2dd4bf" } else { "#2a2e35" },
+            );
+            if !n.label.is_empty() {
+                s += &format!(
+                    "<text x='{:.1}' y='{:.1}' font-size='8' text-anchor='middle' dominant-baseline='central' fill='#04201d'>{}</text>",
+                    n.x, n.y, n.label,
+                );
+            }
+        }
+        s += "</svg>";
+        std::fs::write(format!("{dir}/{name}.svg"), s).unwrap();
     }
 }
