@@ -415,11 +415,11 @@ export component AppWindow inherits Window {
     VerticalLayout {
         padding: 14px; spacing: 8px;
         HorizontalLayout {
-            height: 34px;
+            height: 34px; spacing: 6px;
             VerticalLayout { spacing: 0px; Text { text: "nDrum"; color: #f3f4f6; font-size: 18px; font-weight: 700; } Text { text: "algorithmic MIDI percussion sequencer  /  CLAP + VST3"; color: #8b95a5; font-size: 10px; } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : #30343c; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : #30343c; Text { text: "RANDOMIZE ⚄"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TouchArea { clicked => { root.randomize-pressed(); } } }
-            Rectangle { width: 86px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : #30343c; Text { text: "⚙ SETTINGS"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
+            Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : #30343c; Text { text: "⚙"; color: #f9fafb; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
         }
         HorizontalLayout {
             // 300px leaves room for the two- or three-sentence description plus the live math
