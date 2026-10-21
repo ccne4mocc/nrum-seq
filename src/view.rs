@@ -113,15 +113,15 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             let max_r = 92.0;
             let sec_r = 40.0;
             let shift = p.rotation % n;
-            // The rim carries the trigger window: an arc from 12 o'clock clockwise to the
-            // widest lane threshold, in the accent colour so it reads against the gray rim.
-            // That is the wedge of the rotation that sounds, so the lit dots above are the
-            // ones inside it. Every lane's window starts at 0, so the widest contains the rest.
+            // Each lane gets its own trigger art: a primary wedge and the much shorter
+            // secondary wedge. All wedges start at 12 o'clock, so a single widest arc would
+            // hide the narrower lanes; stagger their radii instead of recolouring the dots.
             circle(&mut v.edges, C, C, max_r);
-            let widest = (0..TRACKS)
-                .map(|tr| crate::sequence::phyllotaxis_threshold(params, tr) as f32)
-                .fold(0.0, f32::max);
-            arc(&mut v.lines, max_r, 0.0, widest);
+            for tr in 0..TRACKS {
+                let threshold = crate::sequence::phyllotaxis_threshold(params, tr) as f32;
+                arc(&mut v.lines, max_r - 2.0 - tr as f32 * 2.2, 0.0, threshold);
+                arc(&mut v.lines, (sec_r - 2.0 - tr as f32 * 1.2).max(18.0), 0.0, threshold * 0.18);
+            }
             for tr in 0..TRACKS {
                 for g in 0..n {
                     let slot = (g + shift) % n;
@@ -659,6 +659,21 @@ mod tests {
                     "{k:?} produced a non-finite node");
             }
         }
+    }
+
+    #[test]
+    fn phyllotaxis_panel_draws_each_lane_trigger_window() {
+        let g = GenParams { kind: Mode::Phyllotaxis, steps: 16, pulses: 5, density: 0.65, ..GenParams::default() };
+        let view = build(&g, &generate(&g), -1);
+        let radii: Vec<f32> = view.lines.split('A').skip(1)
+            .filter_map(|chunk| chunk.split_whitespace().next())
+            .filter_map(|v| v.parse::<f32>().ok())
+            .collect();
+        assert_eq!(radii.len(), TRACKS * 2, "one primary and one secondary arc per lane");
+        let mut unique = radii.clone();
+        unique.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        unique.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+        assert_eq!(unique.len(), TRACKS * 2, "arcs must not collapse onto one radius");
     }
 
     #[test]

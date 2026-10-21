@@ -91,7 +91,7 @@ fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
         9 => set(c, &p.velocity, value.clamp(0.01, 1.0)),
         10 => set(c, &p.regenerate_every, (value.round() as i32).clamp(0, 256)),
         11 => set(c, &p.symmetry, (value.round() as i32).clamp(1, 8)),
-        12 => set(c, &p.randomize_after_beats, (value.round() as i32).clamp(1, 256)),
+        12 => set(c, &p.randomize_after_lengths, (value.round() as i32).clamp(0, 256)),
         13 => set(c, &p.swing, value.clamp(0.0, 0.5)),
         _ => {},
     }
@@ -215,7 +215,7 @@ impl Editor for SlintEditor {
             setter.end_set_parameter(&self.params.theme);
         }
         let options = WindowOpenOptions {
-            title: "AlgoDrumNemShine".to_string(), size: Size::new(WIDTH as f64, HEIGHT as f64),
+            title: "nDrum".to_string(), size: Size::new(WIDTH as f64, HEIGHT as f64),
             scale: if scale > 0.0 { WindowScalePolicy::ScaleFactor(scale as f64) } else { WindowScalePolicy::SystemScaleFactor },
             gl_config: Some(default_gl_config()),
         };
@@ -293,10 +293,6 @@ impl Editor for SlintEditor {
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
-                ui.on_toggle_auto_randomize(move || set(&c, &p.auto_randomize, !p.auto_randomize.value()));
-            }
-            {
-                let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_round_steps(move || set(&c, &p.round_steps, !p.round_steps.value()));
             }
             // Constant UI data: waveform names and the author's contact details come from Rust,
@@ -349,9 +345,8 @@ impl Editor for SlintEditor {
             ui.set_probability(p.probability.value());
             ui.set_velocity(p.velocity.value());
             ui.set_regenerate_every(p.regenerate_every.value() as f32);
-            ui.set_randomize_after_beats(p.randomize_after_beats.value() as f32);
+            ui.set_randomize_after_lengths(p.randomize_after_lengths.value() as f32);
             ui.set_swing(p.swing.value());
-            ui.set_auto_randomize(p.auto_randomize.value());
             ui.set_scope_mode(scope_enabled(p, scope::MODE));
             ui.set_scope_length(scope_enabled(p, scope::LENGTH));
             ui.set_scope_rhythm(scope_enabled(p, scope::RHYTHM));

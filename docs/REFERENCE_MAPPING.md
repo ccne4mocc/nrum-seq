@@ -1,12 +1,12 @@
-# Reference project mapping: `_AlgoNemLody` → AlgoDrumNemShine
+# Reference project mapping: `_AlgoNemLody` → nDrum
 
 This map records the supplied melody sequencer's existing view conventions so follow-up agents can preserve its design language instead of guessing.
 
 ## Reference modes and current counterparts
 
-The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`GenKind`), `src/view.rs` (`build()`), and `ui/app.slint` (`pulses-labels`, `shape-label`, `ModePanel`). AlgoDrumNemShine keeps one mode enum instead of the reference's two: `Mode` in `src/modes.rs` is both the host parameter and the generator's dispatch key.
+The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`GenKind`), `src/view.rs` (`build()`), and `ui/app.slint` (`pulses-labels`, `shape-label`, `ModePanel`). nDrum keeps one mode enum instead of the reference's two: `Mode` in `src/modes.rs` is both the host parameter and the generator's dispatch key.
 
-| Reference mode | Reference generator | Reference view | AlgoDrumNemShine adaptation |
+| Reference mode | Reference generator | Reference view | nDrum adaptation |
 |---|---|---|---|
 | Euclidean | `E(pulses, steps)` | Radial clock; active hit nodes and a playhead hand | **Euclidean** — one pulse ring per drum lane, so per-lane densities stay visible |
 | Golomb Ruler | Optimal Golomb ruler marks | Pitch/step strip only (`view_kind = 6`) | Replaced by **Crystallographic** — periodic motif with symmetry-lattice view |
@@ -27,7 +27,7 @@ The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hard
 |---:|---|---|
 | 0 | Euclidean | Per-lane pulse rings, one ring per drum lane |
 | 1 | Eulerian | Directed state-transition graph |
-| 2 | Golden Ratio / Phyllotaxis | Eight-lane √i rosette of the 1/φ rotation, lit dots inside each lane's trigger wedge, and the 1/φ³ rule as its own inner band |
+| 2 | Golden Ratio / Phyllotaxis | Eight-lane √i rosette of the 1/φ rotation, per-lane primary and secondary trigger arcs, lit dots inside each lane's wedge, and the 1/φ³ rule as its own inner band |
 | 3 | Cellular Automaton | Ring-based CA history / space-time cells, each lane's own selected generation marked |
 | 4 | Oscillator / Phase | One of eight waveform curves, the generator's rank cutoff, and sampled step markers |
 | 5 | Crystallographic | Eight-lane symmetry lattice with unit-cell axes |
@@ -62,8 +62,8 @@ When adding or reordering a mode, update together: the `Mode` enum in `src/modes
 
 ## Per-mode controls
 
-Every mode also shows Steps, Rotate, Probability, Velocity, Regenerate after, After beats and
-Swing. Those are shared post-transforms or clock settings. The table lists the remaining controls
+Every mode also shows Steps, Rotate, Probability, Velocity, Regenerate after, Randomize after
+(lengths) and Swing. Those are shared post-transforms or clock settings. The table lists the remaining controls
 in the order the panel exposes them; `ui/app.slint` (`shows-param`, `pulse-label`,
 `density-label`, `phase-label`, `osc-label`, `ca-label`) is the presentation source of truth, and
 the generator's own use of `GenParams` is the behavioural source of truth.

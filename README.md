@@ -1,4 +1,4 @@
-# AlgoDrumNemShine
+# nDrum
 
 **Algorithmic percussion MIDI sequencer** in Rust, using `nih-plug` for CLAP/VST3 and Slint + `slint-baseview` for the embedded GUI. It is a MIDI generator effect: put it before a drum sampler or drum rack on a MIDI/instrument track. It intentionally does not synthesize audio or load samples in this starter version.
 
@@ -8,7 +8,7 @@
 - Twenty deterministic generator modes with mode-specific visualization and mode-sensitive parameters.
 - Additional generators: Raised-Cos Threshold, Slowcat Rhythm, Toussaint Distance, Well-Formed Rhythm, L-System Grammar, Phase Shift / Reich, Polyrhythm Stack, Weighted Syncopation, Three-Body Chaos, and Pebble Box.
 - Every mode draws a panel specific to its own algorithm: per-lane pulse rings, motif phrase timelines, modular distance circles, Christoffel slack plots, the grammar's own A/B word, phasing spokes, ratio rings, metrical score bars, a live three-body orbit, an animated pebble box, a residue-class sieve lattice, and eight coupled phase pointers.
-- Global hit probability and velocity controls, automatic regeneration after N complete pattern lengths (0 disables it; Three-Body Chaos treats 0 as "every cycle" so its live orbit keeps moving), manual parameter randomization, and optional auto-randomization every N host-transport beats.
+- Global hit probability and velocity controls, automatic regeneration after N complete pattern lengths (0 disables it; Three-Body Chaos treats 0 as "every cycle" so its live orbit keeps moving), and manual or automatic parameter randomization every N complete pattern lengths (0 disables the automatic mode).
 - Randomize scope is five Settings chips (Mode, Length, Rhythm, Tone, Feel) stored as one host-automatable bitmask. Disabled groups keep their current values, and swing is never randomized.
 - Credits/Contact in Settings show the same author, email and support link used for the CLAP/VST3 metadata.
 - Host-automatable lane enables, note numbers, velocities, Gate, Swing, rate, mode, Generate, and Free Run.
@@ -17,7 +17,7 @@
 - Each mode shows a multi-sentence description plus a live math line with the current parameters substituted (onsets, thresholds, cell sizes, cutoffs). The numbers come from the generators' own helpers, so the text tracks what is audible.
 - Settings are shown only while in use; the editor window is sized for the worst case so nothing jumps when they appear.
 - The window is a fixed 860×760; the pattern matrix uses the full width and never reflows or scrolls.
-- Theme and editor scale are remembered per user in `~/.config/AlgoDrumNemShine/settings.json` (`$XDG_CONFIG_HOME` when set, `%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
+- Theme and editor scale are remembered per user in `~/.config/nDrum/settings.json` (`$XDG_CONFIG_HOME` when set, `%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
 - Default lane notes follow a GM-style mapping: Kick 36, Snare 38, Closed Hat 42, Open Hat 46, Clap 39, Rim 37, Low Tom 45, Percussion 50. MIDI is sent on zero-based channel 9 (MIDI channel 10).
 - Fixed-size patterns support 1–64 steps. The generation path uses bounded work, and the audio callback uses fixed-size patterns without allocating or locking.
 - Settings can snap the pattern length to whole steps or leave it fractional. With snapping off, a length like 16.5 wraps mid-cell, so the pattern drifts against the step grid instead of repeating in phase. Exact values can be typed into the spin boxes rather than dragged, which matters because a 64-value range does not fit in the slider's pixel width.
@@ -31,7 +31,7 @@ The **Math** column shows the formula with the default snapshot substituted: `st
 |---|---|---|---|
 | Euclidean | Evenly distribute pulses around the ring; each lane scales the count by its density profile and anchors on its own phase origin | `k = round(pulses·density·(0.35+w))` → lane 0 `round(5·0.65·0.85) = 3`; onset `j` at `floor(j·n/k)` | Per-lane pulse rings |
 | Eulerian Walk | Hierholzer traversal of a balanced directed graph; rest is vertex 0, lanes are vertices 1–8 | `d = 1 + (pulses mod 4)` → `1+1 = 2`; circuit length `9·d = 18` | Directed drum-state network |
-| Golden Ratio / Phyllotaxis | Golden-angle spiral: the beat test steps by `1/φ` (the mirror of 137.51°), with a slower `1/φ³` rule | threshold `T = (pulses/n)·(0.35+w)·(0.5+density) = 0.305`; `beat(i) = frac(i·0.618034 + seed + phase + lane·0.137)` | Eight-lane √i rosette with lit trigger wedges and the inner `1/φ³` spiral |
+| Golden Ratio / Phyllotaxis | Golden-angle spiral: the beat test steps by `1/φ` (the mirror of 137.51°), with a slower `1/φ³` rule | threshold `T = (pulses/n)·(0.35+w)·(0.5+density) = 0.305`; `beat(i) = frac(i·0.618034 + seed + phase + lane·0.137)` | Eight-lane √i rosette with per-lane trigger arcs and the inner `1/φ³` spiral |
 | Cellular Automaton | Ring-based elementary cellular automaton (Wolfram rule); pulses selects a generation | `row = (pulses + round(phase·16) + 2·lane) mod 16` → lane 0 row 5; gate `0.45 + 0.55·density·w = 0.63` | Space-time cell grid |
 | Oscillator / Phase | One of eight waveforms (sine, triangle, saw, square, pulse, decay, half-sine, noise) sampled at each step with explicit phase and cycles | `wanted = round(pulses·density·(0.5+w)) = 3`; keep the 3 highest wave samples | Waveform curve with the generator's rank cutoff and step markers |
 | Crystallographic | Seeded motif tiled across the pattern, transformed per unit cell by a symmetry operation | `order = 4`, `unit = n/order = 4`; motif threshold `T = 0.184`; operation `(order−1) mod 8` | 8-lane lattice and symmetry axes |
@@ -61,7 +61,7 @@ Requirements: Rust toolchain compatible with the reference project (Rust 1.88 or
 ```sh
 cargo check --lib
 cargo test --lib
-cargo xtask bundle algodrumnemshine --release
+cargo xtask bundle ndrum --release
 ```
 
 The bundle task places distributable artifacts under `target/bundled/` when the selected platform/backend is supported. For a quick compile-only check use `cargo check --lib` first. `cargo check --all-targets` and `cargo test` pass, but **the plug-in has never been loaded into a DAW** — treat host behaviour as unverified until it has been.

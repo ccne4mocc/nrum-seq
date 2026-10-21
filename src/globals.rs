@@ -22,8 +22,8 @@ pub(crate) struct GlobalSettings {
     pub scale: Option<f32>,
 }
 
-/// `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json`, falling back to
-/// `$HOME/.config/AlgoDrumNemShine/settings.json`, or `%APPDATA%` on Windows. Returns `None`
+/// `$XDG_CONFIG_HOME/nDrum/settings.json`, falling back to
+/// `$HOME/.config/nDrum/settings.json`, or `%APPDATA%` on Windows. Returns `None`
 /// when no config directory can be determined — a host launched with neither `HOME` nor
 /// `XDG_CONFIG_HOME`, e.g. under a bare systemd unit. Settings then simply do not persist
 /// across sessions rather than failing the editor.
@@ -35,7 +35,7 @@ fn config_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
-    Some(base?.join("AlgoDrumNemShine").join("settings.json"))
+    Some(base?.join("nDrum").join("settings.json"))
 }
 
 pub(crate) fn load() -> GlobalSettings {
@@ -123,6 +123,6 @@ mod tests {
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
         // No config home resolvable at all; there is nothing to compare against.
         let Some(home) = expected_home else { return };
-        assert_eq!(path, home.join("AlgoDrumNemShine").join("settings.json"));
+        assert_eq!(path, home.join("nDrum").join("settings.json"));
     }
 }

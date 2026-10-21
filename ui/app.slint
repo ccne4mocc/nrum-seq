@@ -1,5 +1,5 @@
 import { ScrollView } from "std-widgets.slint";
-// AlgoDrumNemShine: algorithm-first MIDI drum sequencer. Rust pushes deterministic pattern and view data.
+// nDrum: algorithm-first MIDI drum sequencer. Rust pushes deterministic pattern and view data.
 export global Theme {
     in-out property <color> c1: #2dd4bf;
     in-out property <color> c2: #60a5fa;
@@ -229,7 +229,7 @@ component ModePanel inherits Rectangle {
 }
 
 export component AppWindow inherits Window {
-    title: "AlgoDrumNemShine";
+    title: "nDrum";
     // Fixed layout size: the window never resizes (a live resize glitched the GL surface),
     // so the host cannot be fought over it.
     in property <length> base-width: 860px;
@@ -254,9 +254,8 @@ export component AppWindow inherits Window {
     in property <float> probability: 1.0;
     in property <float> velocity: 1.0;
     in property <float> regenerate-every: 0;
-    in property <float> randomize-after-beats: 8;
+    in property <float> randomize-after-lengths: 0;
     in property <float> swing: 0;
-    in property <bool> auto-randomize: false;
     in property <float> seed: 0.271;
     in property <float> phase: 0.0;
     in property <float> osc-rate: 2.0;
@@ -300,7 +299,6 @@ export component AppWindow inherits Window {
     callback toggle-free-run();
     callback generate-pressed();
     callback randomize-pressed();
-    callback toggle-auto-randomize();
     callback toggle-scope(int);
 
     // Only expose mode-specific controls the selected mode actually uses, and label them with
@@ -405,7 +403,7 @@ export component AppWindow inherits Window {
         { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", step: 0.01 },
         { label: root.regen-label(root.mode), min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", step: 1 },
         { label: "Symmetry", min: 1, max: 8, value: root.symmetry, text: "\{Math.round(root.symmetry)}", step: 1 },
-        { label: "After beats", min: 1, max: 256, value: root.randomize-after-beats, text: "\{Math.round(root.randomize-after-beats)}", step: 1 },
+        { label: "After lengths", min: 0, max: 256, value: root.randomize-after-lengths, text: "\{Math.round(root.randomize-after-lengths)}", step: 1 },
         { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", step: 0.01 }
     ];
 
@@ -418,7 +416,7 @@ export component AppWindow inherits Window {
         padding: 14px; spacing: 8px;
         HorizontalLayout {
             height: 34px;
-            VerticalLayout { spacing: 0px; Text { text: "ALGODRUMNEMSHINE"; color: #f3f4f6; font-size: 18px; font-weight: 700; } Text { text: "algorithmic MIDI percussion sequencer  /  CLAP + VST3"; color: #8b95a5; font-size: 10px; } }
+            VerticalLayout { spacing: 0px; Text { text: "nDrum"; color: #f3f4f6; font-size: 18px; font-weight: 700; } Text { text: "algorithmic MIDI percussion sequencer  /  CLAP + VST3"; color: #8b95a5; font-size: 10px; } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : #30343c; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : #30343c; Text { text: "RANDOMIZE ⚄"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TouchArea { clicked => { root.randomize-pressed(); } } }
             Rectangle { width: 86px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : #30343c; Text { text: "⚙ SETTINGS"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
@@ -454,10 +452,10 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 spacing: 3px;
                 Text { text: root.mode-names[root.mode]; color: Theme.c1; font-size: 16px; font-weight: 700; }
-                Text { text: root.mode-help[root.mode]; color: #c1c8d2; font-size: 11px; wrap: word-wrap; }
+                Text { text: root.mode-help[root.mode]; color: #c1c8d2; font-size: 13px; wrap: word-wrap; }
                 // Live formula with the current snapshot substituted; pushed by Rust from the
                 // same helpers the generator calls, so it cannot drift from what is playing.
-                Text { text: root.mode-math; color: #7f8a99; font-size: 9px; wrap: word-wrap; }
+                Text { text: root.mode-math; color: #7f8a99; font-size: 11px; wrap: word-wrap; }
                 Rectangle { height: 5px; }
                 Text { text: "GENERATOR OPTIONS"; color: #788394; font-size: 9px; }
                 HorizontalLayout { spacing: 5px; for i in 4: OptSlider { opt: root.opts[i]; changed(v) => { root.set-opt(i, v); } } }
@@ -521,10 +519,9 @@ export component AppWindow inherits Window {
         }
         HorizontalLayout {
             height: 27px; spacing: 5px;
-            Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : #8b95a5; font-size: 9px; vertical-alignment: center; }
             Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? #254e48 : #2a3038; Text { text: "Toggle free-run"; color: #d1d5db; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
+            Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : #8b95a5; font-size: 9px; vertical-alignment: center; }
             OptSlider { width: 154px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }
-            Rectangle { width: 142px; height: 24px; border-radius: 4px; background: root.auto-randomize ? Theme.c1.with-alpha(0.8) : (auto-randomize-touch.has-hover ? #3b414a : #2a3038); Text { text: root.auto-randomize ? "AUTO RANDOMIZE: ON" : "AUTO RANDOMIZE: OFF"; color: root.auto-randomize ? #0b0f14 : #d1d5db; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } auto-randomize-touch := TouchArea { clicked => { root.toggle-auto-randomize(); } } }
         }
     }
 
@@ -580,7 +577,7 @@ export component AppWindow inherits Window {
                 NumBox { label: "Symmetry"; value: root.symmetry; minimum: 1; maximum: 8; step: 1; changed(v) => { root.set-opt(11, v); } }
             }
             NumBox { label: "Regen after"; value: root.regenerate-every; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(10, v); } }
-            NumBox { label: "Rand after beats"; value: root.randomize-after-beats; minimum: 1; maximum: 256; step: 1; changed(v) => { root.set-opt(12, v); } }
+            NumBox { label: "Rand after lengths"; value: root.randomize-after-lengths; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(12, v); } }
             Text { text: "RANDOMIZE SCOPE"; color: #788394; font-size: 9px; }
             // Five bits of one host parameter (`randomize_scope`). Off keeps that group's
             // current values; on lets RANDOMIZE rewrite it.
@@ -592,7 +589,7 @@ export component AppWindow inherits Window {
                 ScopeChip { label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(4); } }
             }
             Text { text: "CREDITS / CONTACT"; color: #788394; font-size: 9px; }
-            Text { text: "\{root.credit-author}  ·  AlgoDrumNemShine"; color: #d1d5db; font-size: 10px; }
+            Text { text: "\{root.credit-author}  ·  nDrum"; color: #d1d5db; font-size: 10px; }
             TextInput { read-only: true; text: root.credit-github; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-email; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-support; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }

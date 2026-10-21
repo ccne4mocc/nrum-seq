@@ -6,7 +6,7 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 
 ## Build and host verification
 
-- Bundle CLAP + VST3 with `cargo xtask bundle algodrumnemshine --release` and open the result in one CLAP host and one VST3 host. Nothing here has been run in a host yet.
+- Bundle CLAP + VST3 with `cargo xtask bundle ndrum --release` and open the result in one CLAP host and one VST3 host. Nothing here has been run in a host yet.
 - Check no-audio MIDI-effect routing into a sampler, host parameter automation, plug-in scan, editor close/reopen, tempo changes, loop points, stop/start and free-run.
 - A repeatable smoke-test checklist with host/version/OS, distinguishing untested from passing.
 - Run CI for Linux, macOS and Windows; package CLAP + VST3 in release artifacts.
@@ -65,6 +65,10 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 - Every algorithm should end up with a concise mathematical description, an example, deterministic seed behavior, a mode view and invariant tests.
 - Fixed and covered by tests: modes going silent at `steps=1`, and the Oscillator density floor. Both were user-visible defects rather than missing features.
 - Still worth checking: Crystallographic's motif cell is `steps / symmetry` steps wide, so its smallest possible change in hit count is that wide too. Its density slider is inherently steppy rather than smooth. The threshold was rebalanced but the quantisation is structural.
+
+## Visual try-outs
+
+- **Phyllotaxis: full eight-lane rosette variant.** Draw all eight rosettes with per-lane colours and matching trigger wedges, rather than overlaid dots in one colour with staggered arcs. This needs a `ViewNode.lane`/palette contract shared by `src/view.rs` and `ui/app.slint`; the current panel intentionally keeps the eight-rosette drawing and fixes only the trigger art.
 
 ## Notes on working here
 

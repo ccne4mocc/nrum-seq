@@ -32,13 +32,13 @@ DrumParams + same GenParams snapshot ---> editor-side preview
 
 ### Why this split
 
-The reference `_AlgoNemLody` project has a strong seam between pure generation (`src/pattern.rs`), pure visualization geometry (`src/view.rs`), and Slint host glue (`src/editor.rs`). AlgoDrumNemShine preserves that seam and replaces pitch-oriented output with a multi-lane drum event matrix.
+The reference `_AlgoNemLody` project has a strong seam between pure generation (`src/pattern.rs`), pure visualization geometry (`src/view.rs`), and Slint host glue (`src/editor.rs`). nDrum preserves that seam and replaces pitch-oriented output with a multi-lane drum event matrix.
 
 `sequence::Pattern` is a fixed 7568-byte data structure on 64-bit targets: eight hit arrays at up to 64 steps, eight accent arrays, and the mode visualization state (CA history, logistic orbit, symbolic word, absolute three-body positions, normalized pebble-box frames, and the Kuramoto phase bank). Algorithms are deterministic: parameter snapshots contain seed and a persisted variation counter; no entropy source is consulted during playback. Rotation is a shared post-transform and rotates every per-step view array, including the orbit trace, the symbolic word, the phase bank and the current step, so the playhead always matches what is drawn.
 
 ## Audio/MIDI thread
 
-`AlgoDrumNemShine::process()` consumes upstream note events (this is a generator effect, not a MIDI thru). It reads host transport, tempo and position; if stopped, it can optionally use the free-run beat cursor. For each step boundary inside the current buffer it emits MIDI events with a sample offset derived from the host beat timeline. NoteOff is emitted before retriggering a lane, on expiry, during stop, and after a detected transport jump. Per-lane note numbers and velocities come from host parameters. The generator has no audio outputs.
+`nDrum::process()` consumes upstream note events (this is a generator effect, not a MIDI thru). It reads host transport, tempo and position; if stopped, it can optionally use the free-run beat cursor. For each step boundary inside the current buffer it emits MIDI events with a sample offset derived from the host beat timeline. NoteOff is emitted before retriggering a lane, on expiry, during stop, and after a detected transport jump. Per-lane note numbers and velocities come from host parameters. The generator has no audio outputs.
 
 The audio callback remains a bounded MIDI-event scheduler. It publishes current-step and auto-randomization requests through lock-free atomics; the editor applies requested randomized values through NIH-plug's `ParamSetter`. Avoid moving view strings, `Vec` construction, Slint callbacks, or blocking work into the callback. The generator uses fixed-size patterns; the current GUI allocates model vectors on the editor/update side, which is acceptable.
 
@@ -47,7 +47,7 @@ The audio callback remains a bounded MIDI-event scheduler. It publishes current-
 | Parameter group | Parameters | Intended use |
 |---|---|---|
 | Pattern | `mode`, `steps` (1–64), `round_steps`, `pulses`, `rotate`, `density`, `probability`, `velocity`, `regenerate_every`, `seed`, `generate`, `theme` | Pattern family, variation, and palette controls; regeneration counts complete pattern lengths and is evaluated at step boundaries; zero disables it, except in Three-Body Chaos, where the orbit is a live simulation and re-rolls at least once per cycle |
-| Randomization | `auto_randomize`, `randomize_after_beats` (1–256), `randomize_scope` (0–31) | Manual Randomize changes generator parameters immediately; Auto Randomize queues a randomization at every N-beat transport boundary while the custom editor is open. `randomize_scope` is a five-bit mask (Mode, Length, Rhythm, Tone, Feel); disabled groups keep their current values and randomize never touches swing |
+| Randomization | `randomize_after_lengths` (0–256), `randomize_scope` (0–31) | Manual Randomize changes generator parameters immediately; automatic randomization queues a request every N complete pattern lengths while the custom editor is open, and zero disables it. `randomize_scope` is a five-bit mask (Mode, Length, Rhythm, Tone, Feel); disabled groups keep their current values and randomize never touches swing |
 | Algorithm shape | `phase`, `osc_rate`, `osc_wave` (8 waveforms), `ca_rule`, `symmetry` | Mode-specific controls, shown in the GUI only when relevant to the selected mode; waveform ids and names come from the `OscWave` enum so new shapes append without renumbering host state |
 | Clock | `rate`, `gate`, `swing`, `freerun` | Beat grid, NoteOff duration, stopped-transport behavior |
 | Lane state | `<lane>_on` | Host-automatable lane enable switches |
@@ -59,7 +59,7 @@ The audio callback remains a bounded MIDI-event scheduler. It publishes current-
 Two independent mechanisms, deliberately:
 
 - **Project state** is owned by the host. `GuiContext::get_state`/`set_state` serialise every parameter plus any `#[persist]` field (`variation` today), so mode, pattern settings and lane routing all travel with the DAW project. Nothing to implement.
-- **User-global settings** live in `src/globals.rs` and are written to `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json`, falling back to `$HOME/.config/AlgoDrumNemShine/settings.json` when `XDG_CONFIG_HOME` is unset or empty (`%APPDATA%` on Windows). If neither a config home nor `HOME` is resolvable — a host launched from a bare systemd unit — settings do not persist rather than the editor failing. Only preferences that should follow the user across projects belong here: the colour theme and the editor scale. Loaded at editor open and applied over the host's state, so a project cannot pin a palette; written on a 750 ms debounce and forced once when the editor closes.
+- **User-global settings** live in `src/globals.rs` and are written to `$XDG_CONFIG_HOME/nDrum/settings.json`, falling back to `$HOME/.config/nDrum/settings.json` when `XDG_CONFIG_HOME` is unset or empty (`%APPDATA%` on Windows). If neither a config home nor `HOME` is resolvable — a host launched from a bare systemd unit — settings do not persist rather than the editor failing. Only preferences that should follow the user across projects belong here: the colour theme and the editor scale. Loaded at editor open and applied over the host's state, so a project cannot pin a palette; written on a 750 ms debounce and forced once when the editor closes.
 
 The consequence of theme being global is that host automation of `theme` will not survive an editor reopen. That is an accepted trade-off for a cosmetic setting.
 

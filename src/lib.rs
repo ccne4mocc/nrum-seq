@@ -1,4 +1,4 @@
-//! AlgoDrumNemShine: algorithmic multichannel percussion pattern generation, emitted as MIDI.
+//! nDrum: algorithmic multichannel percussion pattern generation, emitted as MIDI.
 //! The plug-in intentionally has no audio renderer: route it to a drum sampler / rack.
 mod editor;
 mod globals;
@@ -90,8 +90,7 @@ pub struct DrumParams {
     #[id = "probability"] pub probability: FloatParam,
     #[id = "velocity"] pub velocity: FloatParam,
     #[id = "regenerate_every"] pub regenerate_every: IntParam,
-    #[id = "randomize_after_beats"] pub randomize_after_beats: IntParam,
-    #[id = "auto_randomize"] pub auto_randomize: BoolParam,
+    #[id = "randomize_after_lengths"] pub randomize_after_lengths: IntParam,
     /// Which groups RANDOMIZE may rewrite: Mode, Length, Rhythm, Tone, Feel. One bit each.
     #[id = "randomize_scope"] pub randomize_scope: IntParam,
     #[id = "seed"] pub seed: FloatParam,
@@ -162,8 +161,7 @@ impl Default for DrumParams {
                 .with_string_to_value(formatters::s2v_f32_percentage()),
             velocity: percentage_param("Global Velocity", 1.0),
             regenerate_every: IntParam::new("Regenerate After (lengths; 0 = Off, Chaos = Live)", 0, IntRange::Linear { min: 0, max: 256 }),
-            randomize_after_beats: IntParam::new("Randomize After (beats)", 8, IntRange::Linear { min: 1, max: 256 }),
-            auto_randomize: BoolParam::new("Auto Randomize Parameters", false),
+            randomize_after_lengths: IntParam::new("Randomize After (lengths; 0 = Off)", 0, IntRange::Linear { min: 0, max: 256 }),
             randomize_scope: IntParam::new("Randomize Scope (Mode|Length|Rhythm|Tone|Feel)", scope::ALL, IntRange::Linear { min: 0, max: scope::ALL }),
             seed: FloatParam::new("Seed", 0.271, FloatRange::Linear { min: 0.0, max: 1.0 }),
             phase: FloatParam::new("Phase", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
@@ -307,24 +305,10 @@ fn resume_cursor(carried: Option<i64>, jumped: bool, start: f64, end: f64, spb: 
     }
 }
 
-/// Count beat-grid randomization points in a transport block: (start, end].
-/// Including the right edge and excluding the left prevents both missed boundaries
-/// and duplicate randomizations when adjacent audio blocks meet exactly on a beat.
-fn randomizations_in_block(start: f64, end: f64, every_beats: i64) -> u32 {
-    if end <= start || every_beats <= 0 { return 0; }
-    let interval = every_beats as f64;
-    // The boundaries are the multiples of `interval` inside the block, so the count is the
-    // number of whole intervals between the two edges. The epsilon keeps a boundary that
-    // lands exactly on an edge inside the block it belongs to.
-    let first = ((start + 1e-9) / interval).floor();
-    let last = ((end + 1e-9) / interval).floor();
-    (last - first).max(0.0) as u32
-}
-
 #[derive(Clone, Copy)]
 struct Active { note: u8, off_beat: f64 }
 
-pub struct AlgoDrumNemShine {
+pub struct NDrum {
     params: Arc<DrumParams>,
     shared: Arc<Shared>,
     last_key: Option<GenParams>,
@@ -341,20 +325,21 @@ pub struct AlgoDrumNemShine {
     pending_reset: bool,
     free_beat: f64,
     last_regen_cycle: Option<i64>,
+    last_randomize_cycle: Option<i64>,
     sample_rate: f64,
 }
-impl Default for AlgoDrumNemShine {
+impl Default for NDrum {
     fn default() -> Self {
         Self {
             params: Arc::new(DrumParams::default()), shared: Arc::new(Shared::default()),
             last_key: None, pattern: Pattern::default(), loop_length: 16.0, last_generate: None,
             active: [None; TRACKS], expected_beat: None, next_step: None, pending_reset: false, free_beat: 0.0,
-            last_regen_cycle: None, sample_rate: 44100.0,
+            last_regen_cycle: None, last_randomize_cycle: None, sample_rate: 44100.0,
         }
     }
 }
 
-impl AlgoDrumNemShine {
+impl NDrum {
     fn stop_all(&mut self, ctx: &mut impl ProcessContext<Self>) {
         for t in 0..TRACKS {
             if let Some(a) = self.active[t].take() {
@@ -372,8 +357,8 @@ pub mod contact {
     pub const SUPPORT: &str = "";
 }
 
-impl Plugin for AlgoDrumNemShine {
-    const NAME: &'static str = "AlgoDrumNemShine";
+impl Plugin for NDrum {
+    const NAME: &'static str = "nDrum";
     const VENDOR: &'static str = contact::AUTHOR;
     const URL: &'static str = contact::GITHUB;
     const EMAIL: &'static str = contact::EMAIL;
@@ -404,6 +389,7 @@ impl Plugin for AlgoDrumNemShine {
         self.next_step = None;
         self.free_beat = 0.0;
         self.last_regen_cycle = None;
+        self.last_randomize_cycle = None;
         self.last_key = None;
         self.loop_length = 16.0;
         self.last_generate = None;
@@ -430,6 +416,7 @@ impl Plugin for AlgoDrumNemShine {
             // them; the remembered cycle would otherwise suppress or trigger the next
             // regeneration against the wrong count.
             self.last_regen_cycle = None;
+            self.last_randomize_cycle = None;
         }
 
         let n_samples = buffer.samples();
@@ -461,16 +448,9 @@ impl Plugin for AlgoDrumNemShine {
         // pos_beats quantised to the sample grid, or that resync between blocks, are not jumps.
         let jump_tolerance = 0.02_f64.max(block_beats * 2.0);
         let transport_jump = self.expected_beat.map(|e| (start - e).abs() > jump_tolerance).unwrap_or(false);
-        if transport_jump { self.stop_all(context); self.last_regen_cycle = None; }
+        if transport_jump { self.stop_all(context); self.last_regen_cycle = None; self.last_randomize_cycle = None; }
         self.expected_beat = Some(end);
         if !playing { self.free_beat = end; }
-
-        // Request parameter randomization on every N-beat boundary. The request is
-        // lock-free here; the editor applies the actual parameter changes with ParamSetter.
-        if p.auto_randomize.value() {
-            let due = randomizations_in_block(start, end, p.randomize_after_beats.value().max(1) as i64);
-            if due > 0 { self.shared.randomize_request.fetch_add(due, Relaxed); }
-        }
 
         let timing = |beat: f64| -> u32 {
             (((beat - start) / beats_per_sample).round().max(0.0) as usize).min(n_samples.saturating_sub(1)) as u32
@@ -485,6 +465,7 @@ impl Plugin for AlgoDrumNemShine {
         let swung = |k: i64| k as f64 * step_len + if k.rem_euclid(2) != 0 { swing } else { 0.0 };
         let mut k = resume_cursor(self.next_step, transport_jump, start, end, spb);
         let every = regeneration_interval(p.mode.value(), p.regenerate_every.value());
+        let randomize_every = p.randomize_after_lengths.value().max(0) as i64;
 
         loop {
             let next_step = if (k as f64) < s1 + 1.0 { swung(k) } else { f64::INFINITY };
@@ -504,6 +485,12 @@ impl Plugin for AlgoDrumNemShine {
             if next_step <= at + 1e-9 && next_step < end - 1e-9 {
                 let n = self.pattern.steps.clamp(1, MAX_STEPS);
                 let idx = step_index(k, self.loop_length) as usize;
+                // Complete pattern lengths, not host beats, like regeneration. The request is
+                // lock-free here; the editor applies it through ParamSetter on its next tick.
+                if let Some(cycle) = regeneration_cycle_at(k, n, randomize_every, self.last_randomize_cycle) {
+                    self.shared.randomize_request.fetch_add(1, Relaxed);
+                    self.last_randomize_cycle = Some(cycle);
+                }
                 if let Some(cycle) = regeneration_cycle_at(k, n, every, self.last_regen_cycle) {
                     p.variation.fetch_add(1, Relaxed);
                     let next_key = p.gen_params();
@@ -537,19 +524,19 @@ impl Plugin for AlgoDrumNemShine {
     }
 }
 
-impl ClapPlugin for AlgoDrumNemShine {
-    const CLAP_ID: &'static str = "com.algodrumnemshine.algodrumnemshine";
+impl ClapPlugin for NDrum {
+    const CLAP_ID: &'static str = "com.ndrum.ndrum";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("Algorithmic percussion MIDI sequencer with eight drum lanes");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(contact::GITHUB);
     const CLAP_SUPPORT_URL: Option<&'static str> = Some(contact::SUPPORT);
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::NoteEffect, ClapFeature::Utility];
 }
-impl Vst3Plugin for AlgoDrumNemShine {
-    const VST3_CLASS_ID: [u8; 16] = *b"AlgoDrumNemShine";
+impl Vst3Plugin for NDrum {
+    const VST3_CLASS_ID: [u8; 16] = *b"nDrum\0\0\0\0\0\0\0\0\0\0\0";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Instrument, Vst3SubCategory::Tools];
 }
-nih_export_clap!(AlgoDrumNemShine);
-nih_export_vst3!(AlgoDrumNemShine);
+nih_export_clap!(NDrum);
+nih_export_vst3!(NDrum);
 
 #[cfg(test)]
 mod tests {
@@ -559,7 +546,7 @@ mod tests {
         let params = DrumParams::default();
         let map = params.param_map();
         let ids: Vec<&str> = map.iter().map(|(id, _, _)| id.as_str()).collect();
-        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_beats", "auto_randomize", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "generate", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
+        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_lengths", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "generate", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
             assert!(ids.contains(&expected), "missing parameter {expected}");
         }
         for (id, ptr, _) in &map {
@@ -644,7 +631,7 @@ mod tests {
         assert_eq!(contact::EMAIL, "");
         assert_eq!(contact::GITHUB, "https://github.com/ccnn4mocc");
         assert_eq!(contact::SUPPORT, "");
-        assert_eq!(<AlgoDrumNemShine as Plugin>::VENDOR, contact::AUTHOR);
+        assert_eq!(<NDrum as Plugin>::VENDOR, contact::AUTHOR);
     }
 
     #[test]
@@ -669,21 +656,13 @@ mod tests {
     }
 
     #[test]
-    fn auto_randomization_handles_exact_block_boundaries() {
-        assert_eq!(randomizations_in_block(0.0, 3.99, 4), 0);
-        assert_eq!(randomizations_in_block(3.99, 4.01, 4), 1);
-        // Include the right edge so an exact beat at a block end cannot be skipped.
-        assert_eq!(randomizations_in_block(0.0, 4.0, 4), 1);
-        // Exclude the left edge so the next block cannot double-fire the same beat.
-        assert_eq!(randomizations_in_block(4.0, 4.9, 4), 0);
-        assert_eq!(randomizations_in_block(4.0, 12.0, 4), 2);
-        assert_eq!(randomizations_in_block(4.0, 12.01, 4), 2);
-        assert_eq!(randomizations_in_block(0.0, 20.0, 1), 20);
-        assert_eq!(randomizations_in_block(0.0, 20.0, 0), 0);
+    fn auto_randomization_defaults_to_off() {
+        let p = DrumParams::default();
+        assert_eq!(p.randomize_after_lengths.value(), 0);
     }
 
     #[test]
-    fn regeneration_triggers_only_on_complete_lengths() {
+    fn regeneration_and_randomization_trigger_only_on_complete_lengths() {
         assert_eq!(regeneration_cycle_at(0, 16, 2, None), None);
         assert_eq!(regeneration_cycle_at(16, 16, 2, None), None);
         assert_eq!(regeneration_cycle_at(31, 16, 2, None), None);
