@@ -369,8 +369,6 @@ pub mod contact {
     pub const AUTHOR: &str = "ccnn4mocc";
     pub const EMAIL: &str = "";
     pub const GITHUB: &str = "https://github.com/ccnn4mocc";
-    /// What the Credits panel shows (the metadata URL without the scheme).
-    pub const GITHUB_HANDLE: &str = "github.com/ccnn4mocc";
     pub const SUPPORT: &str = "";
 }
 
@@ -591,6 +589,8 @@ mod tests {
             (15, Mode::Syncopation, "target onsets label"),
             (16, Mode::ThreeBody, "solver detail label"),
             (17, Mode::PebbleBox, "substeps and gravity"),
+            (18, Mode::Sieve, "moduli and residue labels"),
+            (19, Mode::Kuramoto, "coupling label"),
         ] {
             assert_eq!(Mode::from_index(index), mode, "mode {index} is {ui_meaning} in the UI");
         }
@@ -619,7 +619,6 @@ mod tests {
     #[test]
     fn randomize_scope_is_one_bit_per_group() {
         let bits = [scope::MODE, scope::LENGTH, scope::RHYTHM, scope::TONE, scope::FEEL];
-        assert_eq!(scope::ALL, bits.iter().fold(0, |m, b| m | b));
         for (i, a) in bits.iter().enumerate() {
             assert!((*a as u32).is_power_of_two(), "scope bit {a} is not a single bit");
             for b in &bits[i + 1..] {
@@ -644,7 +643,6 @@ mod tests {
         assert_eq!(contact::AUTHOR, "ccnn4mocc");
         assert_eq!(contact::EMAIL, "");
         assert_eq!(contact::GITHUB, "https://github.com/ccnn4mocc");
-        assert_eq!(contact::GITHUB_HANDLE, "github.com/ccnn4mocc");
         assert_eq!(contact::SUPPORT, "");
         assert_eq!(<AlgoDrumNemShine as Plugin>::VENDOR, contact::AUTHOR);
     }

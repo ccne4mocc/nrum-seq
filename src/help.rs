@@ -47,8 +47,7 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::Oscillator => {
             let wanted = ((p.pulses as f32 * d * (0.5 + w0)).round() as usize).min(n);
             let wave = crate::OscWave::ids()
-                .and_then(|ids| ids.get(p.osc_wave % crate::sequence::oscillator_wave_count).copied())
-                .unwrap_or("sine");
+                .map_or("sine", |ids| ids[p.osc_wave % crate::sequence::oscillator_wave_count]);
             format!("n={n}: wave(i)={wave}({:.2}·i/n+{:.2}); keep the {wanted} highest samples (lane 0, rank<{wanted})", p.osc_rate, p.phase)
         }
         Mode::Crystallographic => {
@@ -123,10 +122,24 @@ pub(crate) fn math(p: &GenParams) -> String {
         }
         Mode::PebbleBox => {
             let substeps = (p.osc_rate.round() as i32).clamp(1, 16);
-            let gravity = 0.05 + p.ca_rule as f32 / 255.0 * 1.15;
+            let gravity = crate::sequence::pebble_gravity(p.ca_rule);
             let shaker = p.pulses.clamp(1, n);
             let stride = (n / shaker).max(1);
             format!("n={n}: {substeps} substep(s)/step; gravity {gravity:.2} tilted {:.0}°; shaker impulse every {stride} step(s) kicks a rotating third of 8 pebbles; a lane fires when its wall impact exceeds {:.2}", p.phase * 360.0, (1.0 - d) * 4.2)
+        }
+        Mode::Sieve => {
+            let cls = crate::sequence::sieve_classes(p);
+            let terms = if p.pulses >= 2 { 2 } else { 1 };
+            let members = crate::sequence::sieve_mask(p, n).count_ones();
+            let kept = (members as f32 * d * (0.35 + w0)).round() as usize;
+            format!("n={n}: M=(({},{})∪({},{}))\\{};{} with {terms} union term(s); {members} member step(s), lane 0 keeps round({members}×{d:.2}×(0.35+{w0:.2}))={kept}",
+                cls[0].0, cls[0].1, cls[1].0, cls[1].1, cls[2].0, cls[2].1)
+        }
+        Mode::Kuramoto => {
+            let k = crate::sequence::kuramoto_coupling(p);
+            let rate = crate::sequence::kuramoto_rate(p, n);
+            let target = ((pulses as f32 * d * (0.5 + w0)).round() as usize).min(n);
+            format!("n={n}: dθᵢ=2π·{rate:.3}·detune+({k:.2}/8)·Σsin(θⱼ−θᵢ), spread={:.2}; lane fires on a phase wrap; keep top {target} (lane 0)", 0.05 + 0.45 * p.phase.clamp(0.0, 1.0))
         }
     }
 }

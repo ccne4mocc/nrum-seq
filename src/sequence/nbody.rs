@@ -19,12 +19,9 @@ const DT: f64 = 0.004;
 /// ponytail: hard radius/speed clamps are a crude stand-in for adaptive step control. They
 /// keep every value finite and bounded; a real integrator would shorten the step on an
 /// encounter instead of rescaling the state. Revisit if encounters start sounding clipped.
-const R_MAX: f64 = 3.2;
+/// The panel draws this radius as its boundary, so it is the shared constant.
+pub(crate) const R_MAX: f64 = 3.2;
 const V_MAX: f64 = 6.0;
-
-/// The radius the integrator clamps every body to. The panel draws this as a boundary, so it
-/// reads the constant from here instead of restating it.
-pub(crate) fn clamp_radius() -> f64 { R_MAX }
 
 fn accel(r: &[f64; W], a: &mut [f64; W]) {
     for k in 0..W { a[k] = 0.0; }
@@ -267,7 +264,7 @@ mod tests {
             for i in 0..32 {
                 for body in 0..3 {
                     let r = (pat.traj[i][body * 2].powi(2) + pat.traj[i][body * 2 + 1].powi(2)).sqrt();
-                    assert!(r as f64 <= clamp_radius() + 1e-4, "body {body} at step {i} left the clamp circle: {r}");
+                    assert!(r as f64 <= R_MAX + 1e-4, "body {body} at step {i} left the clamp circle: {r}");
                 }
             }
         }

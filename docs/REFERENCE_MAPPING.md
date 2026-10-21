@@ -43,16 +43,13 @@ The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hard
 | 15 | Weighted Syncopation | The generator's metrical score as bars, selection marked |
 | 16 | Three-Body Chaos | Live absolute orbit with axes, clamp circle, trails and the three bodies at the playhead |
 | 17 | Pebble Box | Animated pebble box; eight lane pebbles at their recorded per-step positions |
+| 18 | Xenakis Sieve | Residue-class lattice rows plus the generator's step mask and its onsets |
+| 19 | Kuramoto Lanes | Eight phase pointers, their trails and the mean phase vector on one circle |
 
-Indices 8–17 all draw their own panel. There is no shared step-lattice fallback: a mode whose
-structure is not a grid shows that structure instead. Each panel draws the generator's own
-formula (envelope, cutoff, slack, motif length, orbital state), reached through helpers exported
-from the generator module — a panel must never restate an algorithm's math. The audit rule for a
-new panel: if the panel's constants cannot be traced to a `Pattern` field or a generator helper,
-the panel is drawing a decoration, not the algorithm. The three panels reworked in this pass pass
-that rule: Phyllotaxis uses `primary_phase`/`secondary_phase`/`rules_fired`/`lane_threshold`,
-L-System uses the published `Pattern.lsym` word plus `step_chance`, and Three-Body uses the
-absolute `Pattern.traj` with the generator's `clamp_radius()` as the panel scale.
+Indices 8–19 all draw their own panel. There is no shared step-lattice fallback: a mode whose
+structure is not a grid shows that structure instead. Each panel reads the generator's own
+formula or published state through an exported helper; if a panel's constants cannot be traced
+to a `Pattern` field or a generator helper, the panel is drawing a decoration, not the algorithm.
 
 Three-Body Chaos is not a reference-project mode; it follows the same chaos family as the
 existing Logistic Map but with genuinely different controls (`phase` widens the third orbit,
@@ -91,13 +88,15 @@ the generator's own use of `GenParams` is the behavioural source of truth.
 | Syncopation | Target onsets, Density, Seed |
 | Three-Body | Target onsets, Onset density, Seed, Orbit phase, Solver detail |
 | Pebble Box | Shaker impulses, Impact sensitivity, Seed, Gravity tilt, Substeps, Gravity |
+| Sieve | Sieve terms (0–2), Sieve density, Seed, Residue shift, Sieve moduli, Symmetry |
+| Kuramoto | Target onsets, Onset density, Seed, Detune spread, Coupling |
 
-Mode-scoped reuse is deliberate: `ca_rule` is the cellular rule and Pebble Box's gravity;
-`symmetry` only affects Crystallographic; `osc_rate` is oscillator cycles, Three-Body solver
-detail or Pebble Box substeps. Seed stays visible in every mode because the shared accent
-humanizer reads it even where the hit pattern does not. A control that the selected mode never
-reads is hidden, not left inert. `ca_rule` maps to gravity as `0.05 + ca_rule/255 × 1.15`
-box-heights per step².
+Mode-scoped reuse is deliberate: `ca_rule` is the cellular rule, Pebble Box's gravity and the
+Sieve moduli; `symmetry` selects Crystallographic cells and Sieve residues; `osc_rate` is
+oscillator cycles, Three-Body solver detail, Pebble Box substeps or Kuramoto coupling. Seed stays
+visible in every mode because the shared accent humanizer reads it even where the hit pattern
+does not. A control that the selected mode never reads is hidden, not left inert. `ca_rule` maps
+to gravity as `pebble::gravity()` (`0.01 + ca_rule/255 × 2.15` box-heights per step²).
 
 
 ## Shared interaction patterns retained from the reference

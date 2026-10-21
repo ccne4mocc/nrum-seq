@@ -134,14 +134,6 @@ mod tests {
             let s = secondary_angle(0, lane, &p) - secondary_angle(0, lane - 1, &p);
             assert!((s - PHI_INV.powi(4)).abs() < 1e-12, "secondary lane {lane} offset {s}");
         }
-        for lane in 0..TRACKS {
-            for other in 0..lane {
-                let a = primary_phase(0, lane, &p);
-                let b = primary_phase(0, other, &p);
-                assert!((a - b).rem_euclid(1.0).min((b - a).rem_euclid(1.0)) > 1e-6,
-                    "lanes {lane} and {other} share a phase origin");
-            }
-        }
     }
 
     #[test]

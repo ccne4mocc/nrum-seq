@@ -126,7 +126,7 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     // stream does not skip draws when a group is disabled, so enabling a group never changes
     // what another group received. Pulse/rotate bounds still follow the mode and length that
     // survive the scope, so a written count is always in range.
-    let mode = Mode::from_index(rng.below(18));
+    let mode = Mode::from_index(rng.below(<Mode as Enum>::variants().len()));
     let cells = 8 + rng.below(MAX_STEPS - 7); // 8..=MAX_STEPS
     // Keep randomize on the grid; fractional spacing stays a deliberate user choice.
     let steps = cells as f32;
@@ -134,7 +134,11 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     // count is never out of range for the mode and length that survive the scope.
     let mode_after = if scope_enabled(p, scope::MODE) { mode } else { p.mode.value() };
     let cells_after = if scope_enabled(p, scope::LENGTH) { cells } else { p.cell_count().max(1) as usize };
-    let pulse_limit = if mode_after == Mode::Cellular { 15 } else { cells_after };
+    let pulse_limit = match mode_after {
+        Mode::Cellular => 15,
+        Mode::Sieve => 2,
+        _ => cells_after,
+    };
     let pulses = rng.below(pulse_limit + 1) as i32;
     let rotate = rng.below(cells_after) as i32;
     let density = 0.15 + 0.85 * rng.unit();
@@ -223,9 +227,14 @@ impl Editor for SlintEditor {
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_set_mode(move |v| {
-                    let mode = Mode::from_index(v.clamp(0, 17) as usize);
+                    let last = <Mode as Enum>::variants().len() as i32 - 1;
+                    let mode = Mode::from_index(v.clamp(0, last) as usize);
                     set(&c, &p.mode, mode);
-                    let max_pulses = if mode == Mode::Cellular { 15 } else { p.cell_count() };
+                    let max_pulses = match mode {
+                        Mode::Cellular => 15,
+                        Mode::Sieve => 2,
+                        _ => p.cell_count(),
+                    };
                     if p.pulses.value() > max_pulses { set(&c, &p.pulses, max_pulses); }
                 });
             }
@@ -236,15 +245,14 @@ impl Editor for SlintEditor {
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_set_osc_wave(move |v| {
-                    let last = OscWave::variants().len() as i32 - 1;
-                    set(&c, &p.osc_wave, OscWave::from_index(v.clamp(0, last) as usize));
+                    set(&c, &p.osc_wave, OscWave::from_index(v.clamp(0, OscWave::variants().len() as i32 - 1) as usize));
                 });
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_scope(move |bit| {
                     let mask = p.randomize_scope.value() ^ (1 << bit.clamp(0, 4));
-                    set(&c, &p.randomize_scope, mask.clamp(0, scope::ALL));
+                    set(&c, &p.randomize_scope, mask);
                 });
             }
             {
@@ -297,7 +305,7 @@ impl Editor for SlintEditor {
                 OscWave::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
             ui.set_credit_author(SharedString::from(crate::contact::AUTHOR));
-            ui.set_credit_github(SharedString::from(crate::contact::GITHUB_HANDLE));
+            ui.set_credit_github(SharedString::from(crate::contact::GITHUB));
             ui.set_credit_email(SharedString::from(crate::contact::EMAIL));
             ui.set_credit_support(SharedString::from(crate::contact::SUPPORT));
         };

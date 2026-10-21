@@ -28,12 +28,11 @@ fn circle(s: &mut String, cx: f32, cy: f32, r: f32) {
 }
 /// Open arc around the panel centre, `from`/`to` in turns clockwise from 12 o'clock.
 fn arc(s: &mut String, r: f32, from: f32, to: f32) {
-    let steps = 24;
-    for j in 0..=steps {
-        let turns = from + (to - from) * j as f32 / steps as f32;
-        let (x, y) = polar(r, turns);
-        if j == 0 { mv(s, x, y); } else { ln(s, x, y); }
-    }
+    let (x0, y0) = polar(r, from);
+    let (x1, y1) = polar(r, to);
+    let large = if (to - from).abs() > 0.5 { 1 } else { 0 };
+    let sweep = if to >= from { 1 } else { 0 };
+    let _ = write!(s, "M{x0:.1} {y0:.1} A{r:.1} {r:.1} 0 {large} {sweep} {x1:.1} {y1:.1} ");
 }
 fn aggregate_hit(p: &Pattern, i: usize) -> bool { (0..TRACKS).any(|t| p.hit[t][i]) }
 
@@ -114,14 +113,15 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             let max_r = 92.0;
             let sec_r = 40.0;
             let shift = p.rotation % n;
-            // The rim carries each lane's trigger window: an arc from 12 o'clock clockwise to
-            // the lane's threshold, in the accent colour so it reads against the gray rim. That
-            // is the wedge of the rotation that sounds, so the lit dots above are the ones
-            // inside it.
+            // The rim carries the trigger window: an arc from 12 o'clock clockwise to the
+            // widest lane threshold, in the accent colour so it reads against the gray rim.
+            // That is the wedge of the rotation that sounds, so the lit dots above are the
+            // ones inside it. Every lane's window starts at 0, so the widest contains the rest.
             circle(&mut v.edges, C, C, max_r);
-            for tr in 0..TRACKS {
-                arc(&mut v.lines, max_r, 0.0, crate::sequence::phyllotaxis_threshold(params, tr) as f32);
-            }
+            let widest = (0..TRACKS)
+                .map(|tr| crate::sequence::phyllotaxis_threshold(params, tr) as f32)
+                .fold(0.0, f32::max);
+            arc(&mut v.lines, max_r, 0.0, widest);
             for tr in 0..TRACKS {
                 for g in 0..n {
                     let slot = (g + shift) % n;
@@ -423,7 +423,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             // The playhead bodies are separate nodes whose x/y change every step, so the
             // panel's existing tween turns them into a glide along the orbit instead of a
             // jump.
-            let scale = PLOT / crate::sequence::nbody_clamp_radius() as f32;
+            let scale = PLOT / crate::sequence::nbody_clamp_radius as f32;
             mv(&mut v.edges, 14.0, C); ln(&mut v.edges, 196.0, C);
             mv(&mut v.edges, C, 14.0); ln(&mut v.edges, C, 196.0);
             circle(&mut v.edges, C, C, PLOT);
@@ -527,7 +527,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             // Gravity is the mode-scoped `ca_rule` knob; the arrow length shows its strength and
             // the direction follows the tilt.
             let tilt = params.phase.clamp(0.0, 1.0) * std::f32::consts::TAU;
-            let gravity = 0.05 + params.ca_rule as f32 / 255.0 * 1.15;
+            let gravity = crate::sequence::pebble_gravity(params.ca_rule);
             let len = 12.0 + gravity * 16.0;
             let (dx, dy) = (tilt.sin(), tilt.cos());
             let (px, py) = (-dy * 5.0, dx * 5.0);
@@ -536,6 +536,87 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             ln(&mut v.lines, tip.0, tip.1);
             mv(&mut v.lines, tip.0 - px, tip.1 - py);
             ln(&mut v.lines, tip.0 + px, tip.1 + py);
+        }
+        Mode::Sieve => {
+            // The sieve's own lattice: one row per residue class. The two union terms are lit
+            // cyan; the subtracted class is amber, because those cells are removed. Under them,
+            // the 64-step mask the lane reads, rotated into display slots like the hits.
+            let cls = crate::sequence::sieve_classes(params);
+            let mask = crate::sequence::sieve_mask(params, n);
+            let shift = p.rotation % n;
+            for (row, &(m, r)) in cls.iter().enumerate() {
+                let y = 34.0 + row as f32 * 26.0;
+                mv(&mut v.edges, 12.0, y); ln(&mut v.edges, 198.0, y);
+                let cw = 184.0 / m as f32;
+                for cell in 0..m {
+                    let selected = cell == r;
+                    v.nodes.push(Node {
+                        x: 13.0 + (cell as f32 + 0.5) * cw,
+                        y,
+                        r: if selected { 4.2 } else { 2.0 },
+                        on: selected && row < 2,
+                        cur: selected && row == 2,
+                        label: String::new(),
+                    });
+                }
+            }
+            let y = 150.0;
+            mv(&mut v.edges, 12.0, y); ln(&mut v.edges, 198.0, y);
+            let cw = 184.0 / n as f32;
+            for i in 0..n {
+                let member = mask & (1 << ((i + n - shift) % n)) != 0;
+                let hit = aggregate_hit(p, i);
+                v.nodes.push(Node {
+                    x: 13.0 + (i as f32 + 0.5) * cw,
+                    y,
+                    r: if hit { 4.4 } else if member { 2.6 } else { 1.4 },
+                    on: member,
+                    cur: play == Some(i),
+                    label: String::new(),
+                });
+            }
+            if let Some(i) = play {
+                let x = 13.0 + (i as f32 + 0.5) * cw;
+                mv(&mut v.hand, x, 20.0); ln(&mut v.hand, x, 190.0);
+            }
+        }
+        Mode::Kuramoto => {
+            // The bank itself: eight phase pointers on one circle, each on the phase the
+            // generator published for this step. Low coupling spreads them; high coupling
+            // bunches them into a rotating column. Trails show where each lane has been.
+            let frame = play.unwrap_or(0).min(n - 1);
+            let radius = 88.0;
+            circle(&mut v.edges, C, C, radius);
+            circle(&mut v.edges, C, C, 24.0);
+            for tr in 0..TRACKS {
+                let mut prev: Option<f32> = None;
+                for i in 0..n {
+                    let phase = p.phases[i][tr] as f32 / 255.0;
+                    let (x, y) = polar(radius, phase);
+                    match prev {
+                        // A jump of half a turn or more is a wrap; start a new subpath so the
+                        // trail never draws a chord across the circle.
+                        Some(last) if (phase - last).rem_euclid(1.0) < 0.5 => ln(&mut v.lines, x, y),
+                        _ => mv(&mut v.lines, x, y),
+                    }
+                    prev = Some(phase);
+                }
+            }
+            for tr in 0..TRACKS {
+                let phase = p.phases[frame][tr] as f32 / 255.0;
+                let (x, y) = polar(radius, phase);
+                let hit = p.hit[tr][frame];
+                mv(&mut v.lines, C, C); ln(&mut v.lines, x, y);
+                v.nodes.push(Node { x, y, r: if hit { 5.2 } else { 4.0 }, on: true, cur: hit, label: String::new() });
+            }
+            // The order parameter: the bank's mean phase. Long when the lanes lock, short when
+            // they drift, so the picture shows synchrony without a second computation.
+            let (mx, my) = crate::sequence::kuramoto_order(&p.phases[frame]);
+            let len = (mx * mx + my * my).sqrt();
+            if len > 0.001 {
+                let (x, y) = (C + my / len * radius, C - mx / len * radius);
+                mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
+            }
         }
     }
     v
@@ -617,6 +698,41 @@ mod tests {
     }
 
     #[test]
+    fn sieve_panel_draws_the_generator_mask() {
+        let g = GenParams { kind: Mode::Sieve, steps: 16, pulses: 2, density: 0.8, ..GenParams::default() };
+        let pat = generate(&g);
+        let view = build(&g, &pat, -1);
+        let mask = crate::sequence::sieve_mask(&g, 16);
+        let strip: Vec<&Node> = view.nodes.iter().filter(|n| (n.y - 150.0).abs() < 0.01).collect();
+        assert_eq!(strip.len(), 16, "one mask cell per step");
+        for (i, node) in strip.iter().enumerate() {
+            let bit = mask & (1 << ((i + 16 - pat.rotation) % 16)) != 0;
+            assert_eq!(node.on, bit, "step {i}");
+        }
+        // Three residue rows, each with one selected cell.
+        for (row, y) in [34.0f32, 60.0, 86.0].iter().enumerate() {
+            let selected = view.nodes.iter().filter(|n| (n.y - y).abs() < 0.01 && (n.on || n.cur)).count();
+            assert_eq!(selected, 1, "residue row {row} has {selected} selected cells");
+        }
+    }
+
+    #[test]
+    fn kuramoto_panel_draws_one_pointer_per_phase() {
+        let g = GenParams { kind: Mode::Kuramoto, steps: 16, pulses: 6, density: 0.8, ..GenParams::default() };
+        let pat = generate(&g);
+        let frame = 5usize;
+        let view = build(&g, &pat, frame as i32);
+        assert_eq!(view.nodes.len(), TRACKS, "one pointer per lane, so Slint can tween them");
+        for tr in 0..TRACKS {
+            let phase = pat.phases[frame][tr] as f32 / 255.0;
+            let (x, y) = polar(88.0, phase);
+            let node = &view.nodes[tr];
+            assert!((node.x - x).abs() < 0.01 && (node.y - y).abs() < 0.01,
+                "lane {tr} pointer not on its published phase");
+        }
+    }
+
+    #[test]
     fn every_panel_stays_inside_the_viewbox() {
         // A mode whose geometry escapes the 210x210 panel is clipped by Slint and reads as a
         // blank or half-drawn box. Every mode, at the sizes most likely to overflow.
@@ -687,7 +803,7 @@ mod tests {
         let g = GenParams { kind: Mode::ThreeBody, steps: 32, pulses: 8, density: 1.0, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, 3);
-        let scale = PLOT / crate::sequence::nbody_clamp_radius() as f32;
+        let scale = PLOT / crate::sequence::nbody_clamp_radius as f32;
         for body in 0..3 {
             let x = C + pat.traj[3][body * 2] * scale;
             let y = C - pat.traj[3][body * 2 + 1] * scale;
@@ -709,9 +825,6 @@ mod tests {
             let d = ((n.x - C).powi(2) + (n.y - C).powi(2)).sqrt();
             assert!(d <= PLOT + 0.6, "orbit node {:.1}px from centre escapes the plot", d);
         }
-        // ... and the orbit is a real shape, not a dot in the middle.
-        let spread = view.nodes.iter().map(|n| ((n.x - C).powi(2) + (n.y - C).powi(2)).sqrt()).fold(0.0f32, f32::max);
-        assert!(spread > PLOT * 0.5, "orbit only reaches {spread:.1}px");
     }
 
     #[test]

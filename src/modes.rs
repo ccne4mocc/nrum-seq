@@ -1,4 +1,4 @@
-//! The eighteen generation modes, in one list.
+//! The twenty generation modes, in one list.
 //!
 //! `Mode` is the host-visible enum: the stable `id` values are what a saved project stores and
 //! the `name` values are what the host shows. The generators and the panels match on the same
@@ -28,6 +28,8 @@ pub enum Mode {
     #[id = "syncopation"] #[name = "Weighted Syncopation"] Syncopation,
     #[id = "three_body"] #[name = "Three-Body Chaos"] ThreeBody,
     #[id = "pebble_box"] #[name = "Pebble Box"] PebbleBox,
+    #[id = "sieve"] #[name = "Xenakis Sieve"] Sieve,
+    #[id = "kuramoto"] #[name = "Kuramoto Lanes"] Kuramoto,
 }
 
 impl Mode {

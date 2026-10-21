@@ -19,6 +19,8 @@ mod oscillator;
 mod phyllotaxis;
 mod nbody;
 mod pebble;
+mod sieve;
+mod kuramoto;
 
 // The panel draws these algorithms' own curves and cutoffs rather than restating their
 // formulas, so these re-exports exist for `crate::view` alone.
@@ -40,15 +42,21 @@ pub(crate) use lsystem::{
     lane_threshold as lsystem_threshold,
     step_chance as lsystem_step_chance,
 };
-pub(crate) use nbody::{clamp_radius as nbody_clamp_radius, substep_budget as nbody_substep_budget};
+pub(crate) use nbody::R_MAX as nbody_clamp_radius;
+pub(crate) use nbody::substep_budget as nbody_substep_budget;
 pub(crate) use logistic::r_of as logistic_r;
+pub(crate) use pebble::gravity as pebble_gravity;
+pub(crate) use sieve::{classes as sieve_classes, mask as sieve_mask};
+pub(crate) use kuramoto::{
+    coupling as kuramoto_coupling, order as kuramoto_order, rate as kuramoto_rate,
+};
 
 // The mode enum is the host parameter type, shared with the generators: one list of modes,
 // one order, no mapping table to keep in sync.
 use crate::modes::Mode;
 
 pub const TRACKS: usize = 8;
-/// 64 keeps the whole Pattern under 7 KiB and bounds per-lane generation to a cost the
+/// 64 keeps the whole Pattern under 8 KiB and bounds per-lane generation to a cost the
 /// audio thread can absorb in one block. Raising this is a tuning decision, not a free change:
 /// generation cost scales linearly with it.
 pub const MAX_STEPS: usize = 64;
@@ -128,6 +136,9 @@ pub struct Pattern {
     /// Wall a pebble struck this step: 0 = none, 1 = left, 2 = right, 3 = top, 4 = bottom.
     /// The frame records the end of the step, so this is what tells the panel *where* it hit.
     pub impact: [[u8; TRACKS]; MAX_STEPS],
+    /// Kuramoto phase per lane per step, normalized 0-255. The panel draws these as pointers,
+    /// so it shows the same bank the scheduler ranked instead of re-integrating it.
+    pub phases: [[u8; TRACKS]; MAX_STEPS],
 }
 
 impl Default for Pattern {
@@ -144,6 +155,7 @@ impl Default for Pattern {
             rotation: 0,
             pebbles: [[0; TRACKS * 2]; MAX_STEPS],
             impact: [[0; TRACKS]; MAX_STEPS],
+            phases: [[0; TRACKS]; MAX_STEPS],
         }
     }
 }
@@ -246,6 +258,8 @@ fn run_mode(q: &GenParams) -> Pattern {
         Mode::Syncopation => syncopation::generate(q),
         Mode::ThreeBody => nbody::generate(q),
         Mode::PebbleBox => pebble::generate(q),
+        Mode::Sieve => sieve::generate(q),
+        Mode::Kuramoto => kuramoto::generate(q),
     }
 }
 
@@ -281,9 +295,9 @@ pub fn generate(p: &GenParams) -> Pattern {
     if shift != 0 {
         let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
         let old_ca = out.ca; let old_orbit = out.orbit; let old_traj = out.traj; let old_lsym = out.lsym;
-        let old_pebbles = out.pebbles; let old_impact = out.impact;
+        let old_pebbles = out.pebbles; let old_impact = out.impact; let old_phases = out.phases;
         for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
-        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; out.lsym[i] = old_lsym[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; out.lsym[i] = old_lsym[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; out.phases[i] = old_phases[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
     }
     // The stable downbeat/backbeat accent shape is applied *after* rotation, so it stays tied to
     // the step grid (and therefore the beat) instead of travelling with the rotated pattern;
@@ -560,7 +574,7 @@ mod tests {
     fn oscillator_hits_exactly_the_requested_count_for_every_waveform() {
         // Regression: ties at the cutoff were all kept, so a square wave lit every high step and
         // a symmetric sine lit pairs, regardless of `pulses`.
-        for wave in 0..4usize {
+        for wave in 0..oscillator::WAVE_COUNT {
             for steps in [1usize, 2, 7, 16, 21, 32, 64] {
                 for pulses in [1usize, 2, 3, 5, 8, 21, 64] {
                     for density in [0.25f32, 0.65, 1.0] {

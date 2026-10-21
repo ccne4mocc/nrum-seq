@@ -1,8 +1,8 @@
 [package]
 name = "algodrumnemshine"
-version = "0.1.0"
+version = "0.7.9"
 edition = "2021"
-description = "Algorithmic percussion MIDI sequencer plug-in (CLAP/VST3), Rust, nih-plug + Slint"
+description = "Algorithmic percussion MIDI sequencer plug-in (CLAP/VST3), Rust-based"
 license = "GPL-3.0-or-later"
 build = "build.rs"
 

@@ -8,12 +8,18 @@ use super::{set_hit, GenParams, Pattern, Rng, TRACKS};
 /// Gravity range in box-heights per step², mapped from the mode-scoped Gravity control
 /// (`ca_rule`, 0-255). Small next to a shaker kick: the impulses drive the motion, gravity only
 /// curves it, so the impact threshold tracks the impulses instead of the falls.
-const GRAVITY_MIN: f32 = 0.05;
-const GRAVITY_RANGE: f32 = 1.15;
+const GRAVITY_MIN: f32 = 0.01;
+const GRAVITY_RANGE: f32 = 2.15;
 /// Kick speed upward, in box-heights per step. The lowest value clears the density-0.65
 /// threshold (1.47) even after gravity decelerates the climb.
 const KICK_MIN: f32 = 2.4;
 const KICK_RANGE: f32 = 1.8;
+
+/// Gravity in box-heights per step², from the mode-scoped Gravity control (`ca_rule`). Shared
+/// with the help line and the panel arrow, so both track the simulation's own mapping.
+pub(crate) fn gravity(ca_rule: u8) -> f32 {
+    GRAVITY_MIN + (ca_rule as f32 / 255.0) * GRAVITY_RANGE
+}
 
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let n = p.steps;
@@ -33,8 +39,8 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     }
 
     let tilt = p.phase.clamp(0.0, 1.0) * std::f32::consts::TAU;
-    // `ca_rule` is the mode-scoped Gravity knob in the editor; 0-255 maps to 0.05-1.2.
-    let gravity = GRAVITY_MIN + (p.ca_rule as f32 / 255.0) * GRAVITY_RANGE;
+    // `ca_rule` is the mode-scoped Gravity knob in the editor.
+    let gravity = gravity(p.ca_rule);
     let (gx, gy) = (tilt.sin() * gravity * 0.7, tilt.cos() * gravity);
     let substeps = (p.osc_rate.round() as i32).clamp(1, 16) as usize;
     let dt = 1.0 / substeps as f32;

@@ -5,9 +5,9 @@
 ## What is implemented
 
 - Eight MIDI lanes: Kick, Snare, Closed Hat, Open Hat, Clap, Rim, Low Tom, and Percussion.
-- Eighteen deterministic generator modes with mode-specific visualization and mode-sensitive parameters.
+- Twenty deterministic generator modes with mode-specific visualization and mode-sensitive parameters.
 - Additional generators: Raised-Cos Threshold, Slowcat Rhythm, Toussaint Distance, Well-Formed Rhythm, L-System Grammar, Phase Shift / Reich, Polyrhythm Stack, Weighted Syncopation, Three-Body Chaos, and Pebble Box.
-- Every mode draws a panel specific to its own algorithm: per-lane pulse rings, motif phrase timelines, modular distance circles, Christoffel slack plots, the grammar's own A/B word, phasing spokes, ratio rings, metrical score bars, a live three-body orbit, and an animated pebble box.
+- Every mode draws a panel specific to its own algorithm: per-lane pulse rings, motif phrase timelines, modular distance circles, Christoffel slack plots, the grammar's own A/B word, phasing spokes, ratio rings, metrical score bars, a live three-body orbit, an animated pebble box, a residue-class sieve lattice, and eight coupled phase pointers.
 - Global hit probability and velocity controls, automatic regeneration after N complete pattern lengths (0 disables it; Three-Body Chaos treats 0 as "every cycle" so its live orbit keeps moving), manual parameter randomization, and optional auto-randomization every N host-transport beats.
 - Randomize scope is five Settings chips (Mode, Length, Rhythm, Tone, Feel) stored as one host-automatable bitmask. Disabled groups keep their current values, and swing is never randomized.
 - Credits/Contact in Settings show the same author, email and support link used for the CLAP/VST3 metadata.
@@ -46,7 +46,9 @@ The **Math** column shows the formula with the default snapshot substituted: `st
 | Polyrhythm Stack | Fixed integer ratios (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over one duration | lane 0 `k = round(5·0.65) = 3`; lane 1 (3:2) `k = round(8·0.65) = 5` | Ratio rings |
 | Weighted Syncopation | Metric, lane-shifted and jittered scores; the top-k steps become onsets | `target = round(pulses·density·(0.45+w)) = 3`; `score(i) = w(i mod 4)·w((i+3·lane) mod 4)·jitter` | Metrical score bars |
 | Three-Body Chaos | Soft-gravity three-body leapfrog orbit; sweep and close encounters are ranked into onsets; the orbit re-rolls every cycle | `substeps = clamp(n·(8+32·osc_rate), 64, 2048) = 1152`; `wanted = 3`; line crossings accent | Live absolute orbit with axes, clamp circle and body trails |
-| Pebble Box | Eight pebbles (one per lane) bounce in a box; a shaker impulse kicks a rotating third and wall impacts above the density threshold fire their lanes | `substeps = osc_rate` (`2`), gravity `0.05+ca_rule/255·1.15 = 0.19` tilted `0°`; impulse every `n/pulses = 3` steps; threshold `(1−density)·4.2 = 1.47` | Animated pebble box with wall-contact flashes |
+| Pebble Box | Eight pebbles (one per lane) bounce in a box; a shaker impulse kicks a rotating third and wall impacts above the density threshold fire their lanes | `substeps = osc_rate` (`2`), gravity `0.01+ca_rule/255·2.15 = 0.26` tilted `0°`; impulse every `n/pulses = 3` steps; threshold `(1−density)·4.2 = 1.47` | Animated pebble box with wall-contact flashes |
+| Xenakis Sieve | 64-step mask from two union residue classes minus one subtracted class; each lane reads a rotated copy | `M = ((2,0) ∪ (13,8)) \ (11,5)` → 8 members over 16 steps; lane 0 keeps `round(8·0.65·0.85) = 4` | Residue-class lattice rows, step mask and onsets |
+| Kuramoto Lanes | Eight phase oscillators coupled to their ring neighbours; a phase wrap is the trigger and rank selection keeps the requested count | `K = 0.476` from `osc_rate`; rate `5/16 = 0.3125` turn/step, `±5%` detune; lane 0 keeps `round(5·0.65·1.0) = 3` | Eight phase pointers, trails and the mean phase vector |
 
 The crystallographic mode is an **algorithmic symmetry palette inspired by periodic/crystallographic operations**, not a claim to enumerate all formal 2D/3D crystallographic space groups.
 
@@ -81,9 +83,9 @@ The existing melody/tuning-specific material (pitch contours, scales, tuning/EDO
 ```text
 src/
   lib.rs                  nih-plug parameters, transport scheduler, CLAP/VST3 exports
-  modes.rs                the eighteen generation modes, as the host parameter and the dispatch key
+  modes.rs                the twenty generation modes, as the host parameter and the dispatch key
   editor.rs               Slint adapter; host parameter callbacks; UI model updates
-  view.rs                 pure geometry for the eighteen generation-mode panels
+  view.rs                 pure geometry for the twenty generation-mode panels
   sequence/
     mod.rs                immutable generator params, fixed-size Pattern, dispatch, PRNG, invariants
     euclidean.rs          Euclidean rhythms

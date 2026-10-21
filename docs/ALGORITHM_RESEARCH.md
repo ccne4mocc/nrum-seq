@@ -57,6 +57,23 @@ Control mapping: `seed` perturbs the initial conditions, `phase` widens the thir
 the integration resolution, `pulses` is the onset target, `density` is the usual lane weight. No
 new host parameters were added.
 
+## Implemented from this list
+
+- **Xenakis sieve** (`src/sequence/sieve.rs`, mode 18). `M = (m₁,r₁) ∪ (m₂,r₂) \ (m₃,r₃)`
+  over a 64-step mask. `ca_rule` selects the three moduli from `[2,3,5,7,11,13]`, `symmetry`
+  and `phase` select the residues, `pulses` sets how many union terms are active (0 silences,
+  1–2 terms) and `density` keeps a fraction of the members. Each lane reads the same sieve
+  rotated by `lane · floor(n/8)`, with a small deterministic tie-break so partial density does
+  not pick the same columns on every lane. The panel draws the three residue rows (the
+  subtracted class in amber) and the resulting step mask.
+- **Kuramoto phase bank** (`src/sequence/kuramoto.rs`, mode 19). Eight phases update once per
+  step: `θᵢ += 2π·rate·detuneᵢ + (K/8)(sin(θᵢ₋₁−θᵢ) + sin(θᵢ₊₁−θᵢ))`, nearest-neighbour ring
+  coupling only. `osc_rate` maps to `K`, `phase` to the frequency spread, `pulses` to the
+  target onset count and `density` to the lane weight. A phase wrap is the real trigger; rank
+  selection scores wraps first and near-misses by closeness, so the count stays exact. The
+  phase bank is published per step in `Pattern.phases`, and the panel draws the eight pointers,
+  their trails and the order-parameter vector.
+
 ## Further candidates for sequencing (not implemented)
 
 Shortlist, filtered by what a fixed 64-step, allocation-free, deterministic snapshot can
@@ -64,31 +81,16 @@ actually express. "Cost" is per generated pattern, worst case at 64 steps.
 
 | Candidate | Math | Musical use | Cost / risk |
 |---|---|---|---|
-| Xenakis sieve | Union/intersection/complement of residue classes modulo primes (Xenakis, *Formalized Music*, 1971) | Sparse, non-periodic pitch/rhythm sets; exactly reproducible | 64-bit mask, O(steps), trivial |
-| Kuramoto phase bank | `dθᵢ/dt = ωᵢ + (K/N)Σ sin(θⱼ−θᵢ)` | Eight coupled lanes that drift into and out of unison; emergent polyrhythm | O(8²·steps), stack-only; needs a stable fixed-step integration |
 | Arnold circle map | `θₙ₊₁ = θₙ + Ω + (K/2π)sin(2πθₙ)` | Mode-locked rational ratios from an irrational drive (devil's staircase) | O(steps), one state; exact ratio emerges but only for some (Ω,K) |
 | de Bruijn sequence | `B(k,n)`: every n-symbol word exactly once | Maximal non-repeating canons over a small alphabet | Ring buffer of n states, O(1) amortised |
 | Thue–Morse / paperfolding | Automatic (morphic) sequences with self-similarity | Self-similar canons and accents; complements between lanes | O(steps) bit tricks |
 | Vuza canons | Factor `Zₙ = A ⊕ B` into supplementary sets | Aperiodic rhythmic canons that never repeat a translation | Needs a precomputed factorisation table; larger implementation |
 
-Three that fit this engine best, in implementation order:
-
-1. **Xenakis sieves.** A sieve is a 64-bit mask built from `(modulus, residue)` pairs:
-   `M = (m₁,r₁) ∪ (m₂,r₂) \ (m₃,r₃)`. The generator is a pure function of three small
-   integers, so the existing knobs map naturally (`ca_rule` → modulus pair, `symmetry` →
-   residue, `pulses`/`density` → number of sieve terms). Starts at `steps=1`, supports full
-   density, and the panel can draw the sieve lattice plus the residue classes directly. Best
-   first choice: it adds a genuinely different rhythmic family for almost no code.
-2. **Kuramoto coupled lanes.** Eight phase oscillators, one per lane, coupled by a strength
-   derived from `density` and detuned by `phase`; a lane fires when its phase crosses 1. The
-   integration is 64 steps × 64 pairs of `sin`, which is bounded and stack-only. The panel is
-   the eight phase pointers on one circle, so drift and lock are visible. It reuses `osc_rate`
-   as coupling, not as frequency, and the tests are the same hit-count and determinism checks.
-3. **Arnold circle map.** This restores the reference project's dropped circle-map mode with a
-   real mechanism: `Ω` from `phase`, coupling `K` from `density`, and a per-lane detune from
-   `seed`. Near a rational `Ω` the map locks (`p/q`), so the panel can show the locked ratio
-   while the rhythm changes in steps of that ratio. It is the cheapest chaos-family addition
-   after Three-Body and shares its fixed-step discipline.
+The next best fit is the **Arnold circle map**. This restores the reference project's dropped
+circle-map mode with a real mechanism: `Ω` from `phase`, coupling `K` from `density`, and a
+per-lane detune from `seed`. Near a rational `Ω` the map locks (`p/q`), so the panel can show
+the locked ratio while the rhythm changes in steps of that ratio. It is the cheapest
+chaos-family addition after Three-Body and shares its fixed-step discipline.
 
 The canons (de Bruijn, Thue–Morse, Vuza) are attractive but lower priority: they produce
 striking non-repetition, yet their parameter surfaces are small and they need either a table or
@@ -99,5 +101,7 @@ modes.
 
 Unit tests cover mode dispatch, determinism, bounds for 1–64 steps, global probability, rotation,
 zero density/pulses, the polyrhythm / syncopation count rules, the three-body orbit's finiteness
-across the seed/phase/rate space, its exact onset counts, and that neighbouring seeds diverge
-while one seed repeats. Every mode is also swept for view geometry that escapes the panel.
+across the seed/phase/rate space, its exact onset counts, the sieve mask's class membership, the
+Kuramoto bank's exact counts and its order parameter under weak versus strong coupling, and that
+neighbouring seeds diverge while one seed repeats. Every mode is also swept for view geometry
+that escapes the panel.
