@@ -41,22 +41,14 @@ The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hard
 | 13 | Phase Shift / Reich | One motif ring per lane, each a rotated copy of the shared outline |
 | 14 | Polyrhythm Stack | Concentric ratio rings, dot size by accent |
 | 15 | Weighted Syncopation | The generator's metrical score as bars, selection marked |
-| 16 | Three-Body Chaos | Live absolute orbit with axes, clamp circle, trails and the three bodies at the playhead |
-| 17 | Pebble Box | Animated pebble box; eight lane pebbles at their recorded per-step positions |
-| 18 | Xenakis Sieve | Residue-class lattice rows plus the generator's step mask and its onsets |
-| 19 | Kuramoto Lanes | Eight phase pointers, their trails and the mean phase vector on one circle |
+| 16 | Pebble Box | Animated pebble box; eight lane pebbles at their recorded per-step positions |
+| 17 | Xenakis Sieve | Residue-class lattice rows plus the generator's step mask and its onsets |
+| 18 | Kuramoto Lanes | Eight phase pointers, their trails and the mean phase vector on one circle |
 
-Indices 8–19 all draw their own panel. There is no shared step-lattice fallback: a mode whose
+Indices 8–18 all draw their own panel. There is no shared step-lattice fallback: a mode whose
 structure is not a grid shows that structure instead. Each panel reads the generator's own
 formula or published state through an exported helper; if a panel's constants cannot be traced
 to a `Pattern` field or a generator helper, the panel is drawing a decoration, not the algorithm.
-
-Three-Body Chaos is not a reference-project mode; it follows the same chaos family as the
-existing Logistic Map but with genuinely different controls (`phase` widens the third orbit,
-`osc_rate` sets integration resolution) and a different panel. Because it is a live simulation
-rather than a closed form, it re-rolls the orbit at every cycle boundary: `regenerate_every`
-widens the interval but its `0 = off` value means "every cycle" in this mode, so the panel and
-the audio keep changing instead of freezing on one orbit.
 
 When adding or reordering a mode, update together: the `Mode` enum in `src/modes.rs`, dispatch in `sequence::generate()`, `view::build()`, the `Mode` labels in Slint, the mode indices the UI hardcodes, the editor's `from_index()` bound, and the expected parameter/view tests.
 
@@ -86,14 +78,13 @@ the generator's own use of `GenParams` is the behavioural source of truth.
 | Phase Shift | Pulses, Density, Seed, Phase offset |
 | Polyrhythm | Pulses, Density, Seed |
 | Syncopation | Target onsets, Density, Seed |
-| Three-Body | Target onsets, Onset density, Seed, Orbit phase, Solver detail |
 | Pebble Box | Shaker impulses, Impact sensitivity, Seed, Gravity tilt, Substeps, Gravity |
 | Sieve | Sieve terms (0–2), Sieve density, Seed, Residue shift, Sieve moduli, Symmetry |
 | Kuramoto | Target onsets, Onset density, Seed, Detune spread, Coupling |
 
 Mode-scoped reuse is deliberate: `ca_rule` is the cellular rule, Pebble Box's gravity and the
 Sieve moduli; `symmetry` selects Crystallographic cells and Sieve residues; `osc_rate` is
-oscillator cycles, Three-Body solver detail, Pebble Box substeps or Kuramoto coupling. Seed stays
+oscillator cycles, Pebble Box substeps or Kuramoto coupling. Seed stays
 visible in every mode because the shared accent humanizer reads it even where the hit pattern
 does not. A control that the selected mode never reads is hidden, not left inert. `ca_rule` maps
 to gravity as `pebble::gravity()` (`0.01 + ca_rule/255 × 2.15` box-heights per step²).

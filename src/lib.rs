@@ -269,13 +269,6 @@ impl Default for Shared {
     }
 }
 
-/// Regeneration interval in length cycles. `0` means "never", except in the live chaos
-/// simulation, which must re-roll at least once per cycle to keep moving.
-fn regeneration_interval(mode: Mode, every: i32) -> i64 {
-    let every = every.max(0) as i64;
-    if mode == Mode::ThreeBody { every.max(1) } else { every }
-}
-
 fn regeneration_cycle_at(step_index: i64, pattern_steps: usize, every: i64, last: Option<i64>) -> Option<i64> {
     if pattern_steps == 0 || every <= 0 { return None; }
     let n = pattern_steps as i64;
@@ -464,7 +457,7 @@ impl Plugin for NDrum {
         let swing = p.swing.value().clamp(0.0, 0.5) as f64 * step_len;
         let swung = |k: i64| k as f64 * step_len + if k.rem_euclid(2) != 0 { swing } else { 0.0 };
         let mut k = resume_cursor(self.next_step, transport_jump, start, end, spb);
-        let every = regeneration_interval(p.mode.value(), p.regenerate_every.value());
+        let every = p.regenerate_every.value().max(0) as i64;
         let randomize_every = p.randomize_after_lengths.value().max(0) as i64;
 
         loop {
@@ -574,10 +567,9 @@ mod tests {
             (9, Mode::Slowcat, "motif pulses label"),
             (13, Mode::PhaseShift, "phase offset label"),
             (15, Mode::Syncopation, "target onsets label"),
-            (16, Mode::ThreeBody, "solver detail label"),
-            (17, Mode::PebbleBox, "substeps and gravity"),
-            (18, Mode::Sieve, "moduli and residue labels"),
-            (19, Mode::Kuramoto, "coupling label"),
+            (16, Mode::PebbleBox, "substeps and gravity"),
+            (17, Mode::Sieve, "moduli and residue labels"),
+            (18, Mode::Kuramoto, "coupling label"),
         ] {
             assert_eq!(Mode::from_index(index), mode, "mode {index} is {ui_meaning} in the UI");
         }
@@ -614,15 +606,6 @@ mod tests {
         }
         let p = DrumParams::default();
         assert_eq!(p.randomize_scope.value(), scope::ALL, "default must keep the old full randomize");
-    }
-
-    #[test]
-    fn chaos_rerolls_on_every_cycle_even_with_regeneration_off() {
-        assert_eq!(regeneration_interval(Mode::ThreeBody, 0), 1);
-        assert_eq!(regeneration_interval(Mode::ThreeBody, 4), 4);
-        assert_eq!(regeneration_interval(Mode::Euclidean, 0), 0);
-        assert_eq!(regeneration_interval(Mode::Euclidean, 4), 4);
-        assert_eq!(regeneration_interval(Mode::Phyllotaxis, -3), 0);
     }
 
     #[test]

@@ -279,7 +279,7 @@ export component AppWindow inherits Window {
     // bottom of this component.
     in-out property <length> settings-x: root.base-width;
     changed settings-open => {
-        root.settings-x = root.settings-open ? 0px : root.base-width;
+        root.settings-x = root.settings-open ? root.base-width - 300px : root.base-width;
     }
     in property <bool> free-run: false;
     in property <bool> generate-on: false;
@@ -304,16 +304,16 @@ export component AppWindow inherits Window {
     // Only expose mode-specific controls the selected mode actually uses, and label them with
     // what they mean in that mode. `GenParams` still carries every field; this is presentation.
     pure function shows-param(mode: int, key: int) -> bool {
-        if (key == 5) { return mode == 2 || mode == 3 || mode == 4 || mode == 6 || mode == 8 || mode == 13 || mode == 16 || mode == 17 || mode == 18 || mode == 19; }
-        if (key == 6) { return mode == 4 || mode == 16 || mode == 17 || mode == 19; }
-        if (key == 7) { return mode == 3 || mode == 17 || mode == 18; } // Pebble reuses the CA knob as gravity
-        if (key == 11) { return mode == 5 || mode == 18; }
+        if (key == 5) { return mode == 2 || mode == 3 || mode == 4 || mode == 6 || mode == 8 || mode == 13 || mode == 16 || mode == 17 || mode == 18; }
+        if (key == 6) { return mode == 4 || mode == 16 || mode == 18; }
+        if (key == 7) { return mode == 3 || mode == 16 || mode == 17; } // Pebble reuses the CA knob as gravity
+        if (key == 11) { return mode == 5 || mode == 17; }
         return true;
     }
     pure function pulses-max(mode: int) -> float {
         if (mode == 1) { return 3; } // Eulerian degree is 1 + pulses mod 4
         if (mode == 3) { return 15; } // cellular generation
-        if (mode == 18) { return 2; } // 0 = silent, 1-2 = union terms
+        if (mode == 17) { return 2; } // 0 = silent, 1-2 = union terms
         return Math.ceil(root.steps);
     }
     pure function pulse-label(mode: int) -> string {
@@ -326,18 +326,17 @@ export component AppWindow inherits Window {
         if (mode == 7) { return "Walk activity"; }
         if (mode == 8) { return "Envelope cycles"; }
         if (mode == 9) { return "Motif pulses"; }
-        if (mode == 15 || mode == 16) { return "Target onsets"; }
-        if (mode == 17) { return "Shaker impulses"; }
-        if (mode == 18) { return "Sieve terms"; }
-        if (mode == 19) { return "Target onsets"; }
+        if (mode == 15) { return "Target onsets"; }
+        if (mode == 16) { return "Shaker impulses"; }
+        if (mode == 17) { return "Sieve terms"; }
+        if (mode == 18) { return "Target onsets"; }
         return "Pulses";
     }
     pure function density-label(mode: int) -> string {
         if (mode == 6) { return "Growth (r)"; }
-        if (mode == 16) { return "Onset density"; }
-        if (mode == 17) { return "Impact sensitivity"; }
-        if (mode == 18) { return "Sieve density"; }
-        if (mode == 19) { return "Onset density"; }
+        if (mode == 16) { return "Impact sensitivity"; }
+        if (mode == 17) { return "Sieve density"; }
+        if (mode == 18) { return "Onset density"; }
         return "Density";
     }
     pure function phase-label(mode: int) -> string {
@@ -346,28 +345,25 @@ export component AppWindow inherits Window {
         if (mode == 6) { return "Initial x"; }
         if (mode == 8) { return "Envelope phase"; }
         if (mode == 13) { return "Phase offset"; }
-        if (mode == 16) { return "Orbit phase"; }
-        if (mode == 17) { return "Gravity tilt"; }
-        if (mode == 18) { return "Residue shift"; }
-        if (mode == 19) { return "Detune spread"; }
+        if (mode == 16) { return "Gravity tilt"; }
+        if (mode == 17) { return "Residue shift"; }
+        if (mode == 18) { return "Detune spread"; }
         return "Osc phase";
     }
     pure function osc-label(mode: int) -> string {
-        if (mode == 16) { return "Solver detail"; }
-        if (mode == 17) { return "Substeps"; }
-        if (mode == 19) { return "Coupling"; }
+        if (mode == 16) { return "Substeps"; }
+        if (mode == 18) { return "Coupling"; }
         return "Osc cycles";
     }
     pure function ca-label(mode: int) -> string {
-        if (mode == 17) { return "Gravity"; }
-        if (mode == 18) { return "Sieve moduli"; }
+        if (mode == 16) { return "Gravity"; }
+        if (mode == 17) { return "Sieve moduli"; }
         return "CA rule";
     }
     pure function regen-label(mode: int) -> string {
-        // Chaos always re-rolls (0 means every cycle); other modes keep 0 as "off".
-        return mode == 16 ? "Live re-roll after (cycles)" : "Regenerate after (lengths, 0=off)";
+        return "Regenerate after (lengths, 0=off)";
     }
-    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Three-Body Chaos", "Pebble Box", "Xenakis Sieve", "Kuramoto Lanes"];
+    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Pebble Box", "Xenakis Sieve", "Kuramoto Lanes"];
     property <[string]> mode-help: [
         "Places pulses as evenly as possible around the step ring with Bjorklund spacing. Each lane scales the pulse count by its density profile and anchors its word on a different phase, so the kit interleaves instead of stacking.",
         "Builds a balanced directed graph whose vertices are rest plus the eight drum lanes, then walks every edge once with Hierholzer's algorithm. The Euler circuit becomes the step sequence; density gates which visited lanes actually sound.",
@@ -385,7 +381,6 @@ export component AppWindow inherits Window {
         "Repeats one maximally even pulse train on every lane, each copy circularly offset by a fixed span plus user and seed phase. The result is Reich-style phasing over a shared pattern length.",
         "Gives each lane a fixed integer ratio (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over the same pattern duration. Pulse count and density scale the number of onsets per ratio.",
         "Scores every step by metric weight, a lane-dependent shifted weight, and deterministic jitter. The highest-scoring steps become onsets, biasing the result toward offbeats and late subdivisions.",
-        "Integrates a hierarchical three-body orbit with a leapfrog solver and turns orbital sweep plus close encounters into a per-step score. The panel draws the live absolute orbit with its axes and clamp boundary, and the orbit re-rolls at every cycle so it keeps moving. Rank selection keeps exactly the requested number of onsets; line crossings add accents.",
         "Bounces eight pebbles, one per lane, in a box whose gravity can be tilted and strengthened. Each shaker impulse kicks a rotating third of them; a pebble triggers its drum when its wall impact is harder than the density-derived threshold. The panel animates the recorded positions and flashes the wall each hit struck.",
         "Builds a sieve mask from residue classes modulo small primes: two union terms minus a subtracted term. ca_rule picks the moduli, symmetry and phase pick the residues, the pulse count says how many union terms are active. The panel draws the three lattice rows and the resulting step mask; density keeps a fraction of the members.",
         "Runs eight phase oscillators, one per lane, coupled to their ring neighbours. osc_rate sets the coupling strength, phase the frequency spread, pulses the target onsets, and density the per-lane weight. The panel draws the eight phase pointers, their trails and the mean phase vector, so drift and lock are visible."
@@ -397,13 +392,13 @@ export component AppWindow inherits Window {
         { label: root.density-label(root.mode), min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", step: 0.01 },
         { label: "Seed", min: 0, max: 1, value: root.seed, text: "\{Math.round(root.seed * 1000) / 1000}", step: 0.001 },
         { label: root.phase-label(root.mode), min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", step: 0.01 },
-        { label: root.osc-label(root.mode), min: root.mode == 17 ? 1 : 0.125, max: root.mode == 17 ? 16 : 8, value: root.mode == 17 ? Math.max(root.osc-rate, 1) : root.osc-rate, text: root.mode == 17 ? "\{Math.round(Math.max(root.osc-rate, 1))}" : "\{Math.round(root.osc-rate * 100) / 100}", step: root.mode == 17 ? 1 : 0.125 },
-        { label: root.ca-label(root.mode), min: 0, max: 255, value: root.ca-rule, text: root.mode == 17 ? "\{Math.round(root.ca-rule / 255 * 100)}%" : "\{Math.round(root.ca-rule)}", step: 1 },
+        { label: root.osc-label(root.mode), min: root.mode == 16 ? 1 : 0.125, max: root.mode == 16 ? 16 : 8, value: root.mode == 16 ? Math.max(root.osc-rate, 1) : root.osc-rate, text: root.mode == 16 ? "\{Math.round(Math.max(root.osc-rate, 1))}" : "\{Math.round(root.osc-rate * 100) / 100}", step: root.mode == 16 ? 1 : 0.125 },
+        { label: root.ca-label(root.mode), min: 0, max: 255, value: root.ca-rule, text: root.mode == 16 ? "\{Math.round(root.ca-rule / 255 * 100)}%" : "\{Math.round(root.ca-rule)}", step: 1 },
         { label: "Probability", min: 0, max: 1, value: root.probability, text: "\{Math.round(root.probability * 100)}%", step: 0.01 },
         { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", step: 0.01 },
         { label: root.regen-label(root.mode), min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", step: 1 },
         { label: "Symmetry", min: 1, max: 8, value: root.symmetry, text: "\{Math.round(root.symmetry)}", step: 1 },
-        { label: "After lengths", min: 0, max: 256, value: root.randomize-after-lengths, text: "\{Math.round(root.randomize-after-lengths)}", step: 1 },
+        { label: "Randomize after lengths", min: 0, max: 256, value: root.randomize-after-lengths, text: "\{Math.round(root.randomize-after-lengths)}", step: 1 },
         { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", step: 0.01 }
     ];
 
@@ -521,7 +516,7 @@ export component AppWindow inherits Window {
             height: 27px; spacing: 5px;
             Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? #254e48 : #2a3038; Text { text: "Toggle free-run"; color: #d1d5db; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
             Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : #8b95a5; font-size: 9px; vertical-alignment: center; }
-            OptSlider { width: 154px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }
+            OptSlider { width: 230px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }
         }
     }
 
@@ -577,7 +572,7 @@ export component AppWindow inherits Window {
                 NumBox { label: "Symmetry"; value: root.symmetry; minimum: 1; maximum: 8; step: 1; changed(v) => { root.set-opt(11, v); } }
             }
             NumBox { label: "Regen after"; value: root.regenerate-every; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(10, v); } }
-            NumBox { label: "Rand after lengths"; value: root.randomize-after-lengths; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(12, v); } }
+            NumBox { label: "Randomize after lengths"; value: root.randomize-after-lengths; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(12, v); } }
             Text { text: "RANDOMIZE SCOPE"; color: #788394; font-size: 9px; }
             // Five bits of one host parameter (`randomize_scope`). Off keeps that group's
             // current values; on lets RANDOMIZE rewrite it.

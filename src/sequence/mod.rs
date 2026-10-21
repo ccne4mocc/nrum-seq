@@ -17,7 +17,6 @@ mod toussaint;
 mod well_formed;
 mod oscillator;
 mod phyllotaxis;
-mod nbody;
 mod pebble;
 mod sieve;
 mod kuramoto;
@@ -42,8 +41,6 @@ pub(crate) use lsystem::{
     lane_threshold as lsystem_threshold,
     step_chance as lsystem_step_chance,
 };
-pub(crate) use nbody::R_MAX as nbody_clamp_radius;
-pub(crate) use nbody::substep_budget as nbody_substep_budget;
 pub(crate) use logistic::r_of as logistic_r;
 pub(crate) use pebble::gravity as pebble_gravity;
 pub(crate) use sieve::{classes as sieve_classes, mask as sieve_mask};
@@ -123,8 +120,6 @@ pub struct Pattern {
     pub ca: [[bool; MAX_STEPS]; CA_ROWS],
     /// Orbit samples used by the logistic-map plot.
     pub orbit: [f32; MAX_STEPS],
-    /// Three-body positions in the simulation frame: `[x0, y0, x1, y1, x2, y2]` per step.
-    pub traj: [[f32; 6]; MAX_STEPS],
     /// L-System symbol per step: 0 = A, 1 = B. The word the grammar actually produced.
     pub lsym: [u8; MAX_STEPS],
     /// Steps the finished pattern was rotated by. The rotation happens after the mode ran, so
@@ -150,7 +145,6 @@ impl Default for Pattern {
             state: [0; MAX_STEPS],
             ca: [[false; MAX_STEPS]; CA_ROWS],
             orbit: [0.0; MAX_STEPS],
-            traj: [[0.0; 6]; MAX_STEPS],
             lsym: [0; MAX_STEPS],
             rotation: 0,
             pebbles: [[0; TRACKS * 2]; MAX_STEPS],
@@ -256,7 +250,6 @@ fn run_mode(q: &GenParams) -> Pattern {
         Mode::PhaseShift => phase_shift::generate(q),
         Mode::Polyrhythm => polyrhythm::generate(q),
         Mode::Syncopation => syncopation::generate(q),
-        Mode::ThreeBody => nbody::generate(q),
         Mode::PebbleBox => pebble::generate(q),
         Mode::Sieve => sieve::generate(q),
         Mode::Kuramoto => kuramoto::generate(q),
@@ -294,10 +287,10 @@ pub fn generate(p: &GenParams) -> Pattern {
     out.rotation = shift;
     if shift != 0 {
         let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
-        let old_ca = out.ca; let old_orbit = out.orbit; let old_traj = out.traj; let old_lsym = out.lsym;
+        let old_ca = out.ca; let old_orbit = out.orbit; let old_lsym = out.lsym;
         let old_pebbles = out.pebbles; let old_impact = out.impact; let old_phases = out.phases;
         for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
-        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; out.lsym[i] = old_lsym[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; out.phases[i] = old_phases[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.lsym[i] = old_lsym[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; out.phases[i] = old_phases[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
     }
     // The stable downbeat/backbeat accent shape is applied *after* rotation, so it stays tied to
     // the step grid (and therefore the beat) instead of travelling with the rotated pattern;

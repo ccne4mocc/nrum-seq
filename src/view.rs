@@ -46,9 +46,6 @@ fn selected_row(params: &GenParams, tr: usize) -> usize {
     }
 }
 
-/// Panel half-width available for drawing, keeping 10px of margin inside the 210 viewbox.
-const PLOT: f32 = 92.0;
-
 pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
     let n = p.steps.clamp(1, MAX_STEPS);
     let play = (cur >= 0 && (cur as usize) < n).then_some(cur as usize);
@@ -414,53 +411,6 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 20.0); ln(&mut v.hand, x, 192.0); }
         }
-        Mode::ThreeBody => {
-            // The simulation's own frame: the bodies' absolute positions, one fixed scale
-            // (the integrator clamps every body inside R_MAX, so the clamp circle is a real
-            // boundary the bodies never cross), the axes through the origin, and the three
-            // body trails.
-            //
-            // The playhead bodies are separate nodes whose x/y change every step, so the
-            // panel's existing tween turns them into a glide along the orbit instead of a
-            // jump.
-            let scale = PLOT / crate::sequence::nbody_clamp_radius as f32;
-            mv(&mut v.edges, 14.0, C); ln(&mut v.edges, 196.0, C);
-            mv(&mut v.edges, C, 14.0); ln(&mut v.edges, C, 196.0);
-            circle(&mut v.edges, C, C, PLOT);
-            // Bodies 0 and 1 are the tight binary; the wide third body gets the accent trail.
-            for body in 0..2 {
-                for i in 0..n {
-                    let x = C + p.traj[i][body * 2] * scale;
-                    let y = C - p.traj[i][body * 2 + 1] * scale;
-                    if i == 0 { mv(&mut v.edges, x, y); } else { ln(&mut v.edges, x, y); }
-                }
-            }
-            for i in 0..n {
-                let x = C + p.traj[i][4] * scale;
-                let y = C - p.traj[i][5] * scale;
-                if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
-            }
-            // One marker per step on the third body's path: where the pattern fires along the
-            // orbit. They sit on the recorded path, so they move only when the orbit changes.
-            for i in 0..n {
-                let x = C + p.traj[i][4] * scale;
-                let y = C - p.traj[i][5] * scale;
-                let on = aggregate_hit(p, i);
-                v.nodes.push(Node { x, y, r: if on { 4.4 } else { 2.4 }, on, cur: false, label: String::new() });
-            }
-            // The three bodies at the playhead. Their positions change every step, so the
-            // panel tweens them along the orbit.
-            if let Some(i) = play {
-                for body in 0..3 {
-                    let x = C + p.traj[i][body * 2] * scale;
-                    let y = C - p.traj[i][body * 2 + 1] * scale;
-                    v.nodes.push(Node { x, y, r: if body == 2 { 5.2 } else { 3.6 }, on: true, cur: false, label: String::new() });
-                }
-                let x = C + p.traj[i][4] * scale;
-                let y = C - p.traj[i][5] * scale;
-                mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
-            }
-        }
         Mode::Logistic => {
             // Return map: the parabola is y = r·x·(1−x) for the density's r, and the samples are
             // the orbit's (x[n], x[n+1]) pairs connected in order. The old centre cross was not
@@ -808,37 +758,6 @@ mod tests {
                 assert!(view.nodes.iter().any(|nd| (nd.x - x).abs() < 0.6 && (nd.y - y).abs() < 0.6),
                     "lane {tr} onset {i} missing from its ring");
             }
-        }
-    }
-
-    #[test]
-    fn chaos_panel_traces_the_recorded_orbit() {
-        // The panel must draw the generator's own trajectory: absolute positions, one fixed
-        // scale, so the playhead bodies must land on the recorded step.
-        let g = GenParams { kind: Mode::ThreeBody, steps: 32, pulses: 8, density: 1.0, ..GenParams::default() };
-        let pat = generate(&g);
-        let view = build(&g, &pat, 3);
-        let scale = PLOT / crate::sequence::nbody_clamp_radius as f32;
-        for body in 0..3 {
-            let x = C + pat.traj[3][body * 2] * scale;
-            let y = C - pat.traj[3][body * 2 + 1] * scale;
-            assert!(view.nodes.iter().any(|n| (n.x - x).abs() < 0.01 && (n.y - y).abs() < 0.01),
-                "body {body} at step 3 not drawn at its recorded position");
-        }
-        // A default Pattern would collapse every trail point onto the centre.
-        assert!(view.nodes.iter().filter(|n| (n.x - C).abs() > 1.0).count() > 5, "orbit collapsed to the centre");
-    }
-
-    #[test]
-    fn chaos_panel_fits_the_whole_orbit() {
-        // The integrator keeps every body inside the clamp radius, so the fixed scale maps the
-        // whole orbit inside the plot: the panel must never clip a body.
-        let g = GenParams { kind: Mode::ThreeBody, steps: 32, pulses: 8, density: 1.0, phase: 0.9, ..GenParams::default() };
-        let pat = generate(&g);
-        let view = build(&g, &pat, -1);
-        for n in &view.nodes {
-            let d = ((n.x - C).powi(2) + (n.y - C).powi(2)).sqrt();
-            assert!(d <= PLOT + 0.6, "orbit node {:.1}px from centre escapes the plot", d);
         }
     }
 

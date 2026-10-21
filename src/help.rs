@@ -2,13 +2,13 @@
 //!
 //! The description next to each mode says what it does; this line says *how*, with the current
 //! parameter snapshot substituted in. Derived quantities come from the generators' own helpers
-//! (`lane_pulses`, `pulse_hits`, `raised_cosine_cutoff`, `motif_len`, `substep_budget`, …), so a
+//! (`lane_pulses`, `pulse_hits`, `raised_cosine_cutoff`, `motif_len`, …), so a
 //! displayed value cannot drift from the pattern that is actually playing.
 
 use crate::modes::Mode;
 use nih_plug::prelude::Enum as _;
 use crate::sequence::{
-    euclidean_lane_pulses, nbody_substep_budget, pulse_hits, raised_cosine_cutoff,
+    euclidean_lane_pulses, pulse_hits, raised_cosine_cutoff,
     raised_cosine_phase, slowcat_motif_len, GenParams, CA_ROWS, DENSITY_PROFILE,
     MAX_STEPS, TRACKS,
 };
@@ -114,11 +114,6 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::Syncopation => {
             let target = ((p.pulses as f32 * d * (0.45 + w0)).round() as usize).min(n);
             format!("n={n}: target=round({}×{d:.2}×(0.45+{w0:.2}))={target}; score(i)=w(i mod 4)·w((i+3·lane) mod 4)·jitter; keep top {target}", p.pulses)
-        }
-        Mode::ThreeBody => {
-            let sub = nbody_substep_budget(n, p.osc_rate);
-            let wanted = ((p.pulses as f32 * d * (0.45 + w0)).round() as usize).min(n);
-            format!("n={n}: substeps=clamp({n}·(8+32·{:.3}),64,2048)={sub}, dt=0.004; live orbit re-rolls every pattern cycle; wanted={wanted}; rank w_sweep·sweep+w_close·close", p.osc_rate)
         }
         Mode::PebbleBox => {
             let substeps = (p.osc_rate.round() as i32).clamp(1, 16);

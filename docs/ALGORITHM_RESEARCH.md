@@ -20,53 +20,16 @@ Each lane uses a different rational pulse ratio within the same full pattern dur
 
 Each step receives a metrical weight, a lane-dependent offset, and seeded jitter. The generator selects the highest-scoring steps up to a density-scaled target count. Offbeats are favored, but seeded jitter makes ties and repeated patterns less mechanical. The result is deterministic for the same seed/variation and does not allocate dynamic memory.
 
-### Three-Body Chaos
-
-The logistic map is a one-dimensional chaotic system whose orbit the panel draws directly. The
-three-body mode is a genuinely different one: a real Newtonian N-body integration of three
-masses, integrated with velocity-Verlet leapfrog under softened gravity
-`a_i = Σ G m_j (r_j - r_i) / (|r_i - r_j|² + ε²)^(3/2)`.
-
-The configuration is a tight binary (masses 1.0 and 0.6) plus a lighter third body (0.4) on a
-wider orbit, which is the standard setup for Kozai-Lidov exchange: the third body's eccentricity
-breathes on a long cycle, so close approaches arrive irregularly rather than on a schedule.
-That irregularity is the point — it is a source of genuinely aperiodic rhythm structure rather
-than a periodic sequence read at an irrational offset. The chaotic nature of the three-body
-problem is established in the literature (Bruns 1887 on non-integrability; Poincaré 1890 on
-sensitivity to initial conditions; Saari and Xia 1991 on non-collision singularities).
-
-Onsets come from a per-step score rather than from thresholding a raw signal:
-
-- **Sweep** — how far the third body swept about the barycentre during the step, in revolutions.
-- **Encounter** — proximity to the binary, as `1 / (1 + d_min)`.
-
-Each lane combines the two with weights that favour encounters for quiet lanes and sweep for loud
-ones, so the eight lanes are not nested subsets of one ranking. Hits are then chosen by **rank
-selection** — a step hits when fewer than `wanted` steps outrank it — the same bounded rule the
-oscillator and syncopation modes use. This guarantees an exact, density-scaled onset count at
-every step count, keeps the mode non-silent at `steps=1` and at full density, and needs no sort
-or allocation.
-
-Accents come from a **rotating line**: a line rotating from the barycentre completes `pulses`
-turns across the pattern, and steps where the third body crosses it are the loud ones. That is
-the rotating-line model of Euclidean rhythms (Rosin & Worby, "Introducing Circular Euclidean
-Rhythms", 2014) driven by a chaotic angle instead of a linear one.
-
-Control mapping: `seed` perturbs the initial conditions, `phase` widens the third body's orbit
-(tight orbits produce frequent encounters, wide ones produce long quiet sweeps), `osc_rate` sets
-the integration resolution, `pulses` is the onset target, `density` is the usual lane weight. No
-new host parameters were added.
-
 ## Implemented from this list
 
-- **Xenakis sieve** (`src/sequence/sieve.rs`, mode 18). `M = (m₁,r₁) ∪ (m₂,r₂) \ (m₃,r₃)`
+- **Xenakis sieve** (`src/sequence/sieve.rs`, mode 17). `M = (m₁,r₁) ∪ (m₂,r₂) \ (m₃,r₃)`
   over a 64-step mask. `ca_rule` selects the three moduli from `[2,3,5,7,11,13]`, `symmetry`
   and `phase` select the residues, `pulses` sets how many union terms are active (0 silences,
   1–2 terms) and `density` keeps a fraction of the members. Each lane reads the same sieve
   rotated by `lane · floor(n/8)`, with a small deterministic tie-break so partial density does
   not pick the same columns on every lane. The panel draws the three residue rows (the
   subtracted class in amber) and the resulting step mask.
-- **Kuramoto phase bank** (`src/sequence/kuramoto.rs`, mode 19). Eight phases update once per
+- **Kuramoto phase bank** (`src/sequence/kuramoto.rs`, mode 18). Eight phases update once per
   step: `θᵢ += 2π·rate·detuneᵢ + (K/8)(sin(θᵢ₋₁−θᵢ) + sin(θᵢ₊₁−θᵢ))`, nearest-neighbour ring
   coupling only. `osc_rate` maps to `K`, `phase` to the frequency spread, `pulses` to the
   target onset count and `density` to the lane weight. A phase wrap is the real trigger; rank
@@ -90,7 +53,7 @@ The next best fit is the **Arnold circle map**. This restores the reference proj
 circle-map mode with a real mechanism: `Ω` from `phase`, coupling `K` from `density`, and a
 per-lane detune from `seed`. Near a rational `Ω` the map locks (`p/q`), so the panel can show
 the locked ratio while the rhythm changes in steps of that ratio. It is the cheapest
-chaos-family addition after Three-Body and shares its fixed-step discipline.
+remaining chaos-family addition and shares the existing fixed-step discipline.
 
 The canons (de Bruijn, Thue–Morse, Vuza) are attractive but lower priority: they produce
 striking non-repetition, yet their parameter surfaces are small and they need either a table or
@@ -100,8 +63,7 @@ modes.
 ## Validation strategy
 
 Unit tests cover mode dispatch, determinism, bounds for 1–64 steps, global probability, rotation,
-zero density/pulses, the polyrhythm / syncopation count rules, the three-body orbit's finiteness
-across the seed/phase/rate space, its exact onset counts, the sieve mask's class membership, the
-Kuramoto bank's exact counts and its order parameter under weak versus strong coupling, and that
-neighbouring seeds diverge while one seed repeats. Every mode is also swept for view geometry
+zero density/pulses, the polyrhythm / syncopation count rules, the sieve mask's class membership,
+the Kuramoto bank's exact counts and its order parameter under weak versus strong coupling, and
+that neighbouring seeds diverge while one seed repeats. Every mode is also swept for view geometry
 that escapes the panel.
