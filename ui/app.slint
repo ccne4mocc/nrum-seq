@@ -54,6 +54,47 @@ component Selector inherits Rectangle {
     }
 }
 
+// Eight waveform names do not fit the options column in one legible row, so the picker
+// lays them out as a 2x4 grid. Names come from Rust (`OscWave::variants()`), so adding a
+// waveform only touches the enum.
+component WaveGrid inherits Rectangle {
+    in property <[string]> options;
+    in property <int> current;
+    callback selected(int);
+    height: 42px;
+    GridLayout {
+        spacing: 3px;
+        for i in root.options.length: Rectangle {
+            border-radius: 3px;
+            background: i == root.current ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (ta.has-hover ? #3b414a : #282d34);
+            Text { text: root.options[i]; color: i == root.current ? #0b0f14 : #d1d5db; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+            ta := TouchArea {
+                clicked => { root.selected(i); }
+                // The wheel steps the waveform, matching every other picker.
+                scroll-event(e) => {
+                    if (e.delta-y != 0px) {
+                        root.selected(Math.max(0, Math.min(root.current + (e.delta-y < 0px ? 1 : -1), root.options.length - 1)));
+                        accept
+                    } else {
+                        reject
+                    }
+                }
+            }
+        }
+    }
+}
+
+// One RANDOMIZE scope group. The five chips edit the bits of a single host parameter.
+component ScopeChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback toggled();
+    height: 22px; border-radius: 4px;
+    background: root.active ? Theme.c1.with-alpha(0.8) : (ta.has-hover ? #3b414a : #2a3038);
+    Text { text: root.label; color: root.active ? #0b0f14 : #d1d5db; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+    ta := TouchArea { clicked => { root.toggled(); } }
+}
+
 component OptSlider inherits Rectangle {
     in property <Opt> opt;
     callback changed(float);
@@ -223,6 +264,16 @@ export component AppWindow inherits Window {
     in property <float> symmetry: 4;
     in property <int> rate: 3;
     in property <int> osc-wave: 0;
+    in property <[string]> wave-names;
+    in property <bool> scope-mode: true;
+    in property <bool> scope-length: true;
+    in property <bool> scope-rhythm: true;
+    in property <bool> scope-tone: true;
+    in property <bool> scope-feel: true;
+    in property <string> credit-author: "";
+    in property <string> credit-github: "";
+    in property <string> credit-email: "";
+    in property <string> credit-support: "";
     in property <int> theme-index: 0;
     in-out property <bool> settings-open: false;
     // Settings slide in from the right edge of the fixed 860px layout; see the panel at the
@@ -250,6 +301,7 @@ export component AppWindow inherits Window {
     callback generate-pressed();
     callback randomize-pressed();
     callback toggle-auto-randomize();
+    callback toggle-scope(int);
 
     // Only expose mode-specific controls the selected mode actually uses, and label them with
     // what they mean in that mode. `GenParams` still carries every field; this is presentation.
@@ -303,13 +355,17 @@ export component AppWindow inherits Window {
     pure function ca-label(mode: int) -> string {
         return mode == 17 ? "Gravity" : "CA rule";
     }
+    pure function regen-label(mode: int) -> string {
+        // Chaos always re-rolls (0 means every cycle); other modes keep 0 as "off".
+        return mode == 16 ? "Live re-roll after (cycles)" : "Regenerate after (lengths, 0=off)";
+    }
     property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Three-Body Chaos", "Pebble Box"];
     property <[string]> mode-help: [
         "Places pulses as evenly as possible around the step ring with Bjorklund spacing. Each lane scales the pulse count by its density profile and anchors its word on a different phase, so the kit interleaves instead of stacking.",
         "Builds a balanced directed graph whose vertices are rest plus the eight drum lanes, then walks every edge once with Hierholzer's algorithm. The Euler circuit becomes the step sequence; density gates which visited lanes actually sound.",
-        "Samples a golden-angle spiral: the beat test steps by 1/φ and a radial term adds a second, slower irrational orbit. Density and pulse ratio set how much of the spiral crosses the trigger threshold.",
+        "Rotates every lane by 1/φ per step (222.49°, the mirror of the 137.51° golden angle) and lays the dots on a √i phyllotaxis rosette; the panel draws all eight lanes and a second 1/φ³ spiral in the inner band. Density and pulse ratio set how much of each lane's wedge fires.",
         "Runs a Wolfram elementary cellular automaton on a ring, one row per generation. Pulses and phase choose which generation each lane reads; the rule number decides how the row evolves.",
-        "Evaluates a sine, triangle, saw or square wave at each step with an explicit phase and cycle count. The waveform orders the steps and a density-derived rank cutoff keeps exactly the requested number.",
+        "Evaluates one of eight waveforms (sine, triangle, saw, square, pulse, decay, half-sine, noise) at each step with an explicit phase and cycle count. The waveform orders the steps and a density-derived rank cutoff keeps exactly the requested number.",
         "Tiles a seeded motif across the pattern, then applies a symmetry operation per unit cell: translation, mirror, glide, inversion, screw or centering. Symmetry sets the cell size; density sets how full the motif is.",
         "Iterates the logistic map x[n+1] = r·x[n]·(1−x[n]) with r set by density. Onsets land on local peaks above a per-lane cutoff, so related phrases recur without repeating exactly.",
         "Walks a first-order transition table over rest and the eight drum voices. Weights favour role-compatible moves such as kick→snare or hat→hat; density sets the chance of an event at each step.",
@@ -317,11 +373,11 @@ export component AppWindow inherits Window {
         "Builds each lane from a short motif whose length depends on the lane and pulse count, then concatenates phrases over slow subdivisions. Shifts and phrase rules keep the lanes out of phase.",
         "Selects onsets where integer boundary crossings occur in a maximally even pulse train. The seed rotates the circular origin and modular distance shapes the accents.",
         "Generates a Christoffel/Bresenham word with exactly k onsets whose inter-onset gaps differ by at most one. Each lane gets its own phase origin, so the same word interlocks across the kit.",
-        "Rewrites a two-symbol alphabet in parallel for up to twelve generations, then reads the symbols as lane and accent roles. Seed and variation choose one of four rule families.",
+        "Rewrites a two-symbol alphabet in parallel for up to twelve generations, then reads the symbols as lane and accent roles; the panel shows the actual A/B word per step. Seed and variation choose one of four rule families.",
         "Repeats one maximally even pulse train on every lane, each copy circularly offset by a fixed span plus user and seed phase. The result is Reich-style phasing over a shared pattern length.",
         "Gives each lane a fixed integer ratio (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over the same pattern duration. Pulse count and density scale the number of onsets per ratio.",
         "Scores every step by metric weight, a lane-dependent shifted weight, and deterministic jitter. The highest-scoring steps become onsets, biasing the result toward offbeats and late subdivisions.",
-        "Integrates a hierarchical three-body orbit with a leapfrog solver and turns orbital sweep plus close encounters into a per-step score. Rank selection keeps exactly the requested number of onsets; line crossings add accents.",
+        "Integrates a hierarchical three-body orbit with a leapfrog solver and turns orbital sweep plus close encounters into a per-step score. The panel draws the live absolute orbit with its axes and clamp boundary, and the orbit re-rolls at every cycle so it keeps moving. Rank selection keeps exactly the requested number of onsets; line crossings add accents.",
         "Bounces eight pebbles, one per lane, in a box whose gravity can be tilted and strengthened. Each shaker impulse kicks a rotating third of them; a pebble triggers its drum when its wall impact is harder than the density-derived threshold. The panel animates the recorded positions and flashes the wall each hit struck."
     ];
     property <[Opt]> opts: [
@@ -335,7 +391,7 @@ export component AppWindow inherits Window {
         { label: root.ca-label(root.mode), min: 0, max: 255, value: root.ca-rule, text: root.mode == 17 ? "\{Math.round(root.ca-rule / 255 * 100)}%" : "\{Math.round(root.ca-rule)}", step: 1 },
         { label: "Probability", min: 0, max: 1, value: root.probability, text: "\{Math.round(root.probability * 100)}%", step: 0.01 },
         { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", step: 0.01 },
-        { label: "Regenerate after (lengths, 0=off)", min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", step: 1 },
+        { label: root.regen-label(root.mode), min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", step: 1 },
         { label: "Symmetry", min: 1, max: 8, value: root.symmetry, text: "\{Math.round(root.symmetry)}", step: 1 },
         { label: "After beats", min: 1, max: 256, value: root.randomize-after-beats, text: "\{Math.round(root.randomize-after-beats)}", step: 1 },
         { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", step: 0.01 }
@@ -404,7 +460,7 @@ export component AppWindow inherits Window {
                 HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } } if root.shows-param(root.mode, 11): OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
                 if root.mode == 4: HorizontalLayout {
                     Text { text: "WAVE"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
-                    Selector { options: ["Sine", "Triangle", "Saw", "Square"]; current: root.osc-wave; text-size: 9px; selected(i) => { root.set-osc-wave(i); } }
+                    WaveGrid { horizontal-stretch: 1; options: root.wave-names; current: root.osc-wave; selected(i) => { root.set-osc-wave(i); } }
                 }
             }
         }
@@ -513,6 +569,21 @@ export component AppWindow inherits Window {
             }
             NumBox { label: "Regen after"; value: root.regenerate-every; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(10, v); } }
             NumBox { label: "Rand after beats"; value: root.randomize-after-beats; minimum: 1; maximum: 256; step: 1; changed(v) => { root.set-opt(12, v); } }
+            Text { text: "RANDOMIZE SCOPE"; color: #788394; font-size: 9px; }
+            // Five bits of one host parameter (`randomize_scope`). Off keeps that group's
+            // current values; on lets RANDOMIZE rewrite it.
+            HorizontalLayout { spacing: 4px;
+                ScopeChip { label: "MODE"; active: root.scope-mode; toggled => { root.toggle-scope(0); } }
+                ScopeChip { label: "LENGTH"; active: root.scope-length; toggled => { root.toggle-scope(1); } }
+                ScopeChip { label: "RHYTHM"; active: root.scope-rhythm; toggled => { root.toggle-scope(2); } }
+                ScopeChip { label: "TONE"; active: root.scope-tone; toggled => { root.toggle-scope(3); } }
+                ScopeChip { label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(4); } }
+            }
+            Text { text: "CREDITS / CONTACT"; color: #788394; font-size: 9px; }
+            Text { text: "\{root.credit-author}  ·  AlgoDrumNemShine"; color: #d1d5db; font-size: 10px; }
+            TextInput { read-only: true; text: root.credit-github; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
+            TextInput { read-only: true; text: root.credit-email; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
+            TextInput { read-only: true; text: root.credit-support; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
             Text {
                 text: "RANDOMIZE uses the top button; enable Auto Randomize in the transport row. Type exact values here, or use the arrows and wheel.";
                 color: #8b95a5; font-size: 9px; wrap: word-wrap; vertical-stretch: 1; vertical-alignment: top;

@@ -48,12 +48,28 @@ impl Rate {
     }
 }
 
+/// Oscillator waveform. The ids are stable host state; new shapes are appended, never renumbered.
 #[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum OscWave {
     #[id = "sine"] #[name = "Sine"] Sine,
     #[id = "triangle"] #[name = "Triangle"] Triangle,
     #[id = "saw"] #[name = "Saw"] Saw,
     #[id = "square"] #[name = "Square"] Square,
+    #[id = "pulse"] #[name = "Pulse"] Pulse,
+    #[id = "decay"] #[name = "Decay"] Decay,
+    #[id = "half_sine"] #[name = "Half-Sine"] HalfSine,
+    #[id = "noise"] #[name = "Noise"] Noise,
+}
+
+/// Which parameter groups RANDOMIZE is allowed to touch. One host parameter, five bits.
+pub mod scope {
+    pub const MODE: i32 = 1 << 0;
+    pub const LENGTH: i32 = 1 << 1;
+    pub const RHYTHM: i32 = 1 << 2;
+    pub const TONE: i32 = 1 << 3;
+    pub const FEEL: i32 = 1 << 4;
+    /// Everything: the default, and what RANDOMIZE did before the scope existed.
+    pub const ALL: i32 = MODE | LENGTH | RHYTHM | TONE | FEEL;
 }
 
 
@@ -76,6 +92,8 @@ pub struct DrumParams {
     #[id = "regenerate_every"] pub regenerate_every: IntParam,
     #[id = "randomize_after_beats"] pub randomize_after_beats: IntParam,
     #[id = "auto_randomize"] pub auto_randomize: BoolParam,
+    /// Which groups RANDOMIZE may rewrite: Mode, Length, Rhythm, Tone, Feel. One bit each.
+    #[id = "randomize_scope"] pub randomize_scope: IntParam,
     #[id = "seed"] pub seed: FloatParam,
     #[id = "phase"] pub phase: FloatParam,
     #[id = "osc_rate"] pub osc_rate: FloatParam,
@@ -143,9 +161,10 @@ impl Default for DrumParams {
                 .with_value_to_string(formatters::v2s_f32_percentage(0))
                 .with_string_to_value(formatters::s2v_f32_percentage()),
             velocity: percentage_param("Global Velocity", 1.0),
-            regenerate_every: IntParam::new("Regenerate After (pattern lengths; 0 = Off)", 0, IntRange::Linear { min: 0, max: 256 }),
+            regenerate_every: IntParam::new("Regenerate After (lengths; 0 = Off, Chaos = Live)", 0, IntRange::Linear { min: 0, max: 256 }),
             randomize_after_beats: IntParam::new("Randomize After (beats)", 8, IntRange::Linear { min: 1, max: 256 }),
             auto_randomize: BoolParam::new("Auto Randomize Parameters", false),
+            randomize_scope: IntParam::new("Randomize Scope (Mode|Length|Rhythm|Tone|Feel)", scope::ALL, IntRange::Linear { min: 0, max: scope::ALL }),
             seed: FloatParam::new("Seed", 0.271, FloatRange::Linear { min: 0.0, max: 1.0 }),
             phase: FloatParam::new("Phase", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
             osc_rate: FloatParam::new("Oscillator Cycles", 2.0, FloatRange::Linear { min: 0.125, max: 8.0 }),
@@ -252,6 +271,13 @@ impl Default for Shared {
     }
 }
 
+/// Regeneration interval in length cycles. `0` means "never", except in the live chaos
+/// simulation, which must re-roll at least once per cycle to keep moving.
+fn regeneration_interval(mode: Mode, every: i32) -> i64 {
+    let every = every.max(0) as i64;
+    if mode == Mode::ThreeBody { every.max(1) } else { every }
+}
+
 fn regeneration_cycle_at(step_index: i64, pattern_steps: usize, every: i64, last: Option<i64>) -> Option<i64> {
     if pattern_steps == 0 || every <= 0 { return None; }
     let n = pattern_steps as i64;
@@ -338,11 +364,21 @@ impl AlgoDrumNemShine {
     }
 }
 
+/// Author contact, shared by the plug-in metadata and the Credits panel.
+pub mod contact {
+    pub const AUTHOR: &str = "ccnn4mocc";
+    pub const EMAIL: &str = "";
+    pub const GITHUB: &str = "https://github.com/ccnn4mocc";
+    /// What the Credits panel shows (the metadata URL without the scheme).
+    pub const GITHUB_HANDLE: &str = "github.com/ccnn4mocc";
+    pub const SUPPORT: &str = "";
+}
+
 impl Plugin for AlgoDrumNemShine {
     const NAME: &'static str = "AlgoDrumNemShine";
-    const VENDOR: &'static str = "AlgoDrumNemShine Project";
-    const URL: &'static str = "https://example.org/algodrumnemshine";
-    const EMAIL: &'static str = "maintainers@example.org";
+    const VENDOR: &'static str = contact::AUTHOR;
+    const URL: &'static str = contact::GITHUB;
+    const EMAIL: &'static str = contact::EMAIL;
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout { main_input_channels: None, main_output_channels: None, ..AudioIOLayout::const_default() }];
     // Input is drained and discarded in `process`, so advertising CC input would only make
@@ -450,7 +486,7 @@ impl Plugin for AlgoDrumNemShine {
         let swing = p.swing.value().clamp(0.0, 0.5) as f64 * step_len;
         let swung = |k: i64| k as f64 * step_len + if k.rem_euclid(2) != 0 { swing } else { 0.0 };
         let mut k = resume_cursor(self.next_step, transport_jump, start, end, spb);
-        let every = p.regenerate_every.value().max(0) as i64;
+        let every = regeneration_interval(p.mode.value(), p.regenerate_every.value());
 
         loop {
             let next_step = if (k as f64) < s1 + 1.0 { swung(k) } else { f64::INFINITY };
@@ -506,8 +542,8 @@ impl Plugin for AlgoDrumNemShine {
 impl ClapPlugin for AlgoDrumNemShine {
     const CLAP_ID: &'static str = "com.algodrumnemshine.algodrumnemshine";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("Algorithmic percussion MIDI sequencer with eight drum lanes");
-    const CLAP_MANUAL_URL: Option<&'static str> = None;
-    const CLAP_SUPPORT_URL: Option<&'static str> = None;
+    const CLAP_MANUAL_URL: Option<&'static str> = Some(contact::GITHUB);
+    const CLAP_SUPPORT_URL: Option<&'static str> = Some(contact::SUPPORT);
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::NoteEffect, ClapFeature::Utility];
 }
 impl Vst3Plugin for AlgoDrumNemShine {
@@ -525,7 +561,7 @@ mod tests {
         let params = DrumParams::default();
         let map = params.param_map();
         let ids: Vec<&str> = map.iter().map(|(id, _, _)| id.as_str()).collect();
-        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_beats", "auto_randomize", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "generate", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
+        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_beats", "auto_randomize", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "generate", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
             assert!(ids.contains(&expected), "missing parameter {expected}");
         }
         for (id, ptr, _) in &map {
@@ -565,6 +601,64 @@ mod tests {
         assert_eq!(count, Mode::all().count(), "the UI lists {count} modes");
     }
 
+
+    /// The waveform names and ids are host state: the picker reads `variants()`, the help line
+    /// reads `ids()`, and the generator only knows a count. All three must agree.
+    #[test]
+    fn every_oscillator_wave_is_named_indexed_and_stable() {
+        let names = OscWave::variants();
+        let ids = OscWave::ids().expect("wave ids are part of the host contract");
+        assert_eq!(names.len(), crate::sequence::oscillator_wave_count);
+        assert_eq!(ids.len(), names.len());
+        assert_eq!(ids, ["sine", "triangle", "saw", "square", "pulse", "decay", "half_sine", "noise"]);
+        for index in 0..names.len() {
+            assert_eq!(OscWave::from_index(index).to_index(), index);
+        }
+    }
+
+    #[test]
+    fn randomize_scope_is_one_bit_per_group() {
+        let bits = [scope::MODE, scope::LENGTH, scope::RHYTHM, scope::TONE, scope::FEEL];
+        assert_eq!(scope::ALL, bits.iter().fold(0, |m, b| m | b));
+        for (i, a) in bits.iter().enumerate() {
+            assert!((*a as u32).is_power_of_two(), "scope bit {a} is not a single bit");
+            for b in &bits[i + 1..] {
+                assert_eq!(a & b, 0, "scope groups {a} and {b} overlap");
+            }
+        }
+        let p = DrumParams::default();
+        assert_eq!(p.randomize_scope.value(), scope::ALL, "default must keep the old full randomize");
+    }
+
+    #[test]
+    fn chaos_rerolls_on_every_cycle_even_with_regeneration_off() {
+        assert_eq!(regeneration_interval(Mode::ThreeBody, 0), 1);
+        assert_eq!(regeneration_interval(Mode::ThreeBody, 4), 4);
+        assert_eq!(regeneration_interval(Mode::Euclidean, 0), 0);
+        assert_eq!(regeneration_interval(Mode::Euclidean, 4), 4);
+        assert_eq!(regeneration_interval(Mode::Phyllotaxis, -3), 0);
+    }
+
+    #[test]
+    fn contact_details_are_the_published_ones() {
+        assert_eq!(contact::AUTHOR, "ccnn4mocc");
+        assert_eq!(contact::EMAIL, "");
+        assert_eq!(contact::GITHUB, "https://github.com/ccnn4mocc");
+        assert_eq!(contact::GITHUB_HANDLE, "github.com/ccnn4mocc");
+        assert_eq!(contact::SUPPORT, "");
+        assert_eq!(<AlgoDrumNemShine as Plugin>::VENDOR, contact::AUTHOR);
+    }
+
+    #[test]
+    fn the_documented_pattern_size_is_current() {
+        // The architecture doc states the struct size; keep the two from drifting. The doc size
+        // is for 64-bit targets, where `usize` is eight bytes.
+        if cfg!(target_pointer_width = "64") {
+            let size = std::mem::size_of::<crate::sequence::Pattern>();
+            let docs = include_str!("../docs/ARCHITECTURE.md");
+            assert!(docs.contains(&format!("{size} bytes")), "ARCHITECTURE.md does not mention the {size}-byte Pattern");
+        }
+    }
 
     #[test]
     fn theme_indices_and_palettes_are_consistent() {

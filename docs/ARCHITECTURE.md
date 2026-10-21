@@ -11,7 +11,7 @@ DrumParams (host-visible, automatable) ---> GenParams snapshot
                                                 v
                                       sequence::generate()
                                                 |
-                                   fixed-size Pattern [8 x 64]
+                                   fixed-size Pattern [8 x 64], 7056 bytes (64-bit)
                                                 |
                                                 v
                                         MIDI scheduler
@@ -34,7 +34,7 @@ DrumParams + same GenParams snapshot ---> editor-side preview
 
 The reference `_AlgoNemLody` project has a strong seam between pure generation (`src/pattern.rs`), pure visualization geometry (`src/view.rs`), and Slint host glue (`src/editor.rs`). AlgoDrumNemShine preserves that seam and replaces pitch-oriented output with a multi-lane drum event matrix.
 
-`sequence::Pattern` is a bounded data structure: eight lane arrays, each at most 64 steps, plus mode visualization state (CA history, logistic orbit, symbolic state sequence, three-body positions, and normalized pebble-box frames). Algorithms are deterministic: parameter snapshots contain seed and a persisted variation counter; no entropy source is consulted during playback. Rotation is a shared post-transform and rotates every per-step view array, including the orbit trace, so the playhead always matches what is drawn.
+`sequence::Pattern` is a fixed 7056-byte data structure on 64-bit targets: eight hit arrays at up to 64 steps, eight accent arrays, and the mode visualization state (CA history, logistic orbit, symbolic word, absolute three-body positions, and normalized pebble-box frames). Algorithms are deterministic: parameter snapshots contain seed and a persisted variation counter; no entropy source is consulted during playback. Rotation is a shared post-transform and rotates every per-step view array, including the orbit trace, the symbolic word and the current step, so the playhead always matches what is drawn.
 
 ## Audio/MIDI thread
 
@@ -46,10 +46,13 @@ The audio callback remains a bounded MIDI-event scheduler. It publishes current-
 
 | Parameter group | Parameters | Intended use |
 |---|---|---|
-| Pattern | `mode`, `steps` (1–64), `round_steps`, `pulses`, `rotate`, `density`, `probability`, `velocity`, `regenerate_every`, `seed`, `generate`, `theme` | Pattern family, variation, and palette controls; regeneration counts complete pattern lengths and is evaluated at step boundaries; zero disables it |
-| Randomization | `auto_randomize`, `randomize_after_beats` (1–256) | Manual Randomize button changes generator parameters immediately; Auto Randomize queues a randomization at every N-beat transport boundary while the custom editor is open |
-| Algorithm shape | `phase`, `osc_rate`, `osc_wave`, `ca_rule`, `symmetry` | Mode-specific controls, shown in the GUI only when relevant to the selected mode |
+| Pattern | `mode`, `steps` (1–64), `round_steps`, `pulses`, `rotate`, `density`, `probability`, `velocity`, `regenerate_every`, `seed`, `generate`, `theme` | Pattern family, variation, and palette controls; regeneration counts complete pattern lengths and is evaluated at step boundaries; zero disables it, except in Three-Body Chaos, where the orbit is a live simulation and re-rolls at least once per cycle |
+| Randomization | `auto_randomize`, `randomize_after_beats` (1–256), `randomize_scope` (0–31) | Manual Randomize changes generator parameters immediately; Auto Randomize queues a randomization at every N-beat transport boundary while the custom editor is open. `randomize_scope` is a five-bit mask (Mode, Length, Rhythm, Tone, Feel); disabled groups keep their current values and randomize never touches swing |
+| Algorithm shape | `phase`, `osc_rate`, `osc_wave` (8 waveforms), `ca_rule`, `symmetry` | Mode-specific controls, shown in the GUI only when relevant to the selected mode; waveform ids and names come from the `OscWave` enum so new shapes append without renumbering host state |
 | Clock | `rate`, `gate`, `swing`, `freerun` | Beat grid, NoteOff duration, stopped-transport behavior |
+| Lane state | `<lane>_on` | Host-automatable lane enable switches |
+| Lane MIDI | `<lane>_note` | Configurable output note 0–127 |
+| Lane velocity | `<lane>_velocity` | Lane base velocity multiplied by pattern accent |
 
 ## Where state lives
 
@@ -59,9 +62,6 @@ Two independent mechanisms, deliberately:
 - **User-global settings** live in `src/globals.rs` and are written to `$XDG_CONFIG_HOME/AlgoDrumNemShine/settings.json`, falling back to `$HOME/.config/AlgoDrumNemShine/settings.json` when `XDG_CONFIG_HOME` is unset or empty (`%APPDATA%` on Windows). If neither a config home nor `HOME` is resolvable — a host launched from a bare systemd unit — settings do not persist rather than the editor failing. Only preferences that should follow the user across projects belong here: the colour theme and the editor scale. Loaded at editor open and applied over the host's state, so a project cannot pin a palette; written on a 750 ms debounce and forced once when the editor closes.
 
 The consequence of theme being global is that host automation of `theme` will not survive an editor reopen. That is an accepted trade-off for a cosmetic setting.
-| Lane state | `<lane>_on` | Host-automatable lane enable switches |
-| Lane MIDI | `<lane>_note` | Configurable output note 0–127 |
-| Lane velocity | `<lane>_velocity` | Lane base velocity multiplied by pattern accent |
 
 `MAX_STEPS` is 64. At 256 steps the eight-distinct-mode worst case measured 587 µs, which is 81–88% of a 32-sample block; at 64 it is 23 µs, about 3% of the same budget. Generation cost scales linearly with the cap, so raising it is a tuning decision rather than a free change.
 
@@ -79,7 +79,10 @@ The consequence of theme being global is that host automation of `theme` will no
 - `StepCell` is one lane/step entry with hit state, playhead state and effective velocity for brightness and hit probability for opacity. The editor only publishes cells for current `steps`.
 - `Mode` order is stable: 0 Euclidean, 1 Eulerian, 2 Phyllotaxis, 3 Cellular, 4 Oscillator, 5 Crystallographic, 6 Logistic, 7 Markov, 8 Raised-Cos Threshold, 9 Slowcat Rhythm, 10 Toussaint Distance, 11 Well-Formed Rhythm, 12 L-System Grammar, 13 Phase Shift / Reich, 14 Polyrhythm Stack, 15 Weighted Syncopation, 16 Three-Body Chaos, 17 Pebble Box. It lives in `src/modes.rs` and is the single list: the host parameter, the generators and the panels all use the same enum, and a test pins each index the UI hardcodes to the mode it means.
 - All UI controls call a parameter setter; the GUI must not become an independent source of sequencing state.
-- Each mode draws a panel specific to its own algorithm. Where a panel needs the generator's arithmetic — the raised-cosine envelope and cutoff, the oscillator threshold, the modular distance, the Slowcat motif length, the syncopation score, the cellular generation selection, the three-body trajectory, the pebble frames — it reads that value from `Pattern` or from a helper exported by the generator module. A panel must never re-derive a generator's formula: two copies of one formula is how the previous oscillator cutoff line drifted away from the threshold the generator actually applied.
+- Each mode draws a panel specific to its own algorithm. Where a panel needs the generator's arithmetic — the raised-cosine envelope and cutoff, the oscillator threshold, the modular distance, the Slowcat motif length, the syncopation score, the cellular generation selection, the three-body trajectory, the pebble frames — it reads that value from `Pattern` or from a helper exported by the generator module. A panel must never re-derive a generator's formula: two copies of one formula is how the previous oscillator cutoff line drifted away from the threshold the generator actually applied. Phyllotaxis and L-System export their phase/threshold/word helpers for exactly this reason; Three-Body publishes absolute per-step positions and draws them in a fixed scale of `PLOT / clamp_radius()`, with the clamp circle as the true boundary.
+- Waveform names are not duplicated in Slint: `editor.rs` pushes `OscWave::variants()` into `wave-names`, the 2×4 picker grid renders that model, and `help.rs` reads `OscWave::ids()`. Adding a shape means appending an enum variant plus one shape function in `oscillator.rs`; the picker, help line and `WAVE_COUNT` test follow.
+- The five RANDOMIZE scope chips mirror the bits of `randomize_scope` (`lib.rs::scope`): Mode, Length, Rhythm, Tone, Feel. The chips are views of the host parameter, so automating the mask updates them and turning a group off preserves its current values.
+- Credits and CLAP/VST3 vendor contact read the same `contact::*` constants, so the Settings panel cannot disagree with the plug-in metadata.
 - `Pattern.pebbles` stores normalized 0–255 `[x, y]` pairs per lane per step, not panel units; `view::build` maps them into the box. `Pattern.impact` stores which wall (left/right/top/bottom) the hit struck, because a frame records the end of the step after the bounce; the panel snaps hit nodes and flashes that wall. The Slint panel tweens node `x`/`y` for 120 ms, so Pebble Box pushes its eight nodes first and in lane order; other panels' nodes never move, so the tween is invisible there.
 - The panel has three path slots (`edges`, `lines`, `hand`) and single-colour nodes, so a drawing that needs per-lane colour would require changing `ViewNode` and the Slint panel. Views stay within the existing slots until that is worth doing.
 

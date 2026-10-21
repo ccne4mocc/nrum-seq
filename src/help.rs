@@ -6,6 +6,7 @@
 //! displayed value cannot drift from the pattern that is actually playing.
 
 use crate::modes::Mode;
+use nih_plug::prelude::Enum as _;
 use crate::sequence::{
     euclidean_lane_pulses, nbody_substep_budget, pulse_hits, raised_cosine_cutoff,
     raised_cosine_phase, slowcat_motif_len, GenParams, CA_ROWS, DENSITY_PROFILE,
@@ -32,7 +33,7 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::Phyllotaxis => {
             let threshold = ((p.pulses.max(1) as f32 / n as f32) * (0.35 + w0) * (0.5 + d))
                 .clamp(0.02, 0.98);
-            format!("n={n}: golden angle 137.508°, threshold T={threshold:.3}; beat(i)=frac(i·0.618034+{:.3}+{:.3}+lane·0.137), hit when beat<T or spiral radius<0.18·T", p.seed, p.phase)
+            format!("n={n}: 1/φ rotation (222.49° = mirrored golden angle 137.51°), threshold T={threshold:.3}; beat(i)=frac(i·0.618034+{:.3}+{:.3}+lane·0.137), hit when beat<T; second rule 1/φ³ (84.99°) adds the inner band below 0.18·T", p.seed, p.phase)
         }
         Mode::Cellular => {
             let row = if n == 1 {
@@ -45,7 +46,9 @@ pub(crate) fn math(p: &GenParams) -> String {
         }
         Mode::Oscillator => {
             let wanted = ((p.pulses as f32 * d * (0.5 + w0)).round() as usize).min(n);
-            let wave = ["sine", "triangle", "saw", "square"][p.osc_wave % 4];
+            let wave = crate::OscWave::ids()
+                .and_then(|ids| ids.get(p.osc_wave % crate::sequence::oscillator_wave_count).copied())
+                .unwrap_or("sine");
             format!("n={n}: wave(i)={wave}({:.2}·i/n+{:.2}); keep the {wanted} highest samples (lane 0, rank<{wanted})", p.osc_rate, p.phase)
         }
         Mode::Crystallographic => {
@@ -92,7 +95,7 @@ pub(crate) fn math(p: &GenParams) -> String {
             let family = ((p.seed.clamp(0.0, 0.999_999) * 4.0) as usize + p.variation as usize) % 4;
             let threshold = (pulses as f32 / n as f32 * (0.35 + 0.65 * d) * (0.45 + w0))
                 .clamp(0.0, 1.0);
-            format!("n={n}: family=(floor({:.3}·4)+{}) mod 4={family}; ≤12 parallel rewrites, word truncated to n; lane 0 chance={threshold:.2}·grammar·metrical", p.seed, p.variation)
+            format!("n={n}: family=(floor({:.3}·4)+{}) mod 4={family}; ≤12 parallel rewrites publish an A/B word (rotation-aware); lane 0 chance={threshold:.2}·grammar·metrical", p.seed, p.variation)
         }
         Mode::PhaseShift => {
             let k = ((p.pulses as f32 * d).round() as usize).min(n);
@@ -116,7 +119,7 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::ThreeBody => {
             let sub = nbody_substep_budget(n, p.osc_rate);
             let wanted = ((p.pulses as f32 * d * (0.45 + w0)).round() as usize).min(n);
-            format!("n={n}: substeps=clamp({n}·(8+32·{:.3}),64,2048)={sub}, dt=0.004; wanted={wanted}; rank w_sweep·sweep+w_close·close", p.osc_rate)
+            format!("n={n}: substeps=clamp({n}·(8+32·{:.3}),64,2048)={sub}, dt=0.004; live orbit re-rolls every pattern cycle; wanted={wanted}; rank w_sweep·sweep+w_close·close", p.osc_rate)
         }
         Mode::PebbleBox => {
             let substeps = (p.osc_rate.round() as i32).clamp(1, 16);

@@ -57,6 +57,44 @@ Control mapping: `seed` perturbs the initial conditions, `phase` widens the thir
 the integration resolution, `pulses` is the onset target, `density` is the usual lane weight. No
 new host parameters were added.
 
+## Further candidates for sequencing (not implemented)
+
+Shortlist, filtered by what a fixed 64-step, allocation-free, deterministic snapshot can
+actually express. "Cost" is per generated pattern, worst case at 64 steps.
+
+| Candidate | Math | Musical use | Cost / risk |
+|---|---|---|---|
+| Xenakis sieve | Union/intersection/complement of residue classes modulo primes (Xenakis, *Formalized Music*, 1971) | Sparse, non-periodic pitch/rhythm sets; exactly reproducible | 64-bit mask, O(steps), trivial |
+| Kuramoto phase bank | `dθᵢ/dt = ωᵢ + (K/N)Σ sin(θⱼ−θᵢ)` | Eight coupled lanes that drift into and out of unison; emergent polyrhythm | O(8²·steps), stack-only; needs a stable fixed-step integration |
+| Arnold circle map | `θₙ₊₁ = θₙ + Ω + (K/2π)sin(2πθₙ)` | Mode-locked rational ratios from an irrational drive (devil's staircase) | O(steps), one state; exact ratio emerges but only for some (Ω,K) |
+| de Bruijn sequence | `B(k,n)`: every n-symbol word exactly once | Maximal non-repeating canons over a small alphabet | Ring buffer of n states, O(1) amortised |
+| Thue–Morse / paperfolding | Automatic (morphic) sequences with self-similarity | Self-similar canons and accents; complements between lanes | O(steps) bit tricks |
+| Vuza canons | Factor `Zₙ = A ⊕ B` into supplementary sets | Aperiodic rhythmic canons that never repeat a translation | Needs a precomputed factorisation table; larger implementation |
+
+Three that fit this engine best, in implementation order:
+
+1. **Xenakis sieves.** A sieve is a 64-bit mask built from `(modulus, residue)` pairs:
+   `M = (m₁,r₁) ∪ (m₂,r₂) \ (m₃,r₃)`. The generator is a pure function of three small
+   integers, so the existing knobs map naturally (`ca_rule` → modulus pair, `symmetry` →
+   residue, `pulses`/`density` → number of sieve terms). Starts at `steps=1`, supports full
+   density, and the panel can draw the sieve lattice plus the residue classes directly. Best
+   first choice: it adds a genuinely different rhythmic family for almost no code.
+2. **Kuramoto coupled lanes.** Eight phase oscillators, one per lane, coupled by a strength
+   derived from `density` and detuned by `phase`; a lane fires when its phase crosses 1. The
+   integration is 64 steps × 64 pairs of `sin`, which is bounded and stack-only. The panel is
+   the eight phase pointers on one circle, so drift and lock are visible. It reuses `osc_rate`
+   as coupling, not as frequency, and the tests are the same hit-count and determinism checks.
+3. **Arnold circle map.** This restores the reference project's dropped circle-map mode with a
+   real mechanism: `Ω` from `phase`, coupling `K` from `density`, and a per-lane detune from
+   `seed`. Near a rational `Ω` the map locks (`p/q`), so the panel can show the locked ratio
+   while the rhythm changes in steps of that ratio. It is the cheapest chaos-family addition
+   after Three-Body and shares its fixed-step discipline.
+
+The canons (de Bruijn, Thue–Morse, Vuza) are attractive but lower priority: they produce
+striking non-repetition, yet their parameter surfaces are small and they need either a table or
+a longer word buffer before they sound different from the existing L-System and Phase Shift
+modes.
+
 ## Validation strategy
 
 Unit tests cover mode dispatch, determinism, bounds for 1–64 steps, global probability, rotation,

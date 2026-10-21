@@ -22,13 +22,25 @@ mod pebble;
 
 // The panel draws these algorithms' own curves and cutoffs rather than restating their
 // formulas, so these re-exports exist for `crate::view` alone.
-pub(crate) use oscillator::{threshold as oscillator_threshold, value as oscillator_value};
-pub(crate) use raised_cosine::{cutoff as raised_cosine_cutoff, envelope as raised_cosine_envelope, phase_offset as raised_cosine_phase};
+pub(crate) use oscillator::{
+    threshold as oscillator_threshold, value as oscillator_value, WAVE_COUNT as oscillator_wave_count,
+};
+pub(crate) use phyllotaxis::{
+    lane_threshold as phyllotaxis_threshold, primary_phase as phyllotaxis_primary,
+    rules_fired as phyllotaxis_rules, secondary_phase as phyllotaxis_secondary,
+};
+pub(crate) use raised_cosine::{
+    cutoff as raised_cosine_cutoff, envelope as raised_cosine_envelope, phase_offset as raised_cosine_phase,
+};
 pub(crate) use slowcat::motif_len as slowcat_motif_len;
 // Help text shows these derived quantities, so it reads them from the generators instead of
 // restating the formula.
 pub(crate) use euclidean::lane_pulses as euclidean_lane_pulses;
-pub(crate) use nbody::substep_budget as nbody_substep_budget;
+pub(crate) use lsystem::{
+    lane_threshold as lsystem_threshold,
+    step_chance as lsystem_step_chance,
+};
+pub(crate) use nbody::{clamp_radius as nbody_clamp_radius, substep_budget as nbody_substep_budget};
 pub(crate) use logistic::r_of as logistic_r;
 
 // The mode enum is the host parameter type, shared with the generators: one list of modes,
@@ -36,14 +48,15 @@ pub(crate) use logistic::r_of as logistic_r;
 use crate::modes::Mode;
 
 pub const TRACKS: usize = 8;
-/// 64 keeps the whole Pattern at ~6 KiB and bounds per-lane generation to a cost the
+/// 64 keeps the whole Pattern under 7 KiB and bounds per-lane generation to a cost the
 /// audio thread can absorb in one block. Raising this is a tuning decision, not a free change:
 /// generation cost scales linearly with it.
 pub const MAX_STEPS: usize = 64;
 pub const CA_ROWS: usize = 16;
 // Spelled out: `std::f64::consts::GOLDEN_RATIO` is unstable on older toolchains, which made the
 // documented "Rust 1.88 or newer" baseline wrong.
-const PHI: f64 = 1.618_033_988_749_894_8;
+#[allow(clippy::approx_constant)] // the std constant is newer than the supported baseline
+const PHI: f64 = 1.618_033_988_749_894;
 const PHI_INV: f64 = PHI - 1.0;
 const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
 
@@ -70,7 +83,8 @@ pub struct GenParams {
     pub phase: f32,
     /// Oscillator cycles per pattern.
     pub osc_rate: f32,
-    /// 0 sine, 1 triangle, 2 saw, 3 square.
+    /// Waveform index for the oscillator mode; the count lives in `oscillator::WAVE_COUNT` and
+    /// the names in the `OscWave` host enum.
     pub osc_wave: usize,
     pub ca_rule: u8,
     /// 1..8 unit-cell symmetry order.
@@ -101,8 +115,14 @@ pub struct Pattern {
     pub ca: [[bool; MAX_STEPS]; CA_ROWS],
     /// Orbit samples used by the logistic-map plot.
     pub orbit: [f32; MAX_STEPS],
-    /// Three-body positions relative to body 0: `[x1, y1, x2, y2]` per step.
-    pub traj: [[f32; 4]; MAX_STEPS],
+    /// Three-body positions in the simulation frame: `[x0, y0, x1, y1, x2, y2]` per step.
+    pub traj: [[f32; 6]; MAX_STEPS],
+    /// L-System symbol per step: 0 = A, 1 = B. The word the grammar actually produced.
+    pub lsym: [u8; MAX_STEPS],
+    /// Steps the finished pattern was rotated by. The rotation happens after the mode ran, so
+    /// display slot `i` holds the generator's step `(i + steps - rotation) % steps`; the panel
+    /// uses this to draw the geometry that actually produced each onset.
+    pub rotation: usize,
     /// Pebble-box positions, normalized 0-255 as `[x0, y0, x1, y1, …]` per step.
     pub pebbles: [[u8; TRACKS * 2]; MAX_STEPS],
     /// Wall a pebble struck this step: 0 = none, 1 = left, 2 = right, 3 = top, 4 = bottom.
@@ -119,7 +139,9 @@ impl Default for Pattern {
             state: [0; MAX_STEPS],
             ca: [[false; MAX_STEPS]; CA_ROWS],
             orbit: [0.0; MAX_STEPS],
-            traj: [[0.0; 4]; MAX_STEPS],
+            traj: [[0.0; 6]; MAX_STEPS],
+            lsym: [0; MAX_STEPS],
+            rotation: 0,
             pebbles: [[0; TRACKS * 2]; MAX_STEPS],
             impact: [[0; TRACKS]; MAX_STEPS],
         }
@@ -235,7 +257,7 @@ pub fn generate(p: &GenParams) -> Pattern {
     q.pulses = if q.kind == Mode::Cellular { q.pulses.min(CA_ROWS - 1) } else { q.pulses.min(steps) };
     q.rotate %= steps;
     q.symmetry = q.symmetry.clamp(1, 8);
-    q.osc_wave %= 4;
+    q.osc_wave %= oscillator::WAVE_COUNT;
     let mut out = run_mode(&q);
     out.steps = steps;
     // Probability is applied after the algorithm so it behaves consistently across modes.
@@ -255,12 +277,13 @@ pub fn generate(p: &GenParams) -> Pattern {
     // Variation also rotates by one or more steps, so closed-form modes can actually regenerate
     // differently.
     let shift = ((q.rotate % steps) + (q.variation as usize % steps)) % steps;
+    out.rotation = shift;
     if shift != 0 {
         let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
-        let old_ca = out.ca; let old_orbit = out.orbit; let old_traj = out.traj;
+        let old_ca = out.ca; let old_orbit = out.orbit; let old_traj = out.traj; let old_lsym = out.lsym;
         let old_pebbles = out.pebbles; let old_impact = out.impact;
         for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
-        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.traj[i] = old_traj[src]; out.lsym[i] = old_lsym[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
     }
     // The stable downbeat/backbeat accent shape is applied *after* rotation, so it stays tied to
     // the step grid (and therefore the beat) instead of travelling with the rotated pattern;

@@ -27,9 +27,9 @@ The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hard
 |---:|---|---|
 | 0 | Euclidean | Per-lane pulse rings, one ring per drum lane |
 | 1 | Eulerian | Directed state-transition graph |
-| 2 | Golden Ratio / Phyllotaxis | Golden-angle spiral, hit states highlighted |
+| 2 | Golden Ratio / Phyllotaxis | Eight-lane √i rosette of the 1/φ rotation, lit dots inside each lane's trigger wedge, and the 1/φ³ rule as its own inner band |
 | 3 | Cellular Automaton | Ring-based CA history / space-time cells, each lane's own selected generation marked |
-| 4 | Oscillator / Phase | Waveform, threshold and sampled step markers |
+| 4 | Oscillator / Phase | One of eight waveform curves, the generator's rank cutoff, and sampled step markers |
 | 5 | Crystallographic | Eight-lane symmetry lattice with unit-cell axes |
 | 6 | Logistic Map | Orbit diagram and orbit trace |
 | 7 | Markov Walk | Directed percussion-state transition graph |
@@ -37,21 +37,29 @@ The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hard
 | 9 | Slowcat Rhythm | Phrase timeline with per-lane motif boundaries |
 | 10 | Toussaint Distance | Distance circle: onsets on lag rings, rim ticks for the step grid |
 | 11 | Well-Formed Rhythm | Christoffel/Bresenham slack plot — the two inter-onset lengths |
-| 12 | L-System Grammar | Nesting-depth bars recovered from the onset runs |
+| 12 | L-System Grammar | The generator's actual A/B word per step, with per-lane gate bars |
 | 13 | Phase Shift / Reich | One motif ring per lane, each a rotated copy of the shared outline |
 | 14 | Polyrhythm Stack | Concentric ratio rings, dot size by accent |
 | 15 | Weighted Syncopation | The generator's metrical score as bars, selection marked |
-| 16 | Three-Body Chaos | Live orbit trace of the two outer bodies about body 0 |
+| 16 | Three-Body Chaos | Live absolute orbit with axes, clamp circle, trails and the three bodies at the playhead |
 | 17 | Pebble Box | Animated pebble box; eight lane pebbles at their recorded per-step positions |
 
 Indices 8–17 all draw their own panel. There is no shared step-lattice fallback: a mode whose
 structure is not a grid shows that structure instead. Each panel draws the generator's own
 formula (envelope, cutoff, slack, motif length, orbital state), reached through helpers exported
-from the generator module — a panel must never restate an algorithm's math.
+from the generator module — a panel must never restate an algorithm's math. The audit rule for a
+new panel: if the panel's constants cannot be traced to a `Pattern` field or a generator helper,
+the panel is drawing a decoration, not the algorithm. The three panels reworked in this pass pass
+that rule: Phyllotaxis uses `primary_phase`/`secondary_phase`/`rules_fired`/`lane_threshold`,
+L-System uses the published `Pattern.lsym` word plus `step_chance`, and Three-Body uses the
+absolute `Pattern.traj` with the generator's `clamp_radius()` as the panel scale.
 
 Three-Body Chaos is not a reference-project mode; it follows the same chaos family as the
 existing Logistic Map but with genuinely different controls (`phase` widens the third orbit,
-`osc_rate` sets integration resolution) and a different panel.
+`osc_rate` sets integration resolution) and a different panel. Because it is a live simulation
+rather than a closed form, it re-rolls the orbit at every cycle boundary: `regenerate_every`
+widens the interval but its `0 = off` value means "every cycle" in this mode, so the panel and
+the audio keep changing instead of freezing on one orbit.
 
 When adding or reordering a mode, update together: the `Mode` enum in `src/modes.rs`, dispatch in `sequence::generate()`, `view::build()`, the `Mode` labels in Slint, the mode indices the UI hardcodes, the editor's `from_index()` bound, and the expected parameter/view tests.
 
@@ -69,7 +77,7 @@ the generator's own use of `GenParams` is the behavioural source of truth.
 | Eulerian | Degree (0–3), Density, Seed |
 | Phyllotaxis | Pulses, Density, Seed, Spiral phase |
 | Cellular | Generation (0–15), Density, Seed, Generation offset, CA rule |
-| Oscillator | Requested hits, Density, Seed, Osc phase, Osc cycles, Wave |
+| Oscillator | Requested hits, Density, Seed, Osc phase, Osc cycles, Wave (8 shapes) |
 | Crystallographic | Motif density, Density, Seed, Symmetry |
 | Logistic | Target peaks, Growth (r), Seed, Initial x |
 | Markov | Walk activity, Density, Seed |

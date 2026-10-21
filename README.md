@@ -7,8 +7,10 @@
 - Eight MIDI lanes: Kick, Snare, Closed Hat, Open Hat, Clap, Rim, Low Tom, and Percussion.
 - Eighteen deterministic generator modes with mode-specific visualization and mode-sensitive parameters.
 - Additional generators: Raised-Cos Threshold, Slowcat Rhythm, Toussaint Distance, Well-Formed Rhythm, L-System Grammar, Phase Shift / Reich, Polyrhythm Stack, Weighted Syncopation, Three-Body Chaos, and Pebble Box.
-- Every mode draws a panel specific to its own algorithm: per-lane pulse rings, motif phrase timelines, modular distance circles, Christoffel slack plots, grammar nesting bars, phasing spokes, ratio rings, metrical score bars, a live three-body orbit, and an animated pebble box.
-- Global hit probability and velocity controls, automatic regeneration after N complete pattern lengths (0 disables it), manual parameter randomization, and optional auto-randomization every N host-transport beats.
+- Every mode draws a panel specific to its own algorithm: per-lane pulse rings, motif phrase timelines, modular distance circles, Christoffel slack plots, the grammar's own A/B word, phasing spokes, ratio rings, metrical score bars, a live three-body orbit, and an animated pebble box.
+- Global hit probability and velocity controls, automatic regeneration after N complete pattern lengths (0 disables it; Three-Body Chaos treats 0 as "every cycle" so its live orbit keeps moving), manual parameter randomization, and optional auto-randomization every N host-transport beats.
+- Randomize scope is five Settings chips (Mode, Length, Rhythm, Tone, Feel) stored as one host-automatable bitmask. Disabled groups keep their current values, and swing is never randomized.
+- Credits/Contact in Settings show the same author, email and support link used for the CLAP/VST3 metadata.
 - Host-automatable lane enables, note numbers, velocities, Gate, Swing, rate, mode, Generate, and Free Run.
 - Swing delays alternate steps in the beat domain, from straight up to a half-step shuffle; a third of a step gives triplet feel.
 - The mouse wheel edits whatever it is hovering: mode, rate, waveform, theme, every parameter slider, and the spin boxes in Settings. The wheel steps the mode list rather than scrolling it, and the list follows the selection.
@@ -29,9 +31,9 @@ The **Math** column shows the formula with the default snapshot substituted: `st
 |---|---|---|---|
 | Euclidean | Evenly distribute pulses around the ring; each lane scales the count by its density profile and anchors on its own phase origin | `k = round(pulses·density·(0.35+w))` → lane 0 `round(5·0.65·0.85) = 3`; onset `j` at `floor(j·n/k)` | Per-lane pulse rings |
 | Eulerian Walk | Hierholzer traversal of a balanced directed graph; rest is vertex 0, lanes are vertices 1–8 | `d = 1 + (pulses mod 4)` → `1+1 = 2`; circuit length `9·d = 18` | Directed drum-state network |
-| Golden Ratio / Phyllotaxis | Golden-angle spiral; the beat test steps by `1/φ`, with a slower radial term | threshold `T = (pulses/n)·(0.35+w)·(0.5+density) = 0.305`; `beat(i) = frac(i·0.618034 + seed + phase + lane·0.137)` | Golden-angle spiral |
+| Golden Ratio / Phyllotaxis | Golden-angle spiral: the beat test steps by `1/φ` (the mirror of 137.51°), with a slower `1/φ³` rule | threshold `T = (pulses/n)·(0.35+w)·(0.5+density) = 0.305`; `beat(i) = frac(i·0.618034 + seed + phase + lane·0.137)` | Eight-lane √i rosette with lit trigger wedges and the inner `1/φ³` spiral |
 | Cellular Automaton | Ring-based elementary cellular automaton (Wolfram rule); pulses selects a generation | `row = (pulses + round(phase·16) + 2·lane) mod 16` → lane 0 row 5; gate `0.45 + 0.55·density·w = 0.63` | Space-time cell grid |
-| Oscillator / Phase | Sine, triangle, saw or square sampled at each step with explicit phase and cycles | `wanted = round(pulses·density·(0.5+w)) = 3`; keep the 3 highest wave samples | Waveform with trigger threshold |
+| Oscillator / Phase | One of eight waveforms (sine, triangle, saw, square, pulse, decay, half-sine, noise) sampled at each step with explicit phase and cycles | `wanted = round(pulses·density·(0.5+w)) = 3`; keep the 3 highest wave samples | Waveform curve with the generator's rank cutoff and step markers |
 | Crystallographic | Seeded motif tiled across the pattern, transformed per unit cell by a symmetry operation | `order = 4`, `unit = n/order = 4`; motif threshold `T = 0.184`; operation `(order−1) mod 8` | 8-lane lattice and symmetry axes |
 | Logistic Map | Logistic orbit; onsets on local peaks above a per-lane cutoff | `x[n+1] = r·x[n]·(1−x[n])`, `r = 3.5+0.5·density = 3.825`, `x0 = 0.328`; cutoff `1−0.236 = 0.764` | Orbit diagram |
 | Markov Walk | Seeded first-order transition walk through rest and the eight drum voices | `p(rest) = 5`; event chance `density·(0.25 + 1.5·pulses/n) = 0.47` | State-transition graph |
@@ -39,11 +41,11 @@ The **Math** column shows the formula with the default snapshot substituted: `st
 | Slowcat Rhythm | Short per-lane motifs concatenated over slow subdivisions | `motif = 2+(lane+pulses) mod 7 = 7`; `shift = 4`; `slot = (i+shift) mod motif` | Phrase timeline |
 | Toussaint Distance | Integer boundary crossings of a maximally even pulse train, seeded circular origin, modular-distance accents | `k = round(pulses·density) = 3`, origin `4`; onset when `floor((pos+1)·k/n) ≠ floor(pos·k/n)` | Distance circle |
 | Well-Formed Rhythm | Christoffel/Bresenham word; every lane gets its own phase origin | `k = 3`; `d = (pos·k) mod n`; hit when `(n−d) mod n < k` | Bresenham slack plot |
-| L-System Grammar | Bounded parallel rewriting of a two-symbol alphabet into lane and accent roles | `family = (floor(seed·4)+variation) mod 4 = 1`; lane 0 chance `0.23·grammar·metrical` | Nesting-depth bars |
+| L-System Grammar | Bounded parallel rewriting of a two-symbol alphabet into lane and accent roles | `family = (floor(seed·4)+variation) mod 4 = 1`; lane 0 chance `0.23·grammar·metrical` | The generator's A/B word per step with per-lane gate bars |
 | Phase Shift / Reich | One maximally even motif circularly offset per lane (Reich-style phasing) | `k = round(pulses·density) = 3`; `shift = lane·2 + round(phase·n) + round(seed·n)` → lane 0 shift 4 | Per-lane motif rings, each a rotated copy |
 | Polyrhythm Stack | Fixed integer ratios (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over one duration | lane 0 `k = round(5·0.65) = 3`; lane 1 (3:2) `k = round(8·0.65) = 5` | Ratio rings |
 | Weighted Syncopation | Metric, lane-shifted and jittered scores; the top-k steps become onsets | `target = round(pulses·density·(0.45+w)) = 3`; `score(i) = w(i mod 4)·w((i+3·lane) mod 4)·jitter` | Metrical score bars |
-| Three-Body Chaos | Soft-gravity three-body leapfrog orbit; sweep and close encounters are ranked into onsets | `substeps = clamp(n·(8+32·osc_rate), 64, 2048) = 1152`; `wanted = 3`; line crossings accent | Live orbit trace |
+| Three-Body Chaos | Soft-gravity three-body leapfrog orbit; sweep and close encounters are ranked into onsets; the orbit re-rolls every cycle | `substeps = clamp(n·(8+32·osc_rate), 64, 2048) = 1152`; `wanted = 3`; line crossings accent | Live absolute orbit with axes, clamp circle and body trails |
 | Pebble Box | Eight pebbles (one per lane) bounce in a box; a shaker impulse kicks a rotating third and wall impacts above the density threshold fire their lanes | `substeps = osc_rate` (`2`), gravity `0.05+ca_rule/255·1.15 = 0.19` tilted `0°`; impulse every `n/pulses = 3` steps; threshold `(1−density)·4.2 = 1.47` | Animated pebble box with wall-contact flashes |
 
 The crystallographic mode is an **algorithmic symmetry palette inspired by periodic/crystallographic operations**, not a claim to enumerate all formal 2D/3D crystallographic space groups.

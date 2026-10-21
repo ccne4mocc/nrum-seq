@@ -2,7 +2,7 @@
 use crate::globals;
 use crate::sequence::{generate, GenParams, Pattern, Rng, MAX_STEPS, TRACKS};
 use crate::view::{self, View};
-use crate::{cell_count_for, DrumParams, Mode, OscWave, Rate, Shared, Theme as PluginTheme};
+use crate::{cell_count_for, scope, DrumParams, Mode, OscWave, Rate, Shared, Theme as PluginTheme};
 use nih_plug::prelude::*;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use slint_baseview::{default_gl_config, Size, SlintWindow, WindowHandle, WindowOpenOptions, WindowScalePolicy};
@@ -112,6 +112,9 @@ fn rgb(c: [u8; 3]) -> slint::Color { slint::Color::from_rgb_u8(c[0], c[1], c[2])
 
 static RANDOMIZE_NONCE: AtomicU32 = AtomicU32::new(1);
 
+/// True when the RANDOMIZE scope allows this group bit.
+fn scope_enabled(p: &DrumParams, bit: i32) -> bool { p.randomize_scope.value() & bit != 0 }
+
 /// Randomize the active algorithm controls through NIH-plug's parameter setter,
 /// so the host, the custom UI, and the generator all observe the same values.
 fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
@@ -119,18 +122,26 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let variation = p.variation.fetch_add(1, Relaxed).wrapping_add(nonce);
     let mut rng = Rng::new(p.seed.value(), variation, 0xA1_60_D2_0A_5EED);
 
+    // Draw the whole set in a fixed order, then apply only the groups the scope allows: the
+    // stream does not skip draws when a group is disabled, so enabling a group never changes
+    // what another group received. Pulse/rotate bounds still follow the mode and length that
+    // survive the scope, so a written count is always in range.
     let mode = Mode::from_index(rng.below(18));
     let cells = 8 + rng.below(MAX_STEPS - 7); // 8..=MAX_STEPS
     // Keep randomize on the grid; fractional spacing stays a deliberate user choice.
     let steps = cells as f32;
-    let pulse_limit = if mode == Mode::Cellular { 15 } else { cells };
+    // Bounds follow the values that will actually be in force, so a written pulse or rotate
+    // count is never out of range for the mode and length that survive the scope.
+    let mode_after = if scope_enabled(p, scope::MODE) { mode } else { p.mode.value() };
+    let cells_after = if scope_enabled(p, scope::LENGTH) { cells } else { p.cell_count().max(1) as usize };
+    let pulse_limit = if mode_after == Mode::Cellular { 15 } else { cells_after };
     let pulses = rng.below(pulse_limit + 1) as i32;
-    let rotate = rng.below(cells) as i32;
+    let rotate = rng.below(cells_after) as i32;
     let density = 0.15 + 0.85 * rng.unit();
     let seed = rng.unit();
     let phase = rng.unit();
     let osc_rate = 0.125 + (8.0 - 0.125) * rng.unit();
-    let wave = OscWave::from_index(rng.below(4));
+    let wave = OscWave::from_index(rng.below(crate::sequence::oscillator_wave_count));
     let ca_rule = rng.below(256) as i32;
     let symmetry = 1 + rng.below(8) as i32;
     let probability = 0.35 + 0.65 * rng.unit();
@@ -138,20 +149,26 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let rate = Rate::from_index(rng.below(6));
     // Leave swing alone: it is a feel setting, not a generator setting.
 
-    set(ctx, &p.mode, mode);
-    set(ctx, &p.steps, steps);
-    set(ctx, &p.pulses, pulses);
-    set(ctx, &p.rotate, rotate);
-    set(ctx, &p.density, density.clamp(0.0, 1.0));
-    set(ctx, &p.seed, seed);
-    set(ctx, &p.phase, phase);
-    set(ctx, &p.osc_rate, osc_rate);
-    set(ctx, &p.osc_wave, wave);
-    set(ctx, &p.ca_rule, ca_rule);
-    set(ctx, &p.symmetry, symmetry);
-    set(ctx, &p.probability, probability.clamp(0.0, 1.0));
-    set(ctx, &p.velocity, velocity.clamp(0.01, 1.0));
-    set(ctx, &p.rate, rate);
+    if scope_enabled(p, scope::MODE) { set(ctx, &p.mode, mode); }
+    if scope_enabled(p, scope::LENGTH) { set(ctx, &p.steps, steps); }
+    if scope_enabled(p, scope::RHYTHM) {
+        set(ctx, &p.pulses, pulses);
+        set(ctx, &p.rotate, rotate);
+        set(ctx, &p.density, density.clamp(0.0, 1.0));
+    }
+    if scope_enabled(p, scope::TONE) {
+        set(ctx, &p.seed, seed);
+        set(ctx, &p.phase, phase);
+        set(ctx, &p.osc_rate, osc_rate);
+        set(ctx, &p.osc_wave, wave);
+        set(ctx, &p.ca_rule, ca_rule);
+        set(ctx, &p.symmetry, symmetry);
+    }
+    if scope_enabled(p, scope::FEEL) {
+        set(ctx, &p.probability, probability.clamp(0.0, 1.0));
+        set(ctx, &p.velocity, velocity.clamp(0.01, 1.0));
+        set(ctx, &p.rate, rate);
+    }
 }
 
 fn push_view(ui: &AppWindow, v: &View) {
@@ -218,7 +235,17 @@ impl Editor for SlintEditor {
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
-                ui.on_set_osc_wave(move |v| set(&c, &p.osc_wave, OscWave::from_index(v.clamp(0, 3) as usize)));
+                ui.on_set_osc_wave(move |v| {
+                    let last = OscWave::variants().len() as i32 - 1;
+                    set(&c, &p.osc_wave, OscWave::from_index(v.clamp(0, last) as usize));
+                });
+            }
+            {
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_toggle_scope(move |bit| {
+                    let mask = p.randomize_scope.value() ^ (1 << bit.clamp(0, 4));
+                    set(&c, &p.randomize_scope, mask.clamp(0, scope::ALL));
+                });
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
@@ -264,6 +291,15 @@ impl Editor for SlintEditor {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_round_steps(move || set(&c, &p.round_steps, !p.round_steps.value()));
             }
+            // Constant UI data: waveform names and the author's contact details come from Rust,
+            // so the picker and the Credits panel cannot drift from the metadata.
+            ui.set_wave_names(ModelRc::new(VecModel::from(
+                OscWave::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
+            )));
+            ui.set_credit_author(SharedString::from(crate::contact::AUTHOR));
+            ui.set_credit_github(SharedString::from(crate::contact::GITHUB_HANDLE));
+            ui.set_credit_email(SharedString::from(crate::contact::EMAIL));
+            ui.set_credit_support(SharedString::from(crate::contact::SUPPORT));
         };
 
         let cache = Arc::new(Mutex::new(Cache { gen_key: None, pattern: Pattern::default(), view_key: None }));
@@ -308,6 +344,11 @@ impl Editor for SlintEditor {
             ui.set_randomize_after_beats(p.randomize_after_beats.value() as f32);
             ui.set_swing(p.swing.value());
             ui.set_auto_randomize(p.auto_randomize.value());
+            ui.set_scope_mode(scope_enabled(p, scope::MODE));
+            ui.set_scope_length(scope_enabled(p, scope::LENGTH));
+            ui.set_scope_rhythm(scope_enabled(p, scope::RHYTHM));
+            ui.set_scope_tone(scope_enabled(p, scope::TONE));
+            ui.set_scope_feel(scope_enabled(p, scope::FEEL));
             ui.set_seed(p.seed.value());
             ui.set_phase(p.phase.value());
             ui.set_osc_rate(p.osc_rate.value());

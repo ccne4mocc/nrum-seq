@@ -22,6 +22,10 @@ const DT: f64 = 0.004;
 const R_MAX: f64 = 3.2;
 const V_MAX: f64 = 6.0;
 
+/// The radius the integrator clamps every body to. The panel draws this as a boundary, so it
+/// reads the constant from here instead of restating it.
+pub(crate) fn clamp_radius() -> f64 { R_MAX }
+
 fn accel(r: &[f64; W], a: &mut [f64; W]) {
     for k in 0..W { a[k] = 0.0; }
     for i in 0..3 {
@@ -107,9 +111,11 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     let (mut theta, mut last, mut line) = (0.0f64, 0.0f64, 0.0f64);
 
     for i in 0..n {
-        // View snapshot: bodies 1 and 2 relative to body 0, so the panel can draw the orbit
-        // without caring where the pair happens to be in its own orbit.
-        out.traj[i] = [r[2] as f32 - r[0] as f32, r[3] as f32 - r[1] as f32, r[4] as f32 - r[0] as f32, r[5] as f32 - r[1] as f32];
+        // View snapshot: the three bodies' absolute positions. The integrator clamps every body
+        // inside `R_MAX` of the origin, so the plot has a fixed origin and a fixed scale, and the
+        // clamp circle is a real boundary the bodies never cross. Relative positions would make
+        // the picture turn with the binary.
+        out.traj[i] = [r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32, r[4] as f32, r[5] as f32];
         let mut swept = 0.0f64;
         let mut nearest = f64::INFINITY;
         let mut crossing = false;
@@ -246,9 +252,24 @@ mod tests {
         let mut lo = [f32::INFINITY; 2];
         let mut hi = [f32::NEG_INFINITY; 2];
         for i in 0..32 {
-            lo[0] = lo[0].min(pat.traj[i][2]); hi[0] = hi[0].max(pat.traj[i][2]);
-            lo[1] = lo[1].min(pat.traj[i][3]); hi[1] = hi[1].max(pat.traj[i][3]);
+            lo[0] = lo[0].min(pat.traj[i][4]); hi[0] = hi[0].max(pat.traj[i][4]);
+            lo[1] = lo[1].min(pat.traj[i][5]); hi[1] = hi[1].max(pat.traj[i][5]);
         }
         assert!(hi[0] - lo[0] > 0.2 && hi[1] - lo[1] > 0.2, "orbit is static: {:?}", (lo, hi));
+    }
+
+    #[test]
+    fn every_body_stays_inside_the_clamp_radius() {
+        // The panel draws the clamp circle as a real boundary, so the integrator has to honour it.
+        for (phase, rate) in [(0.0f32, 0.125f32), (0.5, 2.0), (0.0, 8.0)] {
+            let p = GenParams { kind: Mode::ThreeBody, steps: 32, length: 32.0, pulses: 5, density: 0.8, probability: 1.0, phase, osc_rate: rate, ..GenParams::default() };
+            let pat = generate(&p);
+            for i in 0..32 {
+                for body in 0..3 {
+                    let r = (pat.traj[i][body * 2].powi(2) + pat.traj[i][body * 2 + 1].powi(2)).sqrt();
+                    assert!(r as f64 <= clamp_radius() + 1e-4, "body {body} at step {i} left the clamp circle: {r}");
+                }
+            }
+        }
     }
 }

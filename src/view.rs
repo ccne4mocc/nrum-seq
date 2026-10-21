@@ -6,7 +6,6 @@ use std::fmt::Write;
 
 const SIZE: f32 = 210.0;
 const C: f32 = SIZE * 0.5;
-const GOLDEN_ANGLE: f32 = 2.399_963_1;
 
 #[derive(Clone, Debug, Default)]
 pub struct Node { pub x: f32, pub y: f32, pub r: f32, pub on: bool, pub cur: bool, pub label: String }
@@ -27,6 +26,15 @@ fn ln(s: &mut String, x: f32, y: f32) { let _ = write!(s, "L{:.1} {:.1} ", x, y)
 fn circle(s: &mut String, cx: f32, cy: f32, r: f32) {
     let _ = write!(s, "M{:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} ", cx + r, cy, cx - r, cy, cx + r, cy);
 }
+/// Open arc around the panel centre, `from`/`to` in turns clockwise from 12 o'clock.
+fn arc(s: &mut String, r: f32, from: f32, to: f32) {
+    let steps = 24;
+    for j in 0..=steps {
+        let turns = from + (to - from) * j as f32 / steps as f32;
+        let (x, y) = polar(r, turns);
+        if j == 0 { mv(s, x, y); } else { ln(s, x, y); }
+    }
+}
 fn aggregate_hit(p: &Pattern, i: usize) -> bool { (0..TRACKS).any(|t| p.hit[t][i]) }
 
 /// Generation the cellular generator reads for one lane. Must match `cellular::generate`;
@@ -41,16 +49,6 @@ fn selected_row(params: &GenParams, tr: usize) -> usize {
 
 /// Panel half-width available for drawing, keeping 10px of margin inside the 210 viewbox.
 const PLOT: f32 = 92.0;
-
-/// Fit the recorded orbit to the panel. The relative positions can span twice the per-body
-/// clamp, so scale by the actual extent instead of a fixed constant.
-fn orbit_scale(pat: &Pattern, n: usize) -> f32 {
-    let mut extent = 0.0f32;
-    for i in 0..n {
-        for k in 0..4 { extent = extent.max(pat.traj[i][k].abs()); }
-    }
-    if extent > 1e-3 { PLOT / extent } else { PLOT / 3.2 }
-}
 
 pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
     let n = p.steps.clamp(1, MAX_STEPS);
@@ -102,14 +100,48 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::Phyllotaxis => {
-            let max_r = 88.0;
-            for i in 0..n {
-                let a = i as f32 * GOLDEN_ANGLE + params.phase * TAU;
-                let r = max_r * ((i as f32 + 1.0) / n as f32).sqrt();
-                let x = C + r * a.cos(); let y = C + r * a.sin();
-                let on = aggregate_hit(p, i);
-                v.nodes.push(Node { x, y, r: if on { 5.5 } else { 2.6 }, on, cur: play == Some(i), label: if on { (i + 1).to_string() } else { String::new() } });
-                if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
+            // The generator's own two rules, and nothing else: the primary golden rotation by
+            // 1/φ per step and the slower 1/φ³ rotation that adds a second family of onsets.
+            // Every lane runs the same two curves, each rotated by its own phase offset, so all
+            // eight are drawn — the picture is the kit's geometry, not one lane's.
+            //
+            // The radius law is the classic phyllotaxis one (√i), which is what makes the
+            // golden rotation read as a spiral of arms instead of a scatter.
+            //
+            // `rotation` maps a generator step to the display slot that sounds it, so a lit
+            // dot always sits on the curve that produced it, even after the pattern was
+            // rotated.
+            let max_r = 92.0;
+            let sec_r = 40.0;
+            let shift = p.rotation % n;
+            // The rim carries each lane's trigger window: an arc from 12 o'clock clockwise to
+            // the lane's threshold, in the accent colour so it reads against the gray rim. That
+            // is the wedge of the rotation that sounds, so the lit dots above are the ones
+            // inside it.
+            circle(&mut v.edges, C, C, max_r);
+            for tr in 0..TRACKS {
+                arc(&mut v.lines, max_r, 0.0, crate::sequence::phyllotaxis_threshold(params, tr) as f32);
+            }
+            for tr in 0..TRACKS {
+                for g in 0..n {
+                    let slot = (g + shift) % n;
+                    let hit = p.hit[tr][slot];
+                    let rules = crate::sequence::phyllotaxis_rules(g, tr, params);
+                    let r = max_r * ((g as f32 + 1.0) / n as f32).sqrt();
+                    let (x, y) = polar(r, crate::sequence::phyllotaxis_primary(g, tr, params) as f32);
+                    let cur = play == Some(slot) && tr == 0;
+                    v.nodes.push(Node { x, y, r: if hit && rules & 1 != 0 { 3.6 } else { 1.5 }, on: hit && rules & 1 != 0, cur, label: String::new() });
+                    let r2 = sec_r * ((g as f32 + 1.0) / n as f32).sqrt();
+                    let (x2, y2) = polar(r2, crate::sequence::phyllotaxis_secondary(g, tr, params) as f32);
+                    v.nodes.push(Node { x: x2, y: y2, r: if hit && rules & 2 != 0 { 3.2 } else { 1.3 }, on: hit && rules & 2 != 0, cur: false, label: String::new() });
+                }
+            }
+            // The playhead: the radius line to the step currently sounding, on lane 0.
+            if let Some(i) = play {
+                let g = (i + n - shift) % n;
+                let r = max_r * ((g as f32 + 1.0) / n as f32).sqrt();
+                let (x, y) = polar(r, crate::sequence::phyllotaxis_primary(g, 0, params) as f32);
+                mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
         Mode::Cellular => {
@@ -284,29 +316,38 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 12.0); ln(&mut v.hand, x, 196.0); }
         }
         Mode::LSystem => {
-            // Nesting depth per step, recovered by walking the lane's onsets: a hit that starts
-            // a new run raises the level, consecutive hits hold it. Bars make the grammar's
-            // branching readable where a plain grid only showed on/off.
+            // The grammar's own output: the A/B word it rewrote to, drawn as a two-line strip
+            // (A above, B below), and under it, per lane, the gate the generator actually
+            // rolled against — threshold x grammar weight x metrical weight.
+            //
+            // The old panel inferred a "nesting depth" by scanning runs of hits, which is a
+            // shape the generator never computes.
             let cw = 184.0 / n as f32;
-            let ch = 168.0 / TRACKS as f32;
+            let ch = 152.0 / TRACKS as f32;
+            let shift = p.rotation % n;
+            // The word the grammar produced, one symbol per step.
+            for i in 0..n {
+                let x = 13.0 + (i as f32 + 0.5) * cw;
+                let a = p.lsym[i] == 0;
+                v.nodes.push(Node { x, y: if a { 12.0 } else { 21.0 }, r: if a { 2.2 } else { 1.5 }, on: a, cur: false, label: String::new() });
+            }
             for tr in 0..TRACKS {
-                let y = 21.0 + (tr as f32 + 0.5) * ch;
-                let mut depth = 0usize;
+                let baseline = 34.0 + (tr as f32 + 1.0) * ch;
+                let threshold = crate::sequence::lsystem_threshold(params, tr);
                 for i in 0..n {
-                    let on = p.hit[tr][i];
-                    if on && (i == 0 || !p.hit[tr][i - 1]) { depth += 1; }
-                    let height = if depth == 0 { 0.0 } else { (depth as f32 * ch * 0.34).min(ch * 0.9) };
-                    if height > 0.0 {
-                        let x = 13.0 + (i as f32 + 0.5) * cw;
-                        mv(&mut v.lines, x, y + ch * 0.42); ln(&mut v.lines, x, y + ch * 0.42 - height);
-                    }
-                    if on {
-                        v.nodes.push(Node { x: 13.0 + (i as f32 + 0.5) * cw, y, r: 4.0, on: true, cur: play == Some(i), label: String::new() });
+                    // The generator decided this step before the pattern was rotated, so the
+                    // metrical weight belongs to the step the slot came from.
+                    let g = (i + n - shift) % n;
+                    let chance = crate::sequence::lsystem_step_chance(threshold, p.lsym[i], tr, g);
+                    let x = 13.0 + (i as f32 + 0.5) * cw;
+                    let top = baseline - chance * (ch - 4.0);
+                    mv(&mut v.lines, x, baseline); ln(&mut v.lines, x, top);
+                    if p.hit[tr][i] {
+                        v.nodes.push(Node { x, y: top, r: 3.4, on: true, cur: play == Some(i), label: String::new() });
                     }
                 }
             }
-            for tr in 0..=TRACKS { let y = 21.0 + tr as f32 * ch; mv(&mut v.edges, 11.0, y); ln(&mut v.edges, 199.0, y); }
-            if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 18.0); ln(&mut v.hand, x, 192.0); }
+            if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 8.0); ln(&mut v.hand, x, 192.0); }
         }
         Mode::PhaseShift => {
             // Every lane is the same motif at a different circular offset, so draw the motif
@@ -374,33 +415,49 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 20.0); ln(&mut v.hand, x, 192.0); }
         }
         Mode::ThreeBody => {
-            // The orbit itself: bodies 1 and 2 traced relative to body 0, with a step marker on
-            // the third body. This is the only panel whose picture *is* the generator's state.
-            // Relative positions can span twice the clamp radius, so fit to the actual extent;
-            // a fixed scale either clipped the trace or left it as a small blob in the middle.
-            let scale = orbit_scale(p, n);
-            circle(&mut v.edges, C, C, 96.0);
-            // Body 1 is the tight binary partner, body 2 the wide third body. Keep the tight
-            // trail in the faint slot so it does not vanish beneath the outer orbit.
-            for i in 0..n {
-                let x = C + p.traj[i][0] * scale;
-                let y = C - p.traj[i][1] * scale;
-                if i == 0 { mv(&mut v.edges, x, y); } else { ln(&mut v.edges, x, y); }
+            // The simulation's own frame: the bodies' absolute positions, one fixed scale
+            // (the integrator clamps every body inside R_MAX, so the clamp circle is a real
+            // boundary the bodies never cross), the axes through the origin, and the three
+            // body trails.
+            //
+            // The playhead bodies are separate nodes whose x/y change every step, so the
+            // panel's existing tween turns them into a glide along the orbit instead of a
+            // jump.
+            let scale = PLOT / crate::sequence::nbody_clamp_radius() as f32;
+            mv(&mut v.edges, 14.0, C); ln(&mut v.edges, 196.0, C);
+            mv(&mut v.edges, C, 14.0); ln(&mut v.edges, C, 196.0);
+            circle(&mut v.edges, C, C, PLOT);
+            // Bodies 0 and 1 are the tight binary; the wide third body gets the accent trail.
+            for body in 0..2 {
+                for i in 0..n {
+                    let x = C + p.traj[i][body * 2] * scale;
+                    let y = C - p.traj[i][body * 2 + 1] * scale;
+                    if i == 0 { mv(&mut v.edges, x, y); } else { ln(&mut v.edges, x, y); }
+                }
             }
             for i in 0..n {
-                let x = C + p.traj[i][2] * scale;
-                let y = C - p.traj[i][3] * scale;
+                let x = C + p.traj[i][4] * scale;
+                let y = C - p.traj[i][5] * scale;
                 if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
             }
+            // One marker per step on the third body's path: where the pattern fires along the
+            // orbit. They sit on the recorded path, so they move only when the orbit changes.
             for i in 0..n {
-                let x = C + p.traj[i][2] * scale;
-                let y = C - p.traj[i][3] * scale;
-                v.nodes.push(Node { x, y, r: if aggregate_hit(p, i) { 4.4 } else { 2.4 }, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
+                let x = C + p.traj[i][4] * scale;
+                let y = C - p.traj[i][5] * scale;
+                let on = aggregate_hit(p, i);
+                v.nodes.push(Node { x, y, r: if on { 4.4 } else { 2.4 }, on, cur: false, label: String::new() });
             }
-            v.nodes.push(Node { x: C, y: C, r: 3.0, on: true, cur: false, label: "0".into() });
+            // The three bodies at the playhead. Their positions change every step, so the
+            // panel tweens them along the orbit.
             if let Some(i) = play {
-                let x = C + p.traj[i][2] * scale;
-                let y = C - p.traj[i][3] * scale;
+                for body in 0..3 {
+                    let x = C + p.traj[i][body * 2] * scale;
+                    let y = C - p.traj[i][body * 2 + 1] * scale;
+                    v.nodes.push(Node { x, y, r: if body == 2 { 5.2 } else { 3.6 }, on: true, cur: false, label: String::new() });
+                }
+                let x = C + p.traj[i][4] * scale;
+                let y = C - p.traj[i][5] * scale;
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
@@ -495,7 +552,12 @@ mod tests {
         assert!((crate::sequence::oscillator_value(2, 0.25) - 0.25).abs() < 1e-5);
         assert_eq!(crate::sequence::oscillator_value(3, 0.25), 1.0);
         assert_eq!(crate::sequence::oscillator_value(3, 0.75), 0.0);
-        for wave in 0..4 { for i in 0..=100 { assert!((0.0..=1.0).contains(&crate::sequence::oscillator_value(wave, i as f32 / 100.0))); } }
+        for wave in 0..crate::sequence::oscillator_wave_count {
+            for i in 0..=100 {
+                assert!((0.0..=1.0).contains(&crate::sequence::oscillator_value(wave, i as f32 / 100.0)),
+                    "wave {wave} left 0..=1 at phase {}", i as f32 / 100.0);
+            }
+        }
     }
 
     #[test]
@@ -620,28 +682,36 @@ mod tests {
 
     #[test]
     fn chaos_panel_traces_the_recorded_orbit() {
-        // The panel must draw the generator's own trajectory, not a default-constructed one.
+        // The panel must draw the generator's own trajectory: absolute positions, one fixed
+        // scale, so the playhead bodies must land on the recorded step.
         let g = GenParams { kind: Mode::ThreeBody, steps: 32, pulses: 8, density: 1.0, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, 3);
-        let expected = C + pat.traj[3][2] * orbit_scale(&pat, 32);
-        assert!(view.nodes.iter().any(|n| n.cur && (n.x - expected).abs() < 0.6), "playhead node not on the orbit");
+        let scale = PLOT / crate::sequence::nbody_clamp_radius() as f32;
+        for body in 0..3 {
+            let x = C + pat.traj[3][body * 2] * scale;
+            let y = C - pat.traj[3][body * 2 + 1] * scale;
+            assert!(view.nodes.iter().any(|n| (n.x - x).abs() < 0.01 && (n.y - y).abs() < 0.01),
+                "body {body} at step 3 not drawn at its recorded position");
+        }
         // A default Pattern would collapse every trail point onto the centre.
         assert!(view.nodes.iter().filter(|n| (n.x - C).abs() > 1.0).count() > 5, "orbit collapsed to the centre");
     }
 
     #[test]
     fn chaos_panel_fits_the_whole_orbit() {
-        // A fixed scale either clipped the trace or left it as a blob in the middle: the fit
-        // must map the recorded extent exactly onto the panel plot radius.
+        // The integrator keeps every body inside the clamp radius, so the fixed scale maps the
+        // whole orbit inside the plot: the panel must never clip a body.
         let g = GenParams { kind: Mode::ThreeBody, steps: 32, pulses: 8, density: 1.0, phase: 0.9, ..GenParams::default() };
         let pat = generate(&g);
-        let extent = (0..32).flat_map(|i| (0..4).map(move |k| pat.traj[i][k].abs()))
-            .fold(0.0f32, f32::max);
-        assert!(extent > 1.0);
-        assert!((orbit_scale(&pat, 32) * extent - PLOT).abs() < 0.01);
         let view = build(&g, &pat, -1);
-        assert!(view.nodes.iter().all(|n| (n.x - C).abs() <= PLOT + 0.6 && (n.y - C).abs() <= PLOT + 0.6));
+        for n in &view.nodes {
+            let d = ((n.x - C).powi(2) + (n.y - C).powi(2)).sqrt();
+            assert!(d <= PLOT + 0.6, "orbit node {:.1}px from centre escapes the plot", d);
+        }
+        // ... and the orbit is a real shape, not a dot in the middle.
+        let spread = view.nodes.iter().map(|n| ((n.x - C).powi(2) + (n.y - C).powi(2)).sqrt()).fold(0.0f32, f32::max);
+        assert!(spread > PLOT * 0.5, "orbit only reaches {spread:.1}px");
     }
 
     #[test]
