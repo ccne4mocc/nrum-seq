@@ -50,10 +50,6 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 - Preset snapshots for genre/use cases with versioned serialization, keeping plug-in parameter IDs stable.
 - Copy/Generate variations, lock-lane/lock-step, undo/redo and variation history, once it is clear how those edits serialize.
 
-## Interchange
-
-- MIDI file export from a non-real-time editor or background task path, never from `process()`. Note `src/midi.rs` held an SMF parser for this and was deleted as dead code; it was never compiled by anything, so expect to write it again from scratch.
-
 ## Algorithm depth
 
 - Markov transition editing with explicit weights instead of hard-coded transition preferences.

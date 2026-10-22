@@ -175,6 +175,9 @@ component NumBox inherits Rectangle {
     // text field: clicks and typing still reach the TextInput, and since TextInput has no
     // scroll handler the wheel falls through to this area.
     wheel := TouchArea {
+        // Keep the wheel area off the two buttons: this TouchArea is declared after them, so a
+        // full-width one would sit on top and swallow every button click.
+        x: 0px; y: 0px; width: parent.width - 34px; height: parent.height;
         scroll-event(e) => {
             if (e.delta-y != 0px) {
                 root.nudge(e.delta-y < 0px ? 1 : -1);
@@ -253,6 +256,9 @@ export component AppWindow inherits Window {
     // length takes the ceiling. Header and bounds read this so they cannot disagree with the
     // matrix when the host leaves a fractional value stored while snapping is on.
     property <int> cells: root.round-steps ? Math.round(root.steps) : Math.ceil(root.steps);
+    // Fixed step width. Growing the pattern scrolls the matrix instead of shrinking cells into
+    // sub-pixel slivers; the label column stays put while only the cells scroll.
+    property <length> matrix-cell-width: 14px;
     in property <float> pulses: 5;
     in property <float> rotate: 0;
     in property <float> density: 0.65;
@@ -278,6 +284,8 @@ export component AppWindow inherits Window {
     in property <string> credit-github: "";
     in property <string> credit-email: "";
     in property <string> credit-support: "";
+    in property <string> midi-folder: "";
+    in-out property <string> export-status: "";
     in property <int> theme-index: 0;
     in-out property <bool> settings-open: false;
     // Settings slide in from the right edge of the fixed 860px layout; see the panel at the
@@ -305,6 +313,8 @@ export component AppWindow inherits Window {
     callback generate-pressed();
     callback randomize-pressed();
     callback toggle-scope(int);
+    callback set-midi-folder(string);
+    callback export-midi();
 
     // Only expose mode-specific controls the selected mode actually uses, and label them with
     // what they mean in that mode. `GenParams` still carries every field; this is presentation.
@@ -495,25 +505,37 @@ export component AppWindow inherits Window {
             }
         }
         Text { text: "PATTERN MATRIX  ·  \{root.cells} cells  ·  velocity = brightness  ·  probability = opacity  ·  playhead in amber"; color: #788394; font-size: 10px; }
-        VerticalLayout {
+        HorizontalLayout {
             spacing: 4px;
-            for track in root.tracks: HorizontalLayout {
-                height: 22px; spacing: 0px;
-                Text { width: 76px; text: track.name; color: track.enabled ? #d1d5db : #505965; font-size: 9px; vertical-alignment: center; }
-                for cell in track.cells: Rectangle {
-                    // Derived from the fixed layout width, not from `parent.width`: binding to
-                    // a layout width is a binding loop. base-width - 2x14 padding - the 76px
-                    // name column fills the row exactly. No minimum width: 1024 steps must still
-                    // fit the row, where each cell is a sub-pixel density sliver.
-                    width: max(0.5px, (root.base-width - 28px - 76px) / (track.cells.length * 1.0));
-                    height: 20px;
-                    Rectangle {
-                        x: 0px; y: 0px;
-                        width: max(parent.width - 1px, parent.width * 0.5); height: parent.height;
-                        border-radius: 2px;
-                        background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : #242930;
-                        opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
-                        border-width: cell.playing ? Math.min(2px, parent.width * 0.5) : 0px; border-color: Theme.hi;
+            VerticalLayout {
+                spacing: 4px;
+                for track in root.tracks: Text {
+                    width: 76px; height: 22px;
+                    text: track.name; color: track.enabled ? #d1d5db : #505965;
+                    font-size: 9px; vertical-alignment: center;
+                }
+            }
+            matrix-scroll := ScrollView {
+                horizontal-stretch: 1; height: 218px;
+                vertical-scrollbar-policy: always-off;
+                horizontal-scrollbar-policy: as-needed;
+                viewport-width: root.cells * root.matrix-cell-width;
+                VerticalLayout {
+                    width: root.cells * root.matrix-cell-width;
+                    spacing: 4px;
+                    for track in root.tracks: HorizontalLayout {
+                        height: 22px; spacing: 0px;
+                        for cell in track.cells: Rectangle {
+                            width: root.matrix-cell-width; height: 20px;
+                            Rectangle {
+                                x: 0px; y: 0px;
+                                width: parent.width - 1px; height: parent.height;
+                                border-radius: 2px;
+                                background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : #242930;
+                                opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
+                                border-width: cell.playing ? 2px : 0px; border-color: Theme.hi;
+                            }
+                        }
                     }
                 }
             }
@@ -594,6 +616,25 @@ export component AppWindow inherits Window {
                 ScopeChip { label: "TONE"; active: root.scope-tone; toggled => { root.toggle-scope(3); } }
                 ScopeChip { label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(4); } }
             }
+            Text { text: "MIDI EXPORT"; color: #788394; font-size: 9px; }
+            Rectangle {
+                height: 26px; border-radius: 4px;
+                background: #20242b; border-width: 1px; border-color: #3b414a;
+                TextInput {
+                    x: 6px; width: parent.width - 12px; height: parent.height;
+                    text: root.midi-folder; color: #d1d5db; font-size: 9px;
+                    vertical-alignment: center;
+                    edited => { root.set-midi-folder(self.text); }
+                    accepted => { root.set-midi-folder(self.text); }
+                }
+            }
+            Rectangle {
+                height: 26px; border-radius: 4px;
+                background: export-touch.has-hover ? Theme.c2 : #2a3038;
+                Text { text: "EXPORT MIDI (ONE LOOP)"; color: #f3f4f6; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+                export-touch := TouchArea { clicked => { root.export-midi(); } }
+            }
+            Text { text: root.export-status; color: #8b95a5; font-size: 9px; wrap: word-wrap; }
             // Push the contact block to the bottom of the panel; the controls stay top-aligned.
             Rectangle { vertical-stretch: 1; }
             Text { text: "CREDITS / CONTACT"; color: #788394; font-size: 9px; }

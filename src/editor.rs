@@ -1,13 +1,16 @@
 //! Slint GUI adapter, following the reference project's separation between pure geometry and UI glue.
 use crate::globals;
+use crate::midi_export;
 use crate::sequence::{generate, GenParams, Pattern, Rng, MAX_STEPS, MIN_MAX_STEPS, TRACKS};
 use crate::view::{self, View};
 use crate::{cell_count_for, scope, DrumParams, Mode, OscWave, Rate, Shared, Theme as PluginTheme};
 use nih_plug::prelude::*;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use slint_baseview::{default_gl_config, Size, SlintWindow, WindowHandle, WindowOpenOptions, WindowScalePolicy};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 slint::include_modules!();
 const WIDTH: u32 = 860;
@@ -27,16 +30,22 @@ struct SlintEditor {
 }
 
 /// Snapshot the user-global settings out of the parameters, for `globals::save`.
-fn global_settings(p: &DrumParams, scale: f32) -> globals::GlobalSettings {
+fn global_settings(
+    p: &DrumParams,
+    scale: f32,
+    midi_dir: &Mutex<String>,
+) -> globals::GlobalSettings {
     globals::GlobalSettings {
         theme: Some(p.theme.value().to_index()),
         scale: if scale > 0.0 { Some(scale) } else { None },
+        midi_dir: midi_dir.lock().ok().map(|d| d.clone()).filter(|d| !d.trim().is_empty()),
     }
 }
 struct SlintEditorHandle {
     window: WindowHandle,
     params: Arc<DrumParams>,
     scale: Arc<AtomicU32>,
+    midi_dir: Arc<Mutex<String>>,
 }
 unsafe impl Send for SlintEditorHandle {}
 impl Drop for SlintEditorHandle {
@@ -51,6 +60,7 @@ impl Drop for SlintEditorHandle {
         globals::save_now(&global_settings(
             &self.params,
             f32::from_bits(self.scale.load(Relaxed)),
+            &self.midi_dir,
         ));
         self.window.close();
     }
@@ -188,6 +198,52 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     }
 }
 
+/// Write one generated loop to `folder` and return the file path. Editor thread only.
+fn write_midi_file(p: &DrumParams, bpm: f64, folder: &str) -> Result<PathBuf, String> {
+    let folder = folder.trim();
+    if folder.is_empty() {
+        return Err("set an export folder first".to_string());
+    }
+    let folder = PathBuf::from(folder);
+    std::fs::create_dir_all(&folder)
+        .map_err(|e| format!("create {}: {e}", folder.display()))?;
+
+    let gen = p.gen_params();
+    let pattern = generate(&gen);
+    let lanes = std::array::from_fn(|tr| midi_export::Lane {
+        enabled: p.track_enabled(tr),
+        note: p.track_note(tr),
+        velocity: p.track_velocity(tr),
+    });
+    let settings = midi_export::ExportSettings {
+        bpm,
+        steps_per_beat: p.rate.value().steps_per_beat(),
+        gate: p.gate.value() as f64,
+        swing: p.swing.value() as f64,
+        velocity: p.velocity.value(),
+        lanes,
+    };
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = folder.join(format!("ndrum-{stamp}.mid"));
+    std::fs::write(&path, midi_export::smf(&pattern, &settings))
+        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
+fn open_folder(path: &Path) {
+    let opener = if cfg!(target_os = "windows") {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(opener).arg(path).spawn();
+}
+
 fn push_view(ui: &AppWindow, v: &View) {
     // Update rows in place when the count is unchanged: replacing the model resets the
     // repeater, and a reset element does not tween. Pebble Box relies on `animate x, y`, and
@@ -216,6 +272,21 @@ impl Editor for SlintEditor {
         // follows the user rather than whatever the project last stored.
         let stored = globals::load();
         let scale = stored.scale.filter(|s| *s > 0.0).unwrap_or_else(|| f32::from_bits(self.scale.load(Relaxed)));
+        // A plugin has no host API for the project path, so the default is the process working
+        // directory. The editor shows the absolute path and the user can type another one.
+        let midi_dir = Arc::new(Mutex::new(
+            stored
+                .midi_dir
+                .clone()
+                .filter(|d| !d.trim().is_empty())
+                .unwrap_or_else(|| {
+                    std::env::current_dir()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default()
+                }),
+        ));
+        let setup_midi_dir = midi_dir.clone();
+        let update_midi_dir = midi_dir.clone();
         // Keep the host factor in the atomic even when the host never calls
         // `set_scale_factor`: the close path reads it, and an unset value used to drop it.
         if scale > 0.0 && self.scale.load(Relaxed) == 0 { self.scale.store(scale.to_bits(), Relaxed); }
@@ -233,10 +304,14 @@ impl Editor for SlintEditor {
             gl_config: Some(default_gl_config()),
         };
         let (setup_params, setup_ctx) = (self.params.clone(), context.clone());
+        let setup_shared = self.shared.clone();
+        let setup_scale = self.scale.clone();
         // `spawn` returns before any closure runs, and the closures must be `'static`, so the
         // shared state is cloned out here rather than captured through `&self`.
         let setup = move |h: &slint_baseview::SlintWindowHandler<AppWindow>, _w: &mut slint_baseview::Window| {
             let ui = h.component();
+            let folder = setup_midi_dir.lock().map(|d| d.clone()).unwrap_or_default();
+            ui.set_midi_folder(SharedString::from(folder.as_str()));
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_set_mode(move |v| {
@@ -308,6 +383,45 @@ impl Editor for SlintEditor {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_round_steps(move || set(&c, &p.round_steps, !p.round_steps.value()));
             }
+            {
+                let (p, dir, scale) = (setup_params.clone(), setup_midi_dir.clone(), setup_scale.clone());
+                ui.on_set_midi_folder(move |value| {
+                    let text = value.trim().to_string();
+                    if let Ok(mut current) = dir.lock() {
+                        *current = text;
+                    }
+                    globals::save(&global_settings(
+                        &p,
+                        f32::from_bits(scale.load(Relaxed)),
+                        &dir,
+                    ));
+                });
+            }
+            {
+                let (p, shared, dir) = (setup_params.clone(), setup_shared.clone(), setup_midi_dir.clone());
+                let weak = ui.as_weak();
+                ui.on_export_midi(move || {
+                    let folder = dir.lock().map(|d| d.clone()).unwrap_or_default();
+                    let bpm = match shared.tempo_bits.load(Relaxed) {
+                        0 => 120.0,
+                        bits => f32::from_bits(bits) as f64,
+                    };
+                    let status = match write_midi_file(&p, bpm, &folder) {
+                        Ok(path) => {
+                            open_folder(Path::new(&folder));
+                            let name = path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| path.display().to_string());
+                            format!("Exported {name}")
+                        }
+                        Err(e) => format!("Export failed: {e}"),
+                    };
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_export_status(SharedString::from(status));
+                    }
+                });
+            }
             // Constant UI data: waveform names and the author's contact details come from Rust,
             // so the picker and the Credits panel cannot drift from the metadata.
             ui.set_wave_names(ModelRc::new(VecModel::from(
@@ -348,7 +462,7 @@ impl Editor for SlintEditor {
                 ui.set_theme_index(theme_index);
                 // Theme is user-global, so persist it outside the project as it changes.
                 // Both fields are known here, so no read is needed.
-                globals::save(&global_settings(p, update_scale));
+                globals::save(&global_settings(p, update_scale, &update_midi_dir));
             }
             let ceiling = p.step_ceiling() as f32;
             ui.set_max_steps(ceiling);
@@ -425,6 +539,7 @@ impl Editor for SlintEditor {
             window,
             params: self.params.clone(),
             scale: self.scale.clone(),
+            midi_dir,
         })
     }
     fn size(&self) -> (u32, u32) { (WIDTH, HEIGHT) }

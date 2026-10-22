@@ -3,6 +3,7 @@
 mod editor;
 mod globals;
 mod help;
+mod midi_export;
 mod modes;
 mod sequence;
 mod view;
@@ -282,10 +283,12 @@ fn cell_count_for(raw: f32, snap: bool, ceiling: usize) -> i32 {
 pub struct Shared {
     pub current_step: AtomicI32,
     pub randomize_request: AtomicU32,
+    /// Last host tempo as `f32` bits, for the editor-side MIDI export. Zero means "not seen yet".
+    pub tempo_bits: AtomicU32,
 }
 impl Default for Shared {
     fn default() -> Self {
-        Self { current_step: AtomicI32::new(-1), randomize_request: AtomicU32::new(0) }
+        Self { current_step: AtomicI32::new(-1), randomize_request: AtomicU32::new(0), tempo_bits: AtomicU32::new(0) }
     }
 }
 
@@ -440,6 +443,7 @@ impl Plugin for NDrum {
         // `pos_beats`, and the transport-jump detector below would then fire on our own drift
         // rather than on a real seek. Only reject degenerate values that would divide by zero.
         let bpm = transport.tempo.filter(|t| t.is_finite() && *t > 0.0).unwrap_or(120.0);
+        self.shared.tempo_bits.store((bpm as f32).to_bits(), Relaxed);
         let beats_per_sample = (bpm / 60.0) / self.sample_rate.max(1.0);
         let block_beats = n_samples as f64 * beats_per_sample;
         let start = if playing {

@@ -13,15 +13,16 @@
 - Credits/Contact in Settings show the same author, email and support link used for the CLAP/VST3 metadata.
 - Host-automatable lane enables, note numbers, velocities, Gate, Swing, rate, mode, Generate, and Free Run.
 - Swing delays alternate steps in the beat domain, from straight up to a half-step shuffle; a third of a step gives triplet feel.
-- The mouse wheel edits whatever it is hovering: mode, rate, waveform, theme, every parameter slider, and the spin boxes in Settings. The wheel steps the mode list rather than scrolling it, and the list follows the selection.
+- The mouse wheel edits whatever it is hovering: mode, rate, waveform, theme, every parameter slider, and the spin boxes in Settings. The wheel steps the mode list rather than scrolling it, and the list follows the selection. Spin boxes also accept typed values, arrow keys, wheel steps and the `−`/`+` buttons.
 - Each mode shows a multi-sentence description plus a live math line with the current parameters substituted (onsets, thresholds, cell sizes, cutoffs). The numbers come from the generators' own helpers, so the text tracks what is audible.
 - Settings are shown only while in use; the editor window is sized for the worst case so nothing jumps when they appear.
-- The window is a fixed 860×760; the pattern matrix uses the full width and never reflows or scrolls.
-- Theme and editor scale are remembered per user in `~/.config/nDrum/settings.json` (`$XDG_CONFIG_HOME` when set, `%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
+- The window is a fixed 860×760. The pattern matrix uses a fixed 14px step width and scrolls horizontally as patterns grow, so long patterns stay legible instead of shrinking into slivers; the lane labels stay fixed while the cells move.
+- Theme, editor scale and the MIDI export folder are remembered per user in `~/.config/nDrum/settings.json` (`$XDG_CONFIG_HOME` when set, `%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
 - Default lane notes follow a GM-style mapping: Kick 36, Snare 38, Closed Hat 42, Open Hat 46, Clap 39, Rim 37, Low Tom 45, Percussion 50. MIDI is sent on zero-based channel 9 (MIDI channel 10).
 - Fixed-size patterns support 1–1024 steps. Settings sets a lower ceiling (64–1024, default 64) that applies immediately; the default keeps the original behaviour, and the editor preview and audio scheduler share the same capped snapshot. The generation path uses bounded work, and the audio callback uses fixed-size patterns without allocating or locking.
 - Settings can snap the pattern length to whole steps or leave it fractional. With snapping off, a length like 16.5 wraps mid-cell, so the pattern drifts against the step grid instead of repeating in phase. Exact values can be typed into the spin boxes rather than dragged, and the matrix header shows the resulting cell count.
-- Settings include Aurora (reference), Neon, Lava, and Forest themes. Generator parameters, rate, waveform, and theme selectors support mouse-wheel stepping while hovered.
+- Export MIDI writes one full loop of the current pattern to a timestamped Standard MIDI File (type 0, PPQ 480, channel 10) in the folder shown in Settings. It creates a missing folder, opens it after export, and defaults to the host process working directory because plug-in APIs do not expose the DAW project path.
+- Settings include Aurora, Neon, Lava, and Forest themes. Generator parameters, rate, waveform, and theme selectors support mouse-wheel stepping while hovered.
 
 ## Generation modes and views
 
@@ -105,8 +106,8 @@ docs/                     reference map, architecture, wishlist, agent ownership
 
 ## Current limitations / next milestones
 
-This is a functional starter architecture, not a release-certified plugin. The next steps are to build and smoke-test it in at least one CLAP host and one VST3 host; validate tempo/loop/transport edge cases; verify Slint layout on Linux/macOS/Windows; add ratchets, probability per hit, ghost notes and presets; and then add user-facing MIDI export or optional internal sound generation only if that becomes a requirement.
+This is a functional starter architecture, not a release-certified plugin. The next steps are to build and smoke-test it in at least one CLAP host and one VST3 host; validate tempo/loop/transport edge cases; verify Slint layout on Linux/macOS/Windows; add ratchets, probability per hit, ghost notes and presets; and then evaluate optional internal sound generation only if that becomes a requirement.
 
-nDrum generates MIDI events from `process()` and declares note output, but it does not write a MIDI file or render audio. Recording those events into a host clip depends on the host supporting MIDI capture from an instrument/effect track; if it only records track input, route nDrum to a drum instrument and use that host's print/freeze workflow instead.
+nDrum generates MIDI events from `process()` and declares note output, and Settings can additionally export one loop of the current pattern as a Standard MIDI File. Recording live events into a host clip is still host-dependent: hosts that support capturing MIDI from instrument/effect tracks can do it, while hosts that only record MIDI arriving on the track input cannot. Route the track to a drum instrument and use the host's normal MIDI-recording/printing workflow when you need more than the exported loop.
 
 Research rationale and citations for the algorithms are in [`docs/ALGORITHM_RESEARCH.md`](docs/ALGORITHM_RESEARCH.md).

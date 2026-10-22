@@ -28,6 +28,11 @@ DrumParams + same GenParams snapshot ---> editor-side preview
                                                 |
                                                 v
                                   Slint AppWindow + step matrix
+
+DrumParams + host tempo ---> editor-side MIDI export
+                                      |
+                                      v
+                            midi_export::smf() -> .mid
 ```
 
 ### Why this split
@@ -42,7 +47,13 @@ The reference `_AlgoNemLody` project has a strong seam between pure generation (
 
 The audio callback remains a bounded MIDI-event scheduler. It publishes current-step and auto-randomization requests through lock-free atomics; the editor applies requested randomized values through NIH-plug's `ParamSetter`. Avoid moving view strings, `Vec` construction, Slint callbacks, or blocking work into the callback. The generator uses fixed-size patterns; the current GUI allocates model vectors on the editor/update side, which is acceptable.
 
-nDrum emits MIDI from `process()` and declares note output, but it has no audio outputs and no built-in MIDI-file export. Whether a host can record those generated notes directly into a MIDI clip is host-dependent: hosts that support capturing MIDI from instrument/effect tracks can do it, while hosts that only record MIDI arriving on the track input cannot. Route the track to a drum instrument and use the host's normal MIDI-recording/printing workflow; this is not something the plugin can force from its side.
+nDrum emits MIDI from `process()` and declares note output. Settings can also export one loop of the current pattern as a Standard MIDI File; that path runs only on the editor thread. Live recording into a host clip remains host-dependent: hosts that support capturing MIDI from instrument/effect tracks can do it, while hosts that only record MIDI arriving on the track input cannot. Route the track to a drum instrument and use the host's normal MIDI-recording/printing workflow when you need more than one exported loop.
+
+## MIDI export
+
+`src/midi_export.rs` writes a format-0 Standard MIDI File at 480 PPQ on zero-based channel 9 (MIDI channel 10). The editor snapshots `DrumParams` through the same `gen_params()`/`generate()` path as the preview, then flattens one complete loop: enabled lanes only, lane notes and velocities, accent, gate and swing. Tempo comes from the last host tempo stored in `Shared::tempo_bits`, falling back to 120 BPM when the host has not reported one. Note-offs sort before note-ons at the same tick, so a retrigger cannot cut the incoming note.
+
+The writer allocates a `Vec` for the track and event list; it is editor-only and never called from `process()`. The export folder is typed in Settings, stored in user-global settings, created if missing, and opened with `xdg-open`/`open`/`explorer` after a successful write. Because CLAP/VST3 expose no project-path API, the first-run default is the host process working directory.
 
 ## Parameters
 
@@ -61,7 +72,7 @@ nDrum emits MIDI from `process()` and declares note output, but it has no audio 
 Two independent mechanisms, deliberately:
 
 - **Project state** is owned by the host. `GuiContext::get_state`/`set_state` serialise every parameter plus any `#[persist]` field (`variation` today), so mode, pattern settings and lane routing all travel with the DAW project. Nothing to implement.
-- **User-global settings** live in `src/globals.rs` and are written to `$XDG_CONFIG_HOME/nDrum/settings.json`, falling back to `$HOME/.config/nDrum/settings.json` when `XDG_CONFIG_HOME` is unset or empty (`%APPDATA%` on Windows). If neither a config home nor `HOME` is resolvable — a host launched from a bare systemd unit — settings do not persist rather than the editor failing. Only preferences that should follow the user across projects belong here: the colour theme and the editor scale. Loaded at editor open and applied over the host's state, so a project cannot pin a palette; written on a 750 ms debounce and forced once when the editor closes.
+- **User-global settings** live in `src/globals.rs` and are written to `$XDG_CONFIG_HOME/nDrum/settings.json`, falling back to `$HOME/.config/nDrum/settings.json` when `XDG_CONFIG_HOME` is unset or empty (`%APPDATA%` on Windows). If neither a config home nor `HOME` is resolvable — a host launched from a bare systemd unit — settings do not persist rather than the editor failing. Only preferences that should follow the user across projects belong here: the colour theme, the editor scale and the MIDI export folder. Loaded at editor open and applied over the host's state, so a project cannot pin a palette; written on a 750 ms debounce and forced once when the editor closes.
 
 The consequence of theme being global is that host automation of `theme` will not survive an editor reopen. That is an accepted trade-off for a cosmetic setting.
 
@@ -76,7 +87,7 @@ The consequence of theme being global is that host automation of `theme` will no
 ## UI contracts
 
 - `ViewNode` is a panel coordinate: coordinates and radius are in a 210×210 viewbox. The Slint panel renders that space at 300px: the paths scale through the viewbox, and the node rectangles multiply position, radius and font size by the same `px-per-unit` factor. Keep new geometry in the 210-unit space; do not pre-scale coordinates.
-- The editor layout is fixed at 860×760 (`base-width`/`base-height`) and the window never resizes. The pattern matrix fills the width; cell width is derived from the current cell count so 1024 steps still fit instead of overflowing the row. Do not add `transform-scale`, a responsive breakpoint, or a size setting to the tree.
+- The editor layout is fixed at 860×760 (`base-width`/`base-height`) and the window never resizes. The pattern matrix gives each step a fixed 14px cell and scrolls horizontally as the pattern grows; lane labels stay in a fixed left column. Do not shrink cells to fit or add `transform-scale`, a responsive breakpoint, or a size setting to the tree.
 - Lane independence: when every lane derives from one shared curve, score or orbit, give each lane its own phase origin (as Euclidean, well-formed, raised-cosine and logistic do). Otherwise the highest-ranked or highest-amplitude steps coincide and all eight drums fire on one step in every variation.
 - `StepCell` is one lane/step entry with hit state, playhead state and effective velocity for brightness and hit probability for opacity. The editor only publishes cells for current `steps`.
 - `Mode` order is stable: 0 Euclidean, 1 Eulerian, 2 Phyllotaxis, 3 Cellular, 4 Oscillator, 5 Crystallographic, 6 Logistic, 7 Markov, 8 Raised-Cos Threshold, 9 Slowcat Rhythm, 10 Toussaint Distance, 11 Well-Formed Rhythm, 12 L-System Grammar, 13 Phase Shift / Reich, 14 Polyrhythm Stack, 15 Weighted Syncopation, 16 Pebble Box, 17 Xenakis Sieve, 18 Kuramoto Lanes. It lives in `src/modes.rs` and is the single list: the host parameter, the generators and the panels all use the same enum, and a test pins each index the UI hardcodes to the mode it means.
