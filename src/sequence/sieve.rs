@@ -6,7 +6,7 @@
 //! how many members survive. Each lane reads the same sieve shifted around the ring, which is
 //! what makes the kit interlock instead of stacking.
 
-use super::{set_hit, GenParams, Pattern, DENSITY_PROFILE, MAX_STEPS, TRACKS};
+use super::{set_hit, top_k, GenParams, Pattern, DENSITY_PROFILE, MAX_STEPS, TRACKS};
 
 /// Residue-class moduli, small primes so 64 steps hold several periods of each.
 pub(crate) const MODULI: [usize; 6] = [2, 3, 5, 7, 11, 13];
@@ -43,16 +43,9 @@ fn lane_shift(n: usize, lane: usize) -> usize {
     lane * (n / TRACKS).max(1)
 }
 
-/// Lane 0's sieve over `n` steps, as a bitmask. The panel draws this exact mask.
-pub(crate) fn mask(p: &GenParams, n: usize) -> u64 {
-    if p.pulses == 0 { return 0; }
-    let cls = classes(p);
-    let terms = union_terms(p);
-    let mut bits = 0u64;
-    for i in 0..n.min(MAX_STEPS) {
-        if is_member(i, &cls, terms) { bits |= 1 << i; }
-    }
-    bits
+/// Whether `step` is in the sieve.
+pub(crate) fn member(p: &GenParams, step: usize) -> bool {
+    p.pulses != 0 && is_member(step, &classes(p), union_terms(p))
 }
 
 pub(super) fn generate(p: &GenParams) -> Pattern {
@@ -90,13 +83,10 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let wanted = wanted.min(candidates);
         if wanted == 0 { continue; }
 
-        // Rank selection: exact count, no sort and no allocation on the audio path.
+        // In-place top-k selection: exact count, no allocation on the audio path.
+        top_k(&score, n, wanted, &mut out.hit[tr]);
         for i in 0..n {
-            let mut rank = 0usize;
-            for j in 0..n {
-                if score[j] > score[i] || (score[j] == score[i] && j < i) { rank += 1; }
-            }
-            if rank < wanted { set_hit(&mut out, tr, i, true, (0.55 + 0.15 * score[i]).min(1.0)); }
+            if out.hit[tr][i] { set_hit(&mut out, tr, i, true, (0.55 + 0.15 * score[i]).min(1.0)); }
         }
     }
     out
@@ -112,16 +102,15 @@ mod tests {
     }
 
     #[test]
-    fn the_mask_is_the_classes_union_minus_the_subtraction() {
+    fn membership_is_the_classes_union_minus_the_subtraction() {
         for ca_rule in [0u8, 7, 30, 99, 200, 255] {
             for symmetry in [1usize, 4, 8] {
                 let p = GenParams { ca_rule, symmetry, ..params(32, 2, 0.8) };
                 let cls = classes(&p);
-                let mask = mask(&p, 32);
                 for i in 0..32 {
                     let wanted = class_contains(i, cls[0]) || class_contains(i, cls[1]);
                     let wanted = wanted && !class_contains(i, cls[2]);
-                    assert_eq!(mask & (1 << i) != 0, wanted, "rule={ca_rule} symmetry={symmetry} step={i}");
+                    assert_eq!(member(&p, i), wanted, "rule={ca_rule} symmetry={symmetry} step={i}");
                 }
             }
         }
@@ -158,9 +147,8 @@ mod tests {
 
     #[test]
     fn terms_follow_the_pulse_control() {
-        let one = mask(&params(64, 1, 1.0), 64);
-        let two = mask(&params(64, 2, 1.0), 64);
-        assert!(two.count_ones() > one.count_ones(), "the second union term must add members");
-        assert_eq!(mask(&params(64, 0, 1.0), 64), 0, "zero terms is an empty sieve");
+        let count = |pulses| (0..64).filter(|&i| member(&params(64, pulses, 1.0), i)).count();
+        assert!(count(2) > count(1), "the second union term must add members");
+        assert_eq!(count(0), 0, "zero terms is an empty sieve");
     }
 }

@@ -96,41 +96,70 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::Phyllotaxis => {
-            // The generator's own two rules, and nothing else: the primary golden rotation by
-            // 1/φ per step and the slower 1/φ³ rotation that adds a second family of onsets.
-            // Every lane runs the same two curves, each rotated by its own phase offset, so all
-            // eight are drawn — the picture is the kit's geometry, not one lane's.
+            // One shared √i rosette instead of eight overlaid lane spirals. The classic
+            // phyllotaxis picture is already dense at eight lanes and 64 steps; at 1024 it
+            // would be 16k rectangles and unreadable. Sample the spiral into at most 128
+            // groups, then aggregate the lanes that actually fire in each group.
             //
-            // The radius law is the classic phyllotaxis one (√i), which is what makes the
-            // golden rotation read as a spiral of arms instead of a scatter.
-            //
-            // `rotation` maps a generator step to the display slot that sounds it, so a lit
-            // dot always sits on the curve that produced it, even after the pattern was
-            // rotated.
+            // The eight arcs still carry per-lane information: their lengths are the exact
+            // primary and secondary trigger windows the generator tests. The inner sparse
+            // spiral is the 1/φ³ rule; it only appears where that rule contributed a hit.
             let max_r = 92.0;
             let sec_r = 40.0;
             let shift = p.rotation % n;
-            // Each lane gets its own trigger art: a primary wedge and the much shorter
-            // secondary wedge. All wedges start at 12 o'clock, so a single widest arc would
-            // hide the narrower lanes; stagger their radii instead of recolouring the dots.
             circle(&mut v.edges, C, C, max_r);
             for tr in 0..TRACKS {
                 let threshold = crate::sequence::phyllotaxis_threshold(params, tr) as f32;
                 arc(&mut v.lines, max_r - 2.0 - tr as f32 * 2.2, 0.0, threshold);
                 arc(&mut v.lines, (sec_r - 2.0 - tr as f32 * 1.2).max(18.0), 0.0, threshold * 0.18);
             }
-            for tr in 0..TRACKS {
-                for g in 0..n {
+
+            let stride = n.div_ceil(128);
+            for g0 in (0..n).step_by(stride) {
+                let g1 = (g0 + stride).min(n);
+                let mut lanes = 0usize;
+                for g in g0..g1 {
                     let slot = (g + shift) % n;
-                    let hit = p.hit[tr][slot];
-                    let rules = crate::sequence::phyllotaxis_rules(g, tr, params);
-                    let r = max_r * ((g as f32 + 1.0) / n as f32).sqrt();
-                    let (x, y) = polar(r, crate::sequence::phyllotaxis_primary(g, tr, params) as f32);
-                    let cur = play == Some(slot) && tr == 0;
-                    v.nodes.push(Node { x, y, r: if hit && rules & 1 != 0 { 3.6 } else { 1.5 }, on: hit && rules & 1 != 0, cur, label: String::new() });
-                    let r2 = sec_r * ((g as f32 + 1.0) / n as f32).sqrt();
-                    let (x2, y2) = polar(r2, crate::sequence::phyllotaxis_secondary(g, tr, params) as f32);
-                    v.nodes.push(Node { x: x2, y: y2, r: if hit && rules & 2 != 0 { 3.2 } else { 1.3 }, on: hit && rules & 2 != 0, cur: false, label: String::new() });
+                    for tr in 0..TRACKS {
+                        if p.hit[tr][slot]
+                            && crate::sequence::phyllotaxis_rules(g, tr, params) & 1 != 0
+                        {
+                            lanes += 1;
+                        }
+                    }
+                }
+                let mid = g0 + (g1 - g0) / 2;
+                let r = max_r * ((mid as f32 + 1.0) / n as f32).sqrt();
+                let (x, y) = polar(r, crate::sequence::phyllotaxis_primary(mid, 0, params) as f32);
+                let cur = (g0..g1).any(|g| play == Some((g + shift) % n));
+                let on = lanes > 0;
+                v.nodes.push(Node {
+                    x, y,
+                    r: if on { 3.0 + lanes.min(TRACKS) as f32 * 0.35 } else { 1.1 },
+                    on, cur, label: String::new(),
+                });
+
+                // The secondary rule is sparse by design, so draw only the groups where it
+                // fired. That keeps the inner band readable and its length bounded too.
+                let mut secondary = 0usize;
+                for g in g0..g1 {
+                    let slot = (g + shift) % n;
+                    for tr in 0..TRACKS {
+                        if p.hit[tr][slot]
+                            && crate::sequence::phyllotaxis_rules(g, tr, params) & 2 != 0
+                        {
+                            secondary += 1;
+                        }
+                    }
+                }
+                if secondary > 0 {
+                    let r2 = sec_r * ((mid as f32 + 1.0) / n as f32).sqrt();
+                    let (x2, y2) = polar(r2, crate::sequence::phyllotaxis_secondary(mid, 0, params) as f32);
+                    v.nodes.push(Node {
+                        x: x2, y: y2,
+                        r: 2.4 + secondary.min(TRACKS) as f32 * 0.2,
+                        on: true, cur: false, label: String::new(),
+                    });
                 }
             }
             // The playhead: the radius line to the step currently sounding, on lane 0.
@@ -490,9 +519,9 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
         Mode::Sieve => {
             // The sieve's own lattice: one row per residue class. The two union terms are lit
             // cyan; the subtracted class is amber, because those cells are removed. Under them,
-            // the 64-step mask the lane reads, rotated into display slots like the hits.
+            // the full sieve the lane reads, rotated into display slots like the hits. Evaluated
+            // per cell rather than through the 64-bit mask, so 1024-step patterns stay exact.
             let cls = crate::sequence::sieve_classes(params);
-            let mask = crate::sequence::sieve_mask(params, n);
             let shift = p.rotation % n;
             for (row, &(m, r)) in cls.iter().enumerate() {
                 let y = 34.0 + row as f32 * 26.0;
@@ -514,7 +543,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             mv(&mut v.edges, 12.0, y); ln(&mut v.edges, 198.0, y);
             let cw = 184.0 / n as f32;
             for i in 0..n {
-                let member = mask & (1 << ((i + n - shift) % n)) != 0;
+                let member = crate::sequence::sieve_member(params, (i + n - shift) % n);
                 let hit = aggregate_hit(p, i);
                 v.nodes.push(Node {
                     x: 13.0 + (i as f32 + 0.5) * cw,
@@ -627,6 +656,23 @@ mod tests {
     }
 
     #[test]
+    fn phyllotaxis_panel_stays_bounded_at_long_patterns() {
+        // The old panel drew one primary and one secondary node for every step of every lane:
+        // 16k rectangles at 1024 steps. The sampled rosette must stay small and still light.
+        let g = GenParams {
+            kind: Mode::Phyllotaxis,
+            steps: MAX_STEPS,
+            pulses: MAX_STEPS,
+            density: 1.0,
+            probability: 1.0,
+            ..GenParams::default()
+        };
+        let view = build(&g, &generate(&g), 0);
+        assert!(view.nodes.len() <= 256, "phyllotaxis drew {} nodes", view.nodes.len());
+        assert!(view.nodes.iter().any(|n| n.on), "sampled rosette lost every hit");
+    }
+
+    #[test]
     fn pebble_hits_are_drawn_on_the_wall_they_struck() {
         let g = GenParams { kind: Mode::PebbleBox, steps: 32, pulses: 8, density: 1.0, ca_rule: 200, ..GenParams::default() };
         let pat = generate(&g);
@@ -667,11 +713,10 @@ mod tests {
         let g = GenParams { kind: Mode::Sieve, steps: 16, pulses: 2, density: 0.8, ..GenParams::default() };
         let pat = generate(&g);
         let view = build(&g, &pat, -1);
-        let mask = crate::sequence::sieve_mask(&g, 16);
         let strip: Vec<&Node> = view.nodes.iter().filter(|n| (n.y - 150.0).abs() < 0.01).collect();
         assert_eq!(strip.len(), 16, "one mask cell per step");
         for (i, node) in strip.iter().enumerate() {
-            let bit = mask & (1 << ((i + 16 - pat.rotation) % 16)) != 0;
+            let bit = crate::sequence::sieve_member(&g, (i + 16 - pat.rotation) % 16);
             assert_eq!(node.on, bit, "step {i}");
         }
         // Three residue rows, each with one selected cell.

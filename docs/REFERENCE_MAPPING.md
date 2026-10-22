@@ -27,7 +27,7 @@ The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hard
 |---:|---|---|
 | 0 | Euclidean | Per-lane pulse rings, one ring per drum lane |
 | 1 | Eulerian | Directed state-transition graph |
-| 2 | Golden Ratio / Phyllotaxis | Eight-lane √i rosette of the 1/φ rotation, per-lane primary and secondary trigger arcs, lit dots inside each lane's wedge, and the 1/φ³ rule as its own inner band |
+| 2 | Golden Ratio / Phyllotaxis | Sampled √i rosette of the 1/φ rotation (at most 128 groups), per-lane primary and secondary trigger arcs, aggregated lane density per group, and the 1/φ³ rule as its own inner band |
 | 3 | Cellular Automaton | Ring-based CA history / space-time cells, each lane's own selected generation marked |
 | 4 | Oscillator / Phase | One of eight waveform curves, the generator's rank cutoff, and sampled step markers |
 | 5 | Crystallographic | Eight-lane symmetry lattice with unit-cell axes |
@@ -42,7 +42,7 @@ The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hard
 | 14 | Polyrhythm Stack | Concentric ratio rings, dot size by accent |
 | 15 | Weighted Syncopation | The generator's metrical score as bars, selection marked |
 | 16 | Pebble Box | Animated pebble box; eight lane pebbles at their recorded per-step positions |
-| 17 | Xenakis Sieve | Residue-class lattice rows plus the generator's step mask and its onsets |
+| 17 | Xenakis Sieve | Residue-class lattice rows plus the generator's per-step membership and its onsets |
 | 18 | Kuramoto Lanes | Eight phase pointers, their trails and the mean phase vector on one circle |
 
 Indices 8–18 all draw their own panel. There is no shared step-lattice fallback: a mode whose

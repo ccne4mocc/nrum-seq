@@ -23,7 +23,8 @@ Each step receives a metrical weight, a lane-dependent offset, and seeded jitter
 ## Implemented from this list
 
 - **Xenakis sieve** (`src/sequence/sieve.rs`, mode 17). `M = (m₁,r₁) ∪ (m₂,r₂) \ (m₃,r₃)`
-  over a 64-step mask. `ca_rule` selects the three moduli from `[2,3,5,7,11,13]`, `symmetry`
+  evaluated per step up to the active pattern length. `ca_rule` selects the three moduli from
+  `[2,3,5,7,11,13]`, `symmetry`
   and `phase` select the residues, `pulses` sets how many union terms are active (0 silences,
   1–2 terms) and `density` keeps a fraction of the members. Each lane reads the same sieve
   rotated by `lane · floor(n/8)`, with a small deterministic tie-break so partial density does
@@ -39,8 +40,8 @@ Each step receives a metrical weight, a lane-dependent offset, and seeded jitter
 
 ## Further candidates for sequencing (not implemented)
 
-Shortlist, filtered by what a fixed 64-step, allocation-free, deterministic snapshot can
-actually express. "Cost" is per generated pattern, worst case at 64 steps.
+Shortlist, filtered by what a fixed 1024-step capacity (64 by default), allocation-free, deterministic snapshot can
+actually express. "Cost" is per generated pattern, worst case at the active ceiling.
 
 | Candidate | Math | Musical use | Cost / risk |
 |---|---|---|---|
@@ -62,8 +63,8 @@ modes.
 
 ## Validation strategy
 
-Unit tests cover mode dispatch, determinism, bounds for 1–64 steps, global probability, rotation,
-zero density/pulses, the polyrhythm / syncopation count rules, the sieve mask's class membership,
+Unit tests cover mode dispatch, determinism, bounds for 1–1024 steps, global probability, rotation,
+zero density/pulses, the polyrhythm / syncopation count rules, the sieve membership rule,
 the Kuramoto bank's exact counts and its order parameter under weak versus strong coupling, and
 that neighbouring seeds diverge while one seed repeats. Every mode is also swept for view geometry
 that escapes the panel.

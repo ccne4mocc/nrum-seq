@@ -43,7 +43,7 @@ pub(crate) use lsystem::{
 };
 pub(crate) use logistic::r_of as logistic_r;
 pub(crate) use pebble::gravity as pebble_gravity;
-pub(crate) use sieve::{classes as sieve_classes, mask as sieve_mask};
+pub(crate) use sieve::{classes as sieve_classes, member as sieve_member};
 pub(crate) use kuramoto::{
     coupling as kuramoto_coupling, order as kuramoto_order, rate as kuramoto_rate,
 };
@@ -53,10 +53,13 @@ pub(crate) use kuramoto::{
 use crate::modes::Mode;
 
 pub const TRACKS: usize = 8;
-/// 64 keeps the whole Pattern under 8 KiB and bounds per-lane generation to a cost the
-/// audio thread can absorb in one block. Raising this is a tuning decision, not a free change:
-/// generation cost scales linearly with it.
-pub const MAX_STEPS: usize = 64;
+/// Hard capacity for every fixed-size pattern array. The host exposes a smaller, user-selected
+/// `max_steps` ceiling (64 by default); 1024 is the largest value that ceiling can reach.
+pub const MAX_STEPS: usize = 1024;
+/// Lowest selectable ceiling. It is the historical limit, so an untouched project behaves
+/// exactly as it did before the ceiling became adjustable.
+pub const MIN_MAX_STEPS: usize = 64;
+pub const DEFAULT_MAX_STEPS: usize = 64;
 pub const CA_ROWS: usize = 16;
 // Spelled out: `std::f64::consts::GOLDEN_RATIO` is unstable on older toolchains, which made the
 // documented "Rust 1.88 or newer" baseline wrong.
@@ -217,6 +220,19 @@ pub(super) fn set_hit(out: &mut Pattern, track: usize, step: usize, hit: bool, a
     out.hit[track][step] = hit;
     out.accent[track][step] = accent.clamp(0.05, 1.0);
     if hit { out.state[step] = (track + 1) as u8; }
+}
+
+/// Mark the `k` highest scores, breaking ties by earlier step. The sort is in place over a fixed
+/// stack array, so this stays allocation-free on the audio path. Replaces the old O(n²) rank
+/// scan, which became too expensive once the ceiling reached 1024 steps.
+pub(super) fn top_k(scores: &[f32; MAX_STEPS], n: usize, k: usize, hits: &mut [bool; MAX_STEPS]) {
+    hits[..n].fill(false);
+    if k == 0 || n == 0 { return; }
+    if k >= n { hits[..n].fill(true); return; }
+    let mut ranked: [(f32, usize); MAX_STEPS] =
+        std::array::from_fn(|i| if i < n { (scores[i], i) } else { (f32::NEG_INFINITY, usize::MAX) });
+    ranked[..n].sort_unstable_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    for &(_, i) in &ranked[..k] { hits[i] = true; }
 }
 
 /// Stable step accents: backbeat and downbeat are emphasized without tying any lane to pitch.
@@ -387,7 +403,7 @@ mod tests {
 
     #[test]
     fn steps_and_rotation_are_clamped() {
-        let p = GenParams { steps: 999, rotate: 999, ..GenParams::default() };
+        let p = GenParams { steps: MAX_STEPS + 100, rotate: MAX_STEPS + 100, ..GenParams::default() };
         assert_eq!(generate(&p).steps, MAX_STEPS);
         let p = GenParams { steps: 0, ..GenParams::default() };
         assert_eq!(generate(&p).steps, 1);

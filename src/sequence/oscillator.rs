@@ -1,4 +1,4 @@
-use super::{set_hit, GenParams, Pattern, TRACKS};
+use super::{set_hit, top_k, GenParams, Pattern, TRACKS};
 
 /// Number of waveform shapes the oscillator mode offers. The host enum in `lib.rs` mirrors this
 /// count and order; the test in `lib.rs` pins the two together, and that test is also where the
@@ -56,16 +56,12 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         for i in 0..p.steps {
             wave[i] = value(p.osc_wave, (i as f64 / p.steps as f64 * rate + p.phase as f64 + tr as f64 * 0.071).rem_euclid(1.0) as f32);
         }
-        // Rank selection, same rule as the chaos generator: a step hits when fewer than `wanted`
-        // steps outrank it, with earlier steps winning ties. Exact count, no sort, no alloc.
+        // In-place top-k selection, same tie rule as before: higher wave value first, earlier
+        // step wins ties. Exact count, no allocation.
         if wanted > 0 {
+            top_k(&wave, p.steps, wanted, &mut out.hit[tr]);
             for i in 0..p.steps {
-                let mut rank = 0usize;
-                for j in 0..p.steps {
-                    if wave[j] > wave[i] || (wave[j] == wave[i] && j < i) { rank += 1; }
-                }
-                let hit = rank < wanted;
-                set_hit(&mut out, tr, i, hit, 0.55 + 0.45 * wave[i]);
+                if out.hit[tr][i] { set_hit(&mut out, tr, i, true, 0.55 + 0.45 * wave[i]); }
             }
         }
     }

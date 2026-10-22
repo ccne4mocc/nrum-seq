@@ -1,4 +1,4 @@
-use super::{set_hit, GenParams, Pattern, Rng, TRACKS, MAX_STEPS};
+use super::{set_hit, top_k, GenParams, Pattern, Rng, TRACKS, MAX_STEPS};
 
 /// Weighted syncopation selector. It assigns higher scores to off-beats and late subdivisions,
 /// then selects a controlled number of the highest-scoring steps for each lane.
@@ -23,13 +23,13 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
             let peak = scores[..n].iter().fold(0.0f32, |m, &s| m.max(s));
             for i in 0..n { out.orbit[i] = if peak > 0.0 { scores[i] / peak } else { 0.0 }; }
         }
-        // Fixed-size top-k selection avoids allocations and sorting dependencies on the audio path.
-        for _ in 0..target {
-            let mut best = 0usize;
-            for i in 1..n { if scores[i] > scores[best] { best = i; } }
-            let accent = match best % 4 { 0 => 1.0, 2 => 0.84, _ => 0.62 };
-            set_hit(&mut out, tr, best, true, accent);
-            scores[best] = f32::NEG_INFINITY;
+        // In-place top-k selection keeps the exact count without allocating.
+        top_k(&scores, n, target, &mut out.hit[tr]);
+        for i in 0..n {
+            if out.hit[tr][i] {
+                let accent = match i % 4 { 0 => 1.0, 2 => 0.84, _ => 0.62 };
+                set_hit(&mut out, tr, i, true, accent);
+            }
         }
     }
     out

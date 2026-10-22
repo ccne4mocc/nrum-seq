@@ -6,7 +6,7 @@
 //! from `pulses` and the usual density weighting from `density`. Low coupling leaves the lanes
 //! drifting against each other; high coupling locks them into a rotating column.
 
-use super::{set_hit, GenParams, Pattern, DENSITY_PROFILE, MAX_STEPS, TRACKS};
+use super::{set_hit, top_k, GenParams, Pattern, DENSITY_PROFILE, MAX_STEPS, TRACKS};
 use std::f64::consts::TAU;
 
 /// Coupling at the top of the `osc_rate` range, in radians per step.
@@ -83,12 +83,9 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let wanted = ((p.pulses.min(n) as f32 * p.density.clamp(0.0, 1.0)
             * (0.5 + DENSITY_PROFILE[tr])).round() as usize).min(n);
         if wanted == 0 { continue; }
+        top_k(&score[tr], n, wanted, &mut out.hit[tr]);
         for i in 0..n {
-            let mut rank = 0usize;
-            for j in 0..n {
-                if score[tr][j] > score[tr][i] || (score[tr][j] == score[tr][i] && j < i) { rank += 1; }
-            }
-            if rank < wanted {
+            if out.hit[tr][i] {
                 let accent = if score[tr][i] >= 1.0 { 1.0 } else { score[tr][i] + 0.05 };
                 set_hit(&mut out, tr, i, true, accent);
             }

@@ -247,7 +247,12 @@ export component AppWindow inherits Window {
         root.mode-scroll-y = -Math.max(0px, Math.min(mode * 32px - 116px, root.mode-names.length * 32px - 332px));
     }
     in property <float> steps: 16;
+    in property <float> max-steps: 64;
     in property <bool> round-steps: true;
+    // The grid cells the generator will fill, mirroring `cell_count_for`: snap rounds, free
+    // length takes the ceiling. Header and bounds read this so they cannot disagree with the
+    // matrix when the host leaves a fractional value stored while snapping is on.
+    property <int> cells: root.round-steps ? Math.round(root.steps) : Math.ceil(root.steps);
     in property <float> pulses: 5;
     in property <float> rotate: 0;
     in property <float> density: 0.65;
@@ -314,7 +319,7 @@ export component AppWindow inherits Window {
         if (mode == 1) { return 3; } // Eulerian degree is 1 + pulses mod 4
         if (mode == 3) { return 15; } // cellular generation
         if (mode == 17) { return 2; } // 0 = silent, 1-2 = union terms
-        return Math.ceil(root.steps);
+        return root.cells;
     }
     pure function pulse-label(mode: int) -> string {
         if (mode == 0) { return "Target pulses"; }
@@ -386,9 +391,9 @@ export component AppWindow inherits Window {
         "Runs eight phase oscillators, one per lane, coupled to their ring neighbours. osc_rate sets the coupling strength, phase the frequency spread, pulses the target onsets, and density the per-lane weight. The panel draws the eight phase pointers, their trails and the mean phase vector, so drift and lock are visible."
     ];
     property <[Opt]> opts: [
-        { label: "Steps", min: 1, max: 64, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", step: root.round-steps ? 1 : 0.25 },
+        { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", step: root.round-steps ? 1 : 0.25 },
         { label: root.pulse-label(root.mode), min: 0, max: root.pulses-max(root.mode), value: Math.min(root.pulses, root.pulses-max(root.mode)), text: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", step: 1 },
-        { label: "Rotate", min: 0, max: Math.max(Math.ceil(root.steps) - 1, 0), value: Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)), text: "\{Math.round(Math.min(root.rotate, Math.max(Math.ceil(root.steps) - 1, 0)))}", step: 1 },
+        { label: "Rotate", min: 0, max: Math.max(root.cells - 1, 0), value: Math.min(root.rotate, Math.max(root.cells - 1, 0)), text: "\{Math.round(Math.min(root.rotate, Math.max(root.cells - 1, 0)))}", step: 1 },
         { label: root.density-label(root.mode), min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", step: 0.01 },
         { label: "Seed", min: 0, max: 1, value: root.seed, text: "\{Math.round(root.seed * 1000) / 1000}", step: 0.001 },
         { label: root.phase-label(root.mode), min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", step: 0.01 },
@@ -489,7 +494,7 @@ export component AppWindow inherits Window {
                 TouchArea { clicked => { root.toggle-track(track.index); } }
             }
         }
-        Text { text: "PATTERN MATRIX  ·  velocity = brightness  ·  probability = opacity  ·  playhead in amber"; color: #788394; font-size: 10px; }
+        Text { text: "PATTERN MATRIX  ·  \{root.cells} cells  ·  velocity = brightness  ·  probability = opacity  ·  playhead in amber"; color: #788394; font-size: 10px; }
         VerticalLayout {
             spacing: 4px;
             for track in root.tracks: HorizontalLayout {
@@ -498,16 +503,17 @@ export component AppWindow inherits Window {
                 for cell in track.cells: Rectangle {
                     // Derived from the fixed layout width, not from `parent.width`: binding to
                     // a layout width is a binding loop. base-width - 2x14 padding - the 76px
-                    // name column fills the row exactly.
-                    width: max(2px, (root.base-width - 28px - 76px) / (track.cells.length * 1.0));
+                    // name column fills the row exactly. No minimum width: 1024 steps must still
+                    // fit the row, where each cell is a sub-pixel density sliver.
+                    width: max(0.5px, (root.base-width - 28px - 76px) / (track.cells.length * 1.0));
                     height: 20px;
                     Rectangle {
                         x: 0px; y: 0px;
-                        width: max(parent.width - 1px, 0px); height: parent.height;
+                        width: max(parent.width - 1px, parent.width * 0.5); height: parent.height;
                         border-radius: 2px;
                         background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : #242930;
                         opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
-                        border-width: cell.playing ? 2px : 0px; border-color: Theme.hi;
+                        border-width: cell.playing ? Math.min(2px, parent.width * 0.5) : 0px; border-color: Theme.hi;
                     }
                 }
             }
@@ -558,17 +564,22 @@ export component AppWindow inherits Window {
                 }
                 round-touch := TouchArea { clicked => { root.toggle-round-steps(); } }
             }
+            Text { text: "PATTERN LIMIT"; color: #788394; font-size: 9px; }
+            NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; changed(v) => { root.set-opt(14, v); } }
+            // The Pattern arrays are allocated for 1024 steps up front, so changing the ceiling
+            // never requires a host or plug-in restart.
+            Text { text: "Max steps applies immediately; no restart is needed."; color: #8b95a5; font-size: 9px; }
             Text { text: "PATTERN NUMBERS"; color: #788394; font-size: 9px; }
             HorizontalLayout { spacing: 6px;
                 NumBox {
-                    label: "Steps"; value: root.steps; minimum: 1; maximum: 64;
+                    label: "Steps"; value: root.steps; minimum: 1; maximum: root.max-steps;
                     step: root.round-steps ? 1 : 0.25; decimals: root.round-steps ? 0 : 2;
                     changed(v) => { root.set-opt(0, v); }
                 }
-                NumBox { label: "Pulses"; value: root.pulses; minimum: 0; maximum: Math.ceil(root.steps); step: 1; changed(v) => { root.set-opt(1, v); } }
+                NumBox { label: "Pulses"; value: root.pulses; minimum: 0; maximum: root.cells; step: 1; changed(v) => { root.set-opt(1, v); } }
             }
             HorizontalLayout { spacing: 6px;
-                NumBox { label: "Rotate"; value: root.rotate; minimum: 0; maximum: Math.max(Math.ceil(root.steps) - 1, 0); step: 1; changed(v) => { root.set-opt(2, v); } }
+                NumBox { label: "Rotate"; value: root.rotate; minimum: 0; maximum: Math.max(root.cells - 1, 0); step: 1; changed(v) => { root.set-opt(2, v); } }
                 NumBox { label: "Symmetry"; value: root.symmetry; minimum: 1; maximum: 8; step: 1; changed(v) => { root.set-opt(11, v); } }
             }
             NumBox { label: "Regen after"; value: root.regenerate-every; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(10, v); } }
@@ -583,14 +594,16 @@ export component AppWindow inherits Window {
                 ScopeChip { label: "TONE"; active: root.scope-tone; toggled => { root.toggle-scope(3); } }
                 ScopeChip { label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(4); } }
             }
+            // Push the contact block to the bottom of the panel; the controls stay top-aligned.
+            Rectangle { vertical-stretch: 1; }
             Text { text: "CREDITS / CONTACT"; color: #788394; font-size: 9px; }
             Text { text: "\{root.credit-author}  ·  nDrum"; color: #d1d5db; font-size: 10px; }
             TextInput { read-only: true; text: root.credit-github; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-email; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-support; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
             Text {
-                text: "RANDOMIZE uses the top button; enable Auto Randomize in the transport row. Type exact values here, or use the arrows and wheel.";
-                color: #8b95a5; font-size: 9px; wrap: word-wrap; vertical-stretch: 1; vertical-alignment: top;
+                text: "RANDOMIZE uses the top button. Type exact values here, or use the arrows and wheel.";
+                color: #8b95a5; font-size: 9px; wrap: word-wrap;
             }
         }
     }

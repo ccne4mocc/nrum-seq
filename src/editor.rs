@@ -1,6 +1,6 @@
 //! Slint GUI adapter, following the reference project's separation between pure geometry and UI glue.
 use crate::globals;
-use crate::sequence::{generate, GenParams, Pattern, Rng, MAX_STEPS, TRACKS};
+use crate::sequence::{generate, GenParams, Pattern, Rng, MAX_STEPS, MIN_MAX_STEPS, TRACKS};
 use crate::view::{self, View};
 use crate::{cell_count_for, scope, DrumParams, Mode, OscWave, Rate, Shared, Theme as PluginTheme};
 use nih_plug::prelude::*;
@@ -66,16 +66,28 @@ fn set<P: Param>(ctx: &Arc<dyn GuiContext>, param: &P, value: P::Plain) {
 /// Slider and spin-box paths for the option table share this so clamping stays identical.
 fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
     let snap = p.round_steps.value();
+    // The ceiling is a host parameter, but host echo is asynchronous. Use the value being set
+    // for the same tick so the dependent steps/pulses/rotate limits cannot lag one edit behind.
+    if key == 14 {
+        let cap = (value.round() as i32).clamp(MIN_MAX_STEPS as i32, MAX_STEPS as i32);
+        set(c, &p.max_steps, cap);
+        let cells = cell_count_for(p.steps.value(), snap, cap as usize);
+        if p.steps.value() > cap as f32 { set(c, &p.steps, cap as f32); }
+        if p.pulses.value() > cells { set(c, &p.pulses, cells); }
+        if p.rotate.value() >= cells { set(c, &p.rotate, cells - 1); }
+        return;
+    }
     // Setting `steps` reaches the host first and only shows up in `p.steps.value()` once the host
     // echoes it back, so the bounds for pulses/rotate must come from the value being set, not
     // from a read taken after (or before) the set.
-    let cells = if key == 0 { cell_count_for(value, snap) } else { p.cell_count() };
+    let cap = p.step_ceiling();
+    let cells = if key == 0 { cell_count_for(value, snap, cap) } else { p.cell_count() };
     let max_pulses = if p.mode.value() == Mode::Cellular { 15 } else { cells };
     match key {
         0 => {
             // Snap on: store a whole number. A raw slider position such as 16.37 would display
             // as "16" while the stored value stayed fractional.
-            let v = value.clamp(1.0, MAX_STEPS as f32);
+            let v = value.clamp(1.0, cap as f32);
             set(c, &p.steps, if snap { v.round() } else { v });
             if p.pulses.value() > max_pulses { set(c, &p.pulses, max_pulses); }
             if p.rotate.value() >= cells { set(c, &p.rotate, cells - 1); }
@@ -127,7 +139,8 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     // what another group received. Pulse/rotate bounds still follow the mode and length that
     // survive the scope, so a written count is always in range.
     let mode = Mode::from_index(rng.below(<Mode as Enum>::variants().len()));
-    let cells = 8 + rng.below(MAX_STEPS - 7); // 8..=MAX_STEPS
+    let ceiling = p.step_ceiling();
+    let cells = 8 + rng.below(ceiling - 7); // 8..=ceiling
     // Keep randomize on the grid; fractional spacing stays a deliberate user choice.
     let steps = cells as f32;
     // Bounds follow the values that will actually be in force, so a written pulse or rotate
@@ -337,7 +350,11 @@ impl Editor for SlintEditor {
                 // Both fields are known here, so no read is needed.
                 globals::save(&global_settings(p, update_scale));
             }
-            ui.set_steps(p.steps.value());
+            let ceiling = p.step_ceiling() as f32;
+            ui.set_max_steps(ceiling);
+            // A project may contain a Steps value left above a newly lowered ceiling. Show the
+            // value the generator will actually use instead of a number the matrix contradicts.
+            ui.set_steps(p.steps.value().min(ceiling));
             ui.set_round_steps(p.round_steps.value());
             ui.set_pulses(p.pulses.value() as f32);
             ui.set_rotate(p.rotate.value() as f32);

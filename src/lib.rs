@@ -10,7 +10,9 @@ mod view;
 pub use modes::Mode;
 
 use nih_plug::prelude::*;
-use sequence::{generate, GenParams, Pattern, MAX_STEPS, TRACKS};
+use sequence::{
+    generate, GenParams, Pattern, DEFAULT_MAX_STEPS, MAX_STEPS, MIN_MAX_STEPS, TRACKS,
+};
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 use std::sync::Arc;
 
@@ -82,6 +84,9 @@ pub struct DrumParams {
     /// Pattern length in steps. Whole-number when `round_steps` is on; fractional values
     /// create a loop that no longer aligns with the step grid.
     #[id = "steps"] pub steps: FloatParam,
+    /// User-selected ceiling for `steps`/`pulses`/`rotate`, 64–1024. The Pattern arrays always
+    /// have room for the highest value, so changing this takes effect immediately.
+    #[id = "max_steps"] pub max_steps: IntParam,
     /// Snap the pattern length to whole steps. Off allows fractional step spacing.
     #[id = "round_steps"] pub round_steps: BoolParam,
     #[id = "pulses"] pub pulses: IntParam,
@@ -152,6 +157,11 @@ impl Default for DrumParams {
             variation: AtomicU32::new(0),
             mode: EnumParam::new("Generation Mode", Mode::Euclidean),
             steps: FloatParam::new("Steps", 16.0, FloatRange::Linear { min: 1.0, max: MAX_STEPS as f32 }),
+            max_steps: IntParam::new(
+                "Max Steps",
+                DEFAULT_MAX_STEPS as i32,
+                IntRange::Linear { min: MIN_MAX_STEPS as i32, max: MAX_STEPS as i32 },
+            ),
             round_steps: BoolParam::new("Snap Steps To Whole Numbers", true),
             pulses: IntParam::new("Pulses / Generation", 5, IntRange::Linear { min: 0, max: MAX_STEPS as i32 }),
             rotate: IntParam::new("Rotate", 0, IntRange::Linear { min: 0, max: MAX_STEPS as i32 - 1 }),
@@ -207,13 +217,22 @@ impl Default for DrumParams {
 }
 
 impl DrumParams {
+    /// Effective ceiling from the host parameter. The range already enforces it, but host state
+    /// from an older build can be out of range, and the audio thread should not trust either.
+    fn step_ceiling(&self) -> usize {
+        self.max_steps.value().clamp(MIN_MAX_STEPS as i32, MAX_STEPS as i32) as usize
+    }
+
     /// Grid cells the current `steps` value covers, matching what `gen_params` produces.
-    fn cell_count(&self) -> i32 { cell_count_for(self.steps.value(), self.round_steps.value()) }
+    fn cell_count(&self) -> i32 {
+        cell_count_for(self.steps.value(), self.round_steps.value(), self.step_ceiling())
+    }
 
     fn gen_params(&self) -> GenParams {
-        let raw = self.steps.value().clamp(1.0, MAX_STEPS as f32);
+        let cap = self.step_ceiling();
+        let raw = self.steps.value().clamp(1.0, cap as f32);
         // Rounding off leaves `length` fractional, so the loop wraps between grid cells.
-        let cells = self.cell_count() as f32;
+        let cells = cell_count_for(raw, self.round_steps.value(), cap) as f32;
         GenParams {
             kind: self.mode.value(),
             steps: cells as usize,
@@ -248,12 +267,13 @@ impl DrumParams {
     }
 }
 
-/// Grid cells a raw `steps` value covers. Free function so tests exercise the real rule: an
-/// inlined copy inside the test silently outlived the `MAX_STEPS` 256 -> 64 reduction,
-/// because comparing a formula against itself cannot fail.
-fn cell_count_for(raw: f32, snap: bool) -> i32 {
-    let raw = raw.clamp(1.0, MAX_STEPS as f32);
-    (if snap { raw.round() } else { raw.ceil() }).clamp(1.0, MAX_STEPS as f32) as i32
+/// Grid cells a raw `steps` value covers under the user-selected ceiling. Free function so
+/// tests exercise the real rule: an inlined copy inside the test silently outlived the
+/// previous `MAX_STEPS` reduction, because comparing a formula against itself cannot fail.
+fn cell_count_for(raw: f32, snap: bool, ceiling: usize) -> i32 {
+    let cap = ceiling.clamp(MIN_MAX_STEPS, MAX_STEPS) as f32;
+    let raw = raw.clamp(1.0, cap);
+    (if snap { raw.round() } else { raw.ceil() }).clamp(1.0, cap) as i32
 }
 
 /// Lock-free signals shared between the audio scheduler and the editor.
@@ -269,11 +289,11 @@ impl Default for Shared {
     }
 }
 
-fn regeneration_cycle_at(step_index: i64, pattern_steps: usize, every: i64, last: Option<i64>) -> Option<i64> {
-    if pattern_steps == 0 || every <= 0 { return None; }
-    let n = pattern_steps as i64;
-    if step_index.rem_euclid(n) != 0 { return None; }
-    let cycle = step_index.div_euclid(n);
+fn regeneration_cycle_at(step_index: i64, loop_length: f64, every: i64, last: Option<i64>) -> Option<i64> {
+    if !loop_length.is_finite() || loop_length <= 0.0 || every <= 0 { return None; }
+    // Count complete loop lengths, not grid cells: a 16.5-step loop wraps between cells 16 and
+    // 17, so its first complete cycle starts at step 17, not at step 16.
+    let cycle = (step_index as f64 / loop_length).floor() as i64;
     if cycle > 0 && cycle.rem_euclid(every) == 0 && last != Some(cycle) { Some(cycle) } else { None }
 }
 
@@ -476,15 +496,14 @@ impl Plugin for NDrum {
                 }
             }
             if next_step <= at + 1e-9 && next_step < end - 1e-9 {
-                let n = self.pattern.steps.clamp(1, MAX_STEPS);
                 let idx = step_index(k, self.loop_length) as usize;
                 // Complete pattern lengths, not host beats, like regeneration. The request is
                 // lock-free here; the editor applies it through ParamSetter on its next tick.
-                if let Some(cycle) = regeneration_cycle_at(k, n, randomize_every, self.last_randomize_cycle) {
+                if let Some(cycle) = regeneration_cycle_at(k, self.loop_length, randomize_every, self.last_randomize_cycle) {
                     self.shared.randomize_request.fetch_add(1, Relaxed);
                     self.last_randomize_cycle = Some(cycle);
                 }
-                if let Some(cycle) = regeneration_cycle_at(k, n, every, self.last_regen_cycle) {
+                if let Some(cycle) = regeneration_cycle_at(k, self.loop_length, every, self.last_regen_cycle) {
                     p.variation.fetch_add(1, Relaxed);
                     let next_key = p.gen_params();
                     self.pattern = generate(&next_key);
@@ -646,14 +665,19 @@ mod tests {
 
     #[test]
     fn regeneration_and_randomization_trigger_only_on_complete_lengths() {
-        assert_eq!(regeneration_cycle_at(0, 16, 2, None), None);
-        assert_eq!(regeneration_cycle_at(16, 16, 2, None), None);
-        assert_eq!(regeneration_cycle_at(31, 16, 2, None), None);
-        assert_eq!(regeneration_cycle_at(32, 16, 2, None), Some(2));
-        assert_eq!(regeneration_cycle_at(32, 16, 2, Some(2)), None);
-        assert_eq!(regeneration_cycle_at(64, 16, 2, Some(2)), Some(4));
-        assert_eq!(regeneration_cycle_at(512, 256, 2, None), Some(2));
-        assert_eq!(regeneration_cycle_at(16, 16, 0, None), None);
+        assert_eq!(regeneration_cycle_at(0, 16.0, 2, None), None);
+        assert_eq!(regeneration_cycle_at(16, 16.0, 2, None), None);
+        assert_eq!(regeneration_cycle_at(31, 16.0, 2, None), None);
+        assert_eq!(regeneration_cycle_at(32, 16.0, 2, None), Some(2));
+        assert_eq!(regeneration_cycle_at(32, 16.0, 2, Some(2)), None);
+        assert_eq!(regeneration_cycle_at(64, 16.0, 2, Some(2)), Some(4));
+        assert_eq!(regeneration_cycle_at(512, 256.0, 2, None), Some(2));
+        assert_eq!(regeneration_cycle_at(16, 16.0, 0, None), None);
+        // A fractional loop must count whole loops, not grid cells: 16.5 steps per cycle and
+        // regeneration every 2 loops fires at 33 and 66, not at 32 and 64.
+        assert_eq!(regeneration_cycle_at(33, 16.5, 2, None), Some(2));
+        assert_eq!(regeneration_cycle_at(66, 16.5, 2, Some(2)), Some(4));
+        assert_eq!(regeneration_cycle_at(67, 16.5, 2, Some(4)), None);
     }
 
     /// A tempo the plugin used to clamp away must not desynchronise our beat clock from the
@@ -741,14 +765,27 @@ mod tests {
         for (raw, snap, cells) in [
             (16.0f32, true, 16i32), (16.4, true, 16), (16.6, true, 17),
             (16.4, false, 17), (16.0, false, 16), (1.0, false, 1),
-            // Clamped to MAX_STEPS from both ends, whichever way rounding goes.
+            // Clamped to the selected ceiling from both ends, whichever way rounding goes.
+            (64.0, false, 64), (64.4, false, 64), (100.0, true, 64),
             (MAX_STEPS as f32, false, MAX_STEPS as i32),
             (MAX_STEPS as f32 + 40.0, false, MAX_STEPS as i32),
             (MAX_STEPS as f32 + 40.0, true, MAX_STEPS as i32),
             (0.0, false, 1), (-5.0, true, 1),
         ] {
-            assert_eq!(cell_count_for(raw, snap), cells, "raw={raw}, snap={snap}");
+            let ceiling = if raw <= 100.0 { 64 } else { MAX_STEPS };
+            assert_eq!(cell_count_for(raw, snap, ceiling), cells, "raw={raw}, snap={snap}, ceiling={ceiling}");
         }
+    }
+
+    #[test]
+    fn max_steps_defaults_to_the_old_limit() {
+        let p = DrumParams::default();
+        assert_eq!(p.step_ceiling(), DEFAULT_MAX_STEPS);
+        assert_eq!(p.max_steps.value(), DEFAULT_MAX_STEPS as i32);
+        // The default project must still behave exactly like the pre-1024 build.
+        assert_eq!(p.cell_count(), 16);
+        assert_eq!(p.gen_params().steps, p.cell_count() as usize);
+        assert!(p.gen_params().steps <= DEFAULT_MAX_STEPS);
     }
 
     /// Reproduce the scheduler's step walk for one block, returning (played, cursor).
@@ -764,7 +801,7 @@ fn walk_block(start: f64, block_beats: f64, swing: f64, cursor: Option<i64>) -> 
     };
     let mut played = Vec::new();
     loop {
-        if !((k as f64) < s1 + 1.0) { break; }
+        if (k as f64) >= s1 + 1.0 { break; }
         let next_step = swung(k);
         if next_step >= end - 1e-9 { break; }
         played.push(k);

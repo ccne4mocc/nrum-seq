@@ -125,7 +125,7 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::Sieve => {
             let cls = crate::sequence::sieve_classes(p);
             let terms = if p.pulses >= 2 { 2 } else { 1 };
-            let members = crate::sequence::sieve_mask(p, n).count_ones();
+            let members = (0..n).filter(|&i| crate::sequence::sieve_member(p, i)).count();
             let kept = (members as f32 * d * (0.35 + w0)).round() as usize;
             format!("n={n}: M=(({},{})∪({},{}))\\{};{} with {terms} union term(s); {members} member step(s), lane 0 keeps round({members}×{d:.2}×(0.35+{w0:.2}))={kept}",
                 cls[0].0, cls[0].1, cls[1].0, cls[1].1, cls[2].0, cls[2].1)

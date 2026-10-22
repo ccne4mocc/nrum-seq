@@ -19,8 +19,8 @@
 - The window is a fixed 860×760; the pattern matrix uses the full width and never reflows or scrolls.
 - Theme and editor scale are remembered per user in `~/.config/nDrum/settings.json` (`$XDG_CONFIG_HOME` when set, `%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
 - Default lane notes follow a GM-style mapping: Kick 36, Snare 38, Closed Hat 42, Open Hat 46, Clap 39, Rim 37, Low Tom 45, Percussion 50. MIDI is sent on zero-based channel 9 (MIDI channel 10).
-- Fixed-size patterns support 1–64 steps. The generation path uses bounded work, and the audio callback uses fixed-size patterns without allocating or locking.
-- Settings can snap the pattern length to whole steps or leave it fractional. With snapping off, a length like 16.5 wraps mid-cell, so the pattern drifts against the step grid instead of repeating in phase. Exact values can be typed into the spin boxes rather than dragged, which matters because a 64-value range does not fit in the slider's pixel width.
+- Fixed-size patterns support 1–1024 steps. Settings sets a lower ceiling (64–1024, default 64) that applies immediately; the default keeps the original behaviour, and the editor preview and audio scheduler share the same capped snapshot. The generation path uses bounded work, and the audio callback uses fixed-size patterns without allocating or locking.
+- Settings can snap the pattern length to whole steps or leave it fractional. With snapping off, a length like 16.5 wraps mid-cell, so the pattern drifts against the step grid instead of repeating in phase. Exact values can be typed into the spin boxes rather than dragged, and the matrix header shows the resulting cell count.
 - Settings include Aurora (reference), Neon, Lava, and Forest themes. Generator parameters, rate, waveform, and theme selectors support mouse-wheel stepping while hovered.
 
 ## Generation modes and views
@@ -31,7 +31,7 @@ The **Math** column shows the formula with the default snapshot substituted: `st
 |---|---|---|---|
 | Euclidean | Evenly distribute pulses around the ring; each lane scales the count by its density profile and anchors on its own phase origin | `k = round(pulses·density·(0.35+w))` → lane 0 `round(5·0.65·0.85) = 3`; onset `j` at `floor(j·n/k)` | Per-lane pulse rings |
 | Eulerian Walk | Hierholzer traversal of a balanced directed graph; rest is vertex 0, lanes are vertices 1–8 | `d = 1 + (pulses mod 4)` → `1+1 = 2`; circuit length `9·d = 18` | Directed drum-state network |
-| Golden Ratio / Phyllotaxis | Golden-angle spiral: the beat test steps by `1/φ` (the mirror of 137.51°), with a slower `1/φ³` rule | threshold `T = (pulses/n)·(0.35+w)·(0.5+density) = 0.305`; `beat(i) = frac(i·0.618034 + seed + phase + lane·0.137)` | Eight-lane √i rosette with per-lane trigger arcs and the inner `1/φ³` spiral |
+| Golden Ratio / Phyllotaxis | Golden-angle spiral: the beat test steps by `1/φ` (the mirror of 137.51°), with a slower `1/φ³` rule | threshold `T = (pulses/n)·(0.35+w)·(0.5+density) = 0.305`; `beat(i) = frac(i·0.618034 + seed + phase + lane·0.137)` | One √i rosette sampled into at most 128 groups, with per-lane trigger arcs and the inner `1/φ³` band where that rule fired |
 | Cellular Automaton | Ring-based elementary cellular automaton (Wolfram rule); pulses selects a generation | `row = (pulses + round(phase·16) + 2·lane) mod 16` → lane 0 row 5; gate `0.45 + 0.55·density·w = 0.63` | Space-time cell grid |
 | Oscillator / Phase | One of eight waveforms (sine, triangle, saw, square, pulse, decay, half-sine, noise) sampled at each step with explicit phase and cycles | `wanted = round(pulses·density·(0.5+w)) = 3`; keep the 3 highest wave samples | Waveform curve with the generator's rank cutoff and step markers |
 | Crystallographic | Seeded motif tiled across the pattern, transformed per unit cell by a symmetry operation | `order = 4`, `unit = n/order = 4`; motif threshold `T = 0.184`; operation `(order−1) mod 8` | 8-lane lattice and symmetry axes |
@@ -46,7 +46,7 @@ The **Math** column shows the formula with the default snapshot substituted: `st
 | Polyrhythm Stack | Fixed integer ratios (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over one duration | lane 0 `k = round(5·0.65) = 3`; lane 1 (3:2) `k = round(8·0.65) = 5` | Ratio rings |
 | Weighted Syncopation | Metric, lane-shifted and jittered scores; the top-k steps become onsets | `target = round(pulses·density·(0.45+w)) = 3`; `score(i) = w(i mod 4)·w((i+3·lane) mod 4)·jitter` | Metrical score bars |
 | Pebble Box | Eight pebbles (one per lane) bounce in a box; a shaker impulse kicks a rotating third and wall impacts above the density threshold fire their lanes | `substeps = osc_rate` (`2`), gravity `0.01+ca_rule/255·2.15 = 0.26` tilted `0°`; impulse every `n/pulses = 3` steps; threshold `(1−density)·4.2 = 1.47` | Animated pebble box with wall-contact flashes |
-| Xenakis Sieve | 64-step mask from two union residue classes minus one subtracted class; each lane reads a rotated copy | `M = ((2,0) ∪ (13,8)) \ (11,5)` → 8 members over 16 steps; lane 0 keeps `round(8·0.65·0.85) = 4` | Residue-class lattice rows, step mask and onsets |
+| Xenakis Sieve | Residue classes from two union terms minus one subtracted class; each lane reads a rotated copy, with no fixed length limit | `M = ((2,0) ∪ (13,8)) \ (11,5)` → 8 members over 16 steps; lane 0 keeps `round(8·0.65·0.85) = 4` | Residue-class lattice rows, per-step sieve membership and onsets |
 | Kuramoto Lanes | Eight phase oscillators coupled to their ring neighbours; a phase wrap is the trigger and rank selection keeps the requested count | `K = 0.476` from `osc_rate`; rate `5/16 = 0.3125` turn/step, `±5%` detune; lane 0 keeps `round(5·0.65·1.0) = 3` | Eight phase pointers, trails and the mean phase vector |
 
 The crystallographic mode is an **algorithmic symmetry palette inspired by periodic/crystallographic operations**, not a claim to enumerate all formal 2D/3D crystallographic space groups.
@@ -105,6 +105,8 @@ docs/                     reference map, architecture, wishlist, agent ownership
 
 ## Current limitations / next milestones
 
-This is a functional starter architecture, not a release-certified plugin. The next steps are to build and smoke-test it in at least one CLAP host and one VST3 host; validate tempo/loop/transport edge cases; verify Slint layout on Linux/macOS/Windows; add swing, ratchets, probability per hit, ghost notes and presets; and then add user-facing MIDI export or optional internal sound generation only if that becomes a requirement.
+This is a functional starter architecture, not a release-certified plugin. The next steps are to build and smoke-test it in at least one CLAP host and one VST3 host; validate tempo/loop/transport edge cases; verify Slint layout on Linux/macOS/Windows; add ratchets, probability per hit, ghost notes and presets; and then add user-facing MIDI export or optional internal sound generation only if that becomes a requirement.
+
+nDrum generates MIDI events from `process()` and declares note output, but it does not write a MIDI file or render audio. Recording those events into a host clip depends on the host supporting MIDI capture from an instrument/effect track; if it only records track input, route nDrum to a drum instrument and use that host's print/freeze workflow instead.
 
 Research rationale and citations for the algorithms are in [`docs/ALGORITHM_RESEARCH.md`](docs/ALGORITHM_RESEARCH.md).
