@@ -459,6 +459,9 @@ impl Editor for SlintEditor {
                 let palette = ui.global::<Theme>();
                 palette.set_c1(rgb(colors[0])); palette.set_c2(rgb(colors[1])); palette.set_c3(rgb(colors[2]));
                 palette.set_hi(rgb(colors[3])); palette.set_bg1(rgb(colors[4])); palette.set_bg2(rgb(colors[5])); palette.set_bg3(rgb(colors[6]));
+                palette.set_surface(rgb(colors[7])); palette.set_control(rgb(colors[8])); palette.set_control_hover(rgb(colors[9]));
+                palette.set_text(rgb(colors[10])); palette.set_text_muted(rgb(colors[11])); palette.set_border(rgb(colors[12]));
+                palette.set_cell_off(rgb(colors[13])); palette.set_on_accent(rgb(colors[14]));
                 ui.set_theme_index(theme_index);
                 // Theme is user-global, so persist it outside the project as it changes.
                 // Both fields are known here, so no read is needed.

@@ -109,9 +109,10 @@ mod tests {
 
     #[test]
     fn an_out_of_range_theme_cannot_panic() {
-        // `Theme::from_index` falls back to the first variant, which is Aurora.
-        assert_eq!(PluginTheme::from_index(9), PluginTheme::Aurora);
-        assert_eq!(PluginTheme::from_index(0), PluginTheme::Aurora);
+        // `Theme::from_index` falls back to the first variant, which is Sketchbook (host id
+        // `aurora`).
+        assert_eq!(PluginTheme::from_index(9), PluginTheme::Sketchbook);
+        assert_eq!(PluginTheme::from_index(0), PluginTheme::Sketchbook);
     }
 
     #[test]

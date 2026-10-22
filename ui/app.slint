@@ -1,13 +1,21 @@
 import { ScrollView } from "std-widgets.slint";
 // nDrum: algorithm-first MIDI drum sequencer. Rust pushes deterministic pattern and view data.
 export global Theme {
-    in-out property <color> c1: #2dd4bf;
-    in-out property <color> c2: #60a5fa;
-    in-out property <color> c3: #a78bfa;
-    in-out property <color> hi: #fb923c;
-    in-out property <color> bg1: #12161a;
-    in-out property <color> bg2: #12141a;
-    in-out property <color> bg3: #14121c;
+    in-out property <color> c1: #a67c00;
+    in-out property <color> c2: #3f6591;
+    in-out property <color> c3: #9c4f43;
+    in-out property <color> hi: #a93226;
+    in-out property <color> bg1: #f3eee2;
+    in-out property <color> bg2: #eee7d8;
+    in-out property <color> bg3: #e8dfcd;
+    in-out property <color> surface: #faf5e9;
+    in-out property <color> control: #e5dcc9;
+    in-out property <color> control-hover: #d7ccb5;
+    in-out property <color> text: #2f2b25;
+    in-out property <color> text-muted: #7a7061;
+    in-out property <color> border: #c7bca8;
+    in-out property <color> cell-off: #ded5c3;
+    in-out property <color> on-accent: #fdf9f0;
 }
 
 export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string }
@@ -25,7 +33,7 @@ component Selector inherits Rectangle {
         spacing: 4px;
         for i in root.options.length: Rectangle {
             border-radius: 1px;
-            background: ta.has-hover ? #3b414a : #282d34;
+            background: ta.has-hover ? Theme.control-hover : Theme.control;
             if i == root.current: Rectangle {
                 border-radius: 4px;
                 background: @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%);
@@ -33,7 +41,7 @@ component Selector inherits Rectangle {
             Text {
                 width: parent.width; height: parent.height;
                 text: root.options[i];
-                color: i == root.current ? #0b0f14 : #d1d5db;
+                color: i == root.current ? Theme.on-accent : Theme.text;
                 font-size: root.text-size;
                 horizontal-alignment: center; vertical-alignment: center;
                 overflow: elide;
@@ -66,8 +74,8 @@ component WaveGrid inherits Rectangle {
         spacing: 3px;
         for i in root.options.length: Rectangle {
             border-radius: 3px;
-            background: i == root.current ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (ta.has-hover ? #3b414a : #282d34);
-            Text { text: root.options[i]; color: i == root.current ? #0b0f14 : #d1d5db; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+            background: i == root.current ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (ta.has-hover ? Theme.control-hover : Theme.control);
+            Text { text: root.options[i]; color: i == root.current ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
             ta := TouchArea {
                 clicked => { root.selected(i); }
                 // The wheel steps the waveform, matching every other picker.
@@ -90,8 +98,8 @@ component ScopeChip inherits Rectangle {
     in property <bool> active;
     callback toggled();
     height: 22px; border-radius: 4px;
-    background: root.active ? Theme.c1.with-alpha(0.8) : (ta.has-hover ? #3b414a : #2a3038);
-    Text { text: root.label; color: root.active ? #0b0f14 : #d1d5db; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+    background: root.active ? Theme.c1.with-alpha(0.8) : (ta.has-hover ? Theme.control-hover : Theme.control);
+    Text { text: root.label; color: root.active ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
     ta := TouchArea { clicked => { root.toggled(); } }
 }
 
@@ -99,15 +107,15 @@ component OptSlider inherits Rectangle {
     in property <Opt> opt;
     callback changed(float);
     height: 25px;
-    border-radius: 4px; background: #282d34; clip: true;
+    border-radius: 4px; background: Theme.control; clip: true;
     Rectangle {
         x: 0px; y: 0px; height: parent.height;
         width: parent.width * Math.clamp((root.opt.value - root.opt.min) / (root.opt.max - root.opt.min), 0, 1);
         background: @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%);
-        opacity: 0.55;
+        opacity: 0.3;
     }
-    Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.opt.label; color: #e5e7eb; font-size: 11px; vertical-alignment: center; }
-    Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.opt.text; color: #f3f4f6; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+    Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.opt.label; color: Theme.text; font-size: 11px; vertical-alignment: center; }
+    Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.opt.text; color: Theme.text; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
     ta := TouchArea {
         pointer-event(e) => {
             if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
@@ -140,7 +148,7 @@ component NumBox inherits Rectangle {
 
     height: 26px;
     border-radius: 4px;
-    background: #282d34; border-width: 1px; border-color: #3b414a;
+    background: Theme.control; border-width: 1px; border-color: Theme.border;
     horizontal-stretch: 1;
 
     function clamp-value(v: float) -> float {
@@ -157,18 +165,18 @@ component NumBox inherits Rectangle {
     Text {
         x: 6px; width: parent.width - 12px;
         text: root.label;
-        color: #9ca3af; font-size: 9px; vertical-alignment: center; overflow: elide;
+        color: Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide;
     }
     down := Rectangle {
         x: parent.width - 34px; y: 1px; width: 16px; height: parent.height - 2px;
-        border-radius: 3px; background: down-touch.has-hover ? #454c56 : #333941;
-        Text { text: "-"; color: #e5e7eb; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+        border-radius: 3px; background: down-touch.has-hover ? Theme.control-hover : Theme.control;
+        Text { text: "-"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
         down-touch := TouchArea { clicked => { root.nudge(-1); } }
     }
     up := Rectangle {
         x: parent.width - 17px; y: 1px; width: 16px; height: parent.height - 2px;
-        border-radius: 3px; background: up-touch.has-hover ? #454c56 : #333941;
-        Text { text: "+"; color: #e5e7eb; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+        border-radius: 3px; background: up-touch.has-hover ? Theme.control-hover : Theme.control;
+        Text { text: "+"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
         up-touch := TouchArea { clicked => { root.nudge(1); } }
     }
     // Wheel nudges anywhere on the control. Declared before `input` so it sits underneath the
@@ -188,7 +196,7 @@ component NumBox inherits Rectangle {
     }
     input := TextInput {
         x: 6px; width: parent.width - 42px; height: parent.height;
-        color: #e5e7eb; font-size: 11px;
+        color: Theme.text; font-size: 11px;
         horizontal-alignment: right; vertical-alignment: center;
         text: root.format-value(root.value);
         // Only accept complete numbers; a lone "-" or "1." must not be committed.
@@ -214,8 +222,8 @@ component ModePanel inherits Rectangle {
     // the node rectangles are scaled by hand so dots and labels grow with the box.
     property <float> px-per-unit: 1.4285714;   // 300px panel / 210-unit geometry
     width: 210px * root.px-per-unit; height: 210px * root.px-per-unit;
-    background: #1b1e24; border-radius: 6px; clip: true;
-    Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.edges; fill: transparent; stroke: #3b4350; stroke-width: 1px; }
+    background: Theme.surface; border-radius: 6px; clip: true;
+    Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.edges; fill: transparent; stroke: Theme.border; stroke-width: 1px; }
     Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.lines; fill: transparent; stroke: Theme.c3; stroke-width: 1.4px; }
     Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.hand; fill: transparent; stroke: Theme.hi; stroke-width: 2px; }
     for n in root.nodes: Rectangle {
@@ -225,9 +233,9 @@ component ModePanel inherits Rectangle {
         x: (n.x - n.r) * root.px-per-unit; y: (n.y - n.r) * root.px-per-unit;
         width: n.r * 2 * root.px-per-unit; height: n.r * 2 * root.px-per-unit;
         border-radius: n.r * root.px-per-unit;
-        background: n.cur ? Theme.hi : (n.on ? Theme.c1 : #2a2e35);
-        border-width: 1px; border-color: #4b5563;
-        Text { width: parent.width; height: parent.height; text: n.label; font-size: 7px * root.px-per-unit; color: #04201d; horizontal-alignment: center; vertical-alignment: center; }
+        background: n.cur ? Theme.hi : (n.on ? Theme.c1 : Theme.cell-off);
+        border-width: 1px; border-color: Theme.border;
+        Text { width: parent.width; height: parent.height; text: n.label; font-size: 7px * root.px-per-unit; color: (n.cur || n.on) ? Theme.on-accent : Theme.text; horizontal-alignment: center; vertical-alignment: center; }
     }
 }
 
@@ -418,18 +426,26 @@ export component AppWindow inherits Window {
     ];
 
     // Everything lives inside one fixed 860x760 coordinate space. The window never resizes;
-    // only the pattern-matrix cells scale, so nothing reflows.
+    // the matrix scrolls fixed-width cells instead of shrinking them, so nothing reflows.
     Rectangle {
         width: root.base-width; height: root.base-height;
+
+        // Faint graph paper belongs to the Sketchbook palette; the other themes keep the flat
+        // gradient. It sits below the layout so only the gaps between cards show it.
+        Rectangle {
+            visible: root.theme-index == 0;
+            for i in 38: Rectangle { y: (i + 1) * 20px; height: 1px; background: Theme.border.with-alpha(0.16); }
+            for i in 43: Rectangle { x: (i + 1) * 20px; width: 1px; height: parent.height; background: Theme.border.with-alpha(0.16); }
+        }
 
     VerticalLayout {
         padding: 14px; spacing: 8px;
         HorizontalLayout {
             height: 34px; spacing: 6px;
-            VerticalLayout { spacing: 0px; Text { text: "nDrum"; color: #f3f4f6; font-size: 18px; font-weight: 700; } Text { text: "algorithmic MIDI percussion sequencer  /  CLAP + VST3"; color: #8b95a5; font-size: 10px; } }
-            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : #30343c; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
-            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : #30343c; Text { text: "RANDOMIZE ⚄"; color: #f9fafb; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TouchArea { clicked => { root.randomize-pressed(); } } }
-            Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : #30343c; Text { text: "⚙"; color: #f9fafb; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
+            VerticalLayout { spacing: 0px; Text { text: "nDrum"; color: Theme.text; font-size: 18px; font-weight: 700; } Text { text: "algorithmic MIDI percussion sequencer  /  CLAP + VST3"; color: Theme.text-muted; font-size: 10px; } }
+            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : Theme.control; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: generate-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
+            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : Theme.control; Text { text: "RANDOMIZE ⚄"; color: randomize-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TouchArea { clicked => { root.randomize-pressed(); } } }
+            Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : Theme.control; Text { text: "⚙"; color: settings-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
         }
         HorizontalLayout {
             // 300px leaves room for the two- or three-sentence description plus the live math
@@ -441,8 +457,8 @@ export component AppWindow inherits Window {
                 VerticalLayout { spacing: 4px;
                     for i in root.mode-names.length: Rectangle {
                         height: 28px; border-radius: 4px;
-                        background: i == root.mode ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (mode-touch.has-hover ? #3b414a : #282d34);
-                        Text { x: 5px; width: parent.width - 10px; height: parent.height; text: root.mode-names[i]; color: i == root.mode ? #0b0f14 : #d1d5db; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                        background: i == root.mode ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (mode-touch.has-hover ? Theme.control-hover : Theme.control);
+                        Text { x: 5px; width: parent.width - 10px; height: parent.height; text: root.mode-names[i]; color: i == root.mode ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                         // The wheel steps the mode rather than scrolling this list, so the
                         // selection must stay visible: see `changed mode` on the root.
                         mode-touch := TouchArea {
@@ -462,12 +478,12 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 spacing: 3px;
                 Text { text: root.mode-names[root.mode]; color: Theme.c1; font-size: 16px; font-weight: 700; }
-                Text { text: root.mode-help[root.mode]; color: #c1c8d2; font-size: 13px; wrap: word-wrap; }
+                Text { text: root.mode-help[root.mode]; color: Theme.text; font-size: 13px; wrap: word-wrap; }
                 // Live formula with the current snapshot substituted; pushed by Rust from the
                 // same helpers the generator calls, so it cannot drift from what is playing.
-                Text { text: root.mode-math; color: #7f8a99; font-size: 11px; wrap: word-wrap; }
+                Text { text: root.mode-math; color: Theme.text-muted; font-size: 11px; wrap: word-wrap; }
                 Rectangle { height: 5px; }
-                Text { text: "GENERATOR OPTIONS"; color: #788394; font-size: 9px; }
+                Text { text: "GENERATOR OPTIONS"; color: Theme.text-muted; font-size: 9px; }
                 HorizontalLayout { spacing: 5px; for i in 4: OptSlider { opt: root.opts[i]; changed(v) => { root.set-opt(i, v); } } }
                 HorizontalLayout {
                     spacing: 5px;
@@ -479,7 +495,7 @@ export component AppWindow inherits Window {
                 HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[8]; changed(v) => { root.set-opt(8, v); } } OptSlider { opt: root.opts[9]; changed(v) => { root.set-opt(9, v); } } }
                 HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } } if root.shows-param(root.mode, 11): OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
                 if root.mode == 4: HorizontalLayout {
-                    Text { text: "WAVE"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
+                    Text { text: "WAVE"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; }
                     WaveGrid { horizontal-stretch: 1; options: root.wave-names; current: root.osc-wave; selected(i) => { root.set-osc-wave(i); } }
                 }
             }
@@ -488,30 +504,30 @@ export component AppWindow inherits Window {
         // generator options instead of sharing the cramped options column.
         HorizontalLayout {
             height: 28px; spacing: 8px;
-            Text { text: "CLOCK"; color: #788394; font-size: 9px; vertical-alignment: center; }
-            Text { text: "RATE"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
+            Text { text: "CLOCK"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; }
+            Text { text: "RATE"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; }
             Selector { horizontal-stretch: 1; options: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"]; current: root.rate; text-size: 9px; selected(i) => { root.set-rate(i); } }
-            Text { text: "SWING"; color: #9ca3af; font-size: 10px; vertical-alignment: center; }
+            Text { text: "SWING"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; }
             OptSlider { width: 230px; opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
         }
-        Text { text: "DRUM LANES     ·     MIDI channel 10 / GM-style note map"; color: #788394; font-size: 10px; }
+        Text { text: "DRUM LANES     ·     MIDI channel 10 / GM-style note map"; color: Theme.text-muted; font-size: 10px; }
         HorizontalLayout {
             spacing: 5px;
             for track in root.tracks: Rectangle {
                 height: 28px; border-radius: 4px;
-                background: track.enabled ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 100%) : #272c33;
-                Text { text: track.name; color: track.enabled ? #101820 : #a8b0bc; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
+                background: track.enabled ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 100%) : Theme.cell-off;
+                Text { text: track.name; color: track.enabled ? Theme.on-accent : Theme.text-muted; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
                 TouchArea { clicked => { root.toggle-track(track.index); } }
             }
         }
-        Text { text: "PATTERN MATRIX  ·  \{root.cells} cells  ·  velocity = brightness  ·  probability = opacity  ·  playhead in amber"; color: #788394; font-size: 10px; }
+        Text { text: "PATTERN MATRIX  ·  \{root.cells} cells  ·  velocity = brightness  ·  probability = opacity  ·  playhead in amber"; color: Theme.text-muted; font-size: 10px; }
         HorizontalLayout {
             spacing: 4px;
             VerticalLayout {
                 spacing: 4px;
                 for track in root.tracks: Text {
                     width: 76px; height: 22px;
-                    text: track.name; color: track.enabled ? #d1d5db : #505965;
+                    text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55);
                     font-size: 9px; vertical-alignment: center;
                 }
             }
@@ -531,7 +547,7 @@ export component AppWindow inherits Window {
                                 x: 0px; y: 0px;
                                 width: parent.width - 1px; height: parent.height;
                                 border-radius: 2px;
-                                background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : #242930;
+                                background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : Theme.cell-off;
                                 opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
                                 border-width: cell.playing ? 2px : 0px; border-color: Theme.hi;
                             }
@@ -542,8 +558,8 @@ export component AppWindow inherits Window {
         }
         HorizontalLayout {
             height: 27px; spacing: 5px;
-            Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? #254e48 : #2a3038; Text { text: "Toggle free-run"; color: #d1d5db; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
-            Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : #8b95a5; font-size: 9px; vertical-alignment: center; }
+            Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "Toggle free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
+            Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 9px; vertical-alignment: center; }
             OptSlider { width: 230px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }
         }
     }
@@ -561,37 +577,37 @@ export component AppWindow inherits Window {
     }
     Rectangle {
         x: root.settings-x; y: 0px; width: 300px; height: root.base-height;
-        background: #191d24; border-width: 1px; border-color: #3b414a;
+        background: Theme.surface; border-width: 1px; border-color: Theme.border;
         animate x { duration: 140ms; easing: ease-in-out; }
         VerticalLayout {
             padding: 12px; spacing: 8px;
             HorizontalLayout {
                 height: 24px;
                 Text { text: "SETTINGS"; color: Theme.c1; font-size: 12px; font-weight: 700; vertical-alignment: center; }
-                Rectangle { width: 74px; height: 22px; border-radius: 4px; background: close-settings.has-hover ? Theme.hi : #30343c; Text { text: "CLOSE"; color: #f3f4f6; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } close-settings := TouchArea { clicked => { root.settings-open = false; } } }
+                Rectangle { width: 74px; height: 22px; border-radius: 4px; background: close-settings.has-hover ? Theme.hi : Theme.control; Text { text: "CLOSE"; color: close-settings.has-hover ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } close-settings := TouchArea { clicked => { root.settings-open = false; } } }
             }
-            Text { text: "COLOUR THEME"; color: #788394; font-size: 9px; }
-            Selector { options: ["Aurora", "Neon", "Lava", "Forest"]; current: root.theme-index; text-size: 10px; selected(i) => { root.set-theme(i); } }
-            Text { text: "STEP SPACING"; color: #788394; font-size: 9px; }
+            Text { text: "COLOUR THEME"; color: Theme.text-muted; font-size: 9px; }
+            Selector { options: ["Sketchbook", "Neon", "Lava", "Forest"]; current: root.theme-index; text-size: 10px; selected(i) => { root.set-theme(i); } }
+            Text { text: "STEP SPACING"; color: Theme.text-muted; font-size: 9px; }
             // Turning rounding off lets the loop wrap between grid cells, so the pattern
             // drifts against the step grid instead of landing on it.
             Rectangle {
                 height: 26px; border-radius: 4px;
-                background: root.round-steps ? Theme.c1.with-alpha(0.8) : (round-touch.has-hover ? #3b414a : #2a3038);
+                background: root.round-steps ? Theme.c1.with-alpha(0.8) : (round-touch.has-hover ? Theme.control-hover : Theme.control);
                 Text {
                     x: 8px; width: parent.width - 16px;
                     text: root.round-steps ? "WHOLE STEPS ONLY" : "FRACTIONAL STEPS";
-                    color: root.round-steps ? #0b0f14 : #d1d5db;
+                    color: root.round-steps ? Theme.on-accent : Theme.text;
                     font-size: 9px; vertical-alignment: center;
                 }
                 round-touch := TouchArea { clicked => { root.toggle-round-steps(); } }
             }
-            Text { text: "PATTERN LIMIT"; color: #788394; font-size: 9px; }
+            Text { text: "PATTERN LIMIT"; color: Theme.text-muted; font-size: 9px; }
             NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; changed(v) => { root.set-opt(14, v); } }
             // The Pattern arrays are allocated for 1024 steps up front, so changing the ceiling
             // never requires a host or plug-in restart.
-            Text { text: "Max steps applies immediately; no restart is needed."; color: #8b95a5; font-size: 9px; }
-            Text { text: "PATTERN NUMBERS"; color: #788394; font-size: 9px; }
+            Text { text: "Max steps applies immediately; no restart is needed."; color: Theme.text-muted; font-size: 9px; }
+            Text { text: "PATTERN NUMBERS"; color: Theme.text-muted; font-size: 9px; }
             HorizontalLayout { spacing: 6px;
                 NumBox {
                     label: "Steps"; value: root.steps; minimum: 1; maximum: root.max-steps;
@@ -606,7 +622,7 @@ export component AppWindow inherits Window {
             }
             NumBox { label: "Regen after"; value: root.regenerate-every; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(10, v); } }
             NumBox { label: "Randomize after lengths"; value: root.randomize-after-lengths; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(12, v); } }
-            Text { text: "RANDOMIZE SCOPE"; color: #788394; font-size: 9px; }
+            Text { text: "RANDOMIZE SCOPE"; color: Theme.text-muted; font-size: 9px; }
             // Five bits of one host parameter (`randomize_scope`). Off keeps that group's
             // current values; on lets RANDOMIZE rewrite it.
             HorizontalLayout { spacing: 4px;
@@ -616,13 +632,13 @@ export component AppWindow inherits Window {
                 ScopeChip { label: "TONE"; active: root.scope-tone; toggled => { root.toggle-scope(3); } }
                 ScopeChip { label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(4); } }
             }
-            Text { text: "MIDI EXPORT"; color: #788394; font-size: 9px; }
+            Text { text: "MIDI EXPORT"; color: Theme.text-muted; font-size: 9px; }
             Rectangle {
                 height: 26px; border-radius: 4px;
-                background: #20242b; border-width: 1px; border-color: #3b414a;
+                background: Theme.control; border-width: 1px; border-color: Theme.border;
                 TextInput {
                     x: 6px; width: parent.width - 12px; height: parent.height;
-                    text: root.midi-folder; color: #d1d5db; font-size: 9px;
+                    text: root.midi-folder; color: Theme.text; font-size: 9px;
                     vertical-alignment: center;
                     edited => { root.set-midi-folder(self.text); }
                     accepted => { root.set-midi-folder(self.text); }
@@ -630,21 +646,21 @@ export component AppWindow inherits Window {
             }
             Rectangle {
                 height: 26px; border-radius: 4px;
-                background: export-touch.has-hover ? Theme.c2 : #2a3038;
-                Text { text: "EXPORT MIDI (ONE LOOP)"; color: #f3f4f6; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+                background: export-touch.has-hover ? Theme.c2 : Theme.control;
+                Text { text: "EXPORT MIDI (ONE LOOP)"; color: export-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
                 export-touch := TouchArea { clicked => { root.export-midi(); } }
             }
-            Text { text: root.export-status; color: #8b95a5; font-size: 9px; wrap: word-wrap; }
+            Text { text: root.export-status; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
             // Push the contact block to the bottom of the panel; the controls stay top-aligned.
             Rectangle { vertical-stretch: 1; }
-            Text { text: "CREDITS / CONTACT"; color: #788394; font-size: 9px; }
-            Text { text: "\{root.credit-author}  ·  nDrum"; color: #d1d5db; font-size: 10px; }
-            TextInput { read-only: true; text: root.credit-github; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
-            TextInput { read-only: true; text: root.credit-email; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
-            TextInput { read-only: true; text: root.credit-support; color: #9fb0c3; font-size: 9px; height: 22px; vertical-alignment: center; }
+            Text { text: "CREDITS / CONTACT"; color: Theme.text-muted; font-size: 9px; }
+            Text { text: "\{root.credit-author}  ·  nDrum"; color: Theme.text; font-size: 10px; }
+            TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
+            TextInput { read-only: true; text: root.credit-email; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
+            TextInput { read-only: true; text: root.credit-support; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
             Text {
                 text: "RANDOMIZE uses the top button. Type exact values here, or use the arrows and wheel.";
-                color: #8b95a5; font-size: 9px; wrap: word-wrap;
+                color: Theme.text-muted; font-size: 9px; wrap: word-wrap;
             }
         }
     }
