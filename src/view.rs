@@ -597,7 +597,33 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
-        Mode::EuclideanSwing | Mode::Bernoulli | Mode::AfricanBell | Mode::PhaseCanon | Mode::ReactionDiffusion | Mode::Lorenz | Mode::Cantor | Mode::Fibonacci | Mode::Genetic => {
+        Mode::Lorenz => {
+            // Butterfly body: draw the attractor orbit for lane 0, colour the current point.
+            let mut x = 0.1 + (params.seed * 0.7).clamp(0.0, 0.6);
+            let mut y = 0.0;
+            let mut z = 25.0;
+            let mut prev: Option<(f32, f32)> = None;
+            for i in 0..n {
+                for _ in 0..10 {
+                    let dx = 10.0 * (y - x);
+                    let dy = x * (28.0 - z) - y;
+                    let dz = x * y - (8.0 / 3.0) * z;
+                    x += dx * 0.01; y += dy * 0.01; z += dz * 0.01;
+                }
+                let px = C + x * 3.2;
+                let py = C - (z - 25.0) * 2.2;
+                let (px, py) = (px.clamp(12.0, 198.0), py.clamp(12.0, 198.0));
+                if let Some((lx, ly)) = prev { mv(&mut v.lines, lx, ly); ln(&mut v.lines, px, py); }
+                prev = Some((px, py));
+                if p.hit[0][i] {
+                    v.nodes.push(Node { x: px, y: py, r: 2.6, on: true, cur: play == Some(i), label: String::new() });
+                }
+            }
+            if let Some((px, py)) = prev {
+                v.nodes.push(Node { x: px, y: py, r: 5.0, on: true, cur: true, label: String::new() });
+            }
+        }
+        Mode::EuclideanSwing | Mode::Bernoulli | Mode::AfricanBell | Mode::PhaseCanon | Mode::ReactionDiffusion | Mode::Cantor | Mode::Fibonacci | Mode::Genetic => {
             circle(&mut v.edges, C, C, 90.0);
             for tr in 0..TRACKS {
                 for i in 0..n {

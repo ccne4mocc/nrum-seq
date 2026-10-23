@@ -327,6 +327,7 @@ export component AppWindow inherits Window {
     // Only expose mode-specific controls the selected mode actually uses, and label them with
     // what they mean in that mode. `GenParams` still carries every field; this is presentation.
     pure function shows-param(mode: int, key: int) -> bool {
+        if (key == 1) { return !(mode == 20 || mode == 21 || mode == 23 || mode == 24 || mode == 25 || mode == 26 || mode == 27); }
         if (key == 5) { return mode == 2 || mode == 3 || mode == 4 || mode == 6 || mode == 8 || mode == 13 || mode == 16 || mode == 17 || mode == 18; }
         if (key == 6) { return mode == 4 || mode == 16 || mode == 18; }
         if (key == 7) { return mode == 3 || mode == 16 || mode == 17; } // Pebble reuses the CA knob as gravity
@@ -407,15 +408,15 @@ export component AppWindow inherits Window {
         "Bounces eight pebbles, one per lane, in a box whose gravity can be tilted and strengthened. Each shaker impulse kicks a rotating third of them; a pebble triggers its drum when its wall impact is harder than the density-derived threshold. The panel animates the recorded positions and flashes the wall each hit struck.",
         "Builds a sieve mask from residue classes modulo small primes: two union terms minus a subtracted term. ca_rule picks the moduli, symmetry and phase pick the residues, the pulse count says how many union terms are active. The panel draws the three lattice rows and the resulting step mask; density keeps a fraction of the members.",
         "Runs eight phase oscillators, one per lane, coupled to their ring neighbours. osc_rate sets the coupling strength, phase the frequency spread, pulses the target onsets, and density the per-lane weight. The panel draws the eight phase pointers, their trails and the mean phase vector, so drift and lock are visible.",
-        "Euclidean spacing with a swing feel: evenly distributed hits plus alternating accents for a swung groove.",
-        "Each step independently triggers per lane with probability density*probability, giving sparse random patterns.",
-        "Rotates a 12-step African bell pattern across lanes for interlocking rhythms.",
-        "Layers phase-shifted copies of a base pattern to create a polymetric canon.",
-        "Reaction-diffusion activator threshold onsets.",
-        "Lorenz attractor z-peak onsets.",
-        "Cantor set fractal rhythm.",
-        "Fibonacci/Sturmian word onsets.",
-        "Genetic mutation of a base pattern."
+        "Builds normal Euclidean spacing, then accent-hits every odd step. The result reads as a swung version of the same necklace, with the underlying pulse grid unchanged.",
+        "Each step flips an independent Bernoulli coin per lane with probability density×probability. Lower values give sparse, unstable patterns; high values approach a solid grid.",
+        "Repeats a 12-step African bell figure, rotated by a seeded lane offset and gated by probability. The interlocking rotations make the kit feel like a bell ensemble.",
+        "Builds a base pulse train of the requested pulses, then shifts each lane by lane×n/8. The overlapping copies form a polymetric canon with a moving phase relationship.",
+        "Thresholds a sinusoidal activator grown from reaction-diffusion dynamics. Density sets the activation threshold and probability gates each cell, producing slow blobs and filaments that break into hits.",
+        "Integrates the Lorenz system (σ=10, ρ=28, β=8/3) and fires each lane on local z-peaks. The panel draws the butterfly attractor and the current orbit so the motion is visible while it plays.",
+        "Samples the Cantor set at the lane's iteration depth and turns its gaps into rests. The result is a self-similar rhythm with holes at every scale, gated by density and probability.",
+        "Generates a Sturmian (Fibonacci-type) word from an irrational slope and fires where floor((i+1)α) changes. The word is maximally even and avoids long runs at any density.",
+        "Evolves a base pattern by random mutation and keeps changes with probability p. Density controls mutation rate; the pattern drifts while preserving its original shape."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", step: root.round-steps ? 1 : 0.25 },
@@ -466,9 +467,6 @@ export component AppWindow inherits Window {
                 VerticalLayout { spacing: 4px;
                     for i in root.mode-names.length: Rectangle {
                         height: 28px; border-radius: 4px;
-                        transform-scale: mode-touch.has-hover ? 1.02 : 1.0;
-                        animate transform-scale { duration: 120ms; easing: ease-out; }
-                        drop-shadow-blur: mode-touch.has-hover ? 8px : 0px; drop-shadow-color: #00000040; drop-shadow-offset-y: mode-touch.has-hover ? 3px : 0px;
                         background: i == root.mode ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (mode-touch.has-hover ? Theme.control-hover : Theme.control);
                         Text { x: 5px; width: parent.width - 10px; height: parent.height; text: root.mode-names[i]; color: i == root.mode ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                         // The wheel steps the mode rather than scrolling this list, so the
@@ -496,7 +494,12 @@ export component AppWindow inherits Window {
                 Text { text: root.mode-math; color: Theme.text-muted; font-size: 11px; wrap: word-wrap; }
                 Rectangle { height: 5px; }
                 Text { text: "GENERATOR OPTIONS"; color: Theme.text-muted; font-size: 9px; }
-                HorizontalLayout { spacing: 5px; for i in 4: OptSlider { opt: root.opts[i]; changed(v) => { root.set-opt(i, v); } } }
+                HorizontalLayout { spacing: 5px;
+                    OptSlider { opt: root.opts[0]; changed(v) => { root.set-opt(0, v); } }
+                    if root.shows-param(root.mode, 1): OptSlider { opt: root.opts[1]; changed(v) => { root.set-opt(1, v); } }
+                    OptSlider { opt: root.opts[2]; changed(v) => { root.set-opt(2, v); } }
+                    OptSlider { opt: root.opts[3]; changed(v) => { root.set-opt(3, v); } }
+                }
                 HorizontalLayout {
                     spacing: 5px;
                     OptSlider { opt: root.opts[4]; changed(v) => { root.set-opt(4, v); } }

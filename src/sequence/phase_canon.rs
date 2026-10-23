@@ -9,7 +9,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let mut rng = Rng::new(p.seed, p.variation, 0xCA10_0000 + tr as u64);
         let shift = (tr * n / TRACKS) % n;
         for i in 0..n {
-            let base = ((i * pulses) / n) < pulses; // crude
+            let base = ((i * pulses) / n) != (((i + 1) * pulses) / n);
             let idx = (i + shift) % n;
             let mut hit = base && rng.unit() < p.probability.clamp(0.0, 1.0) * p.density.clamp(0.0, 1.0);
             if hit && tr > 0 && (0..tr).all(|k| out.hit[k][idx]) { hit = false; }

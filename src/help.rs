@@ -136,15 +136,18 @@ pub(crate) fn math(p: &GenParams) -> String {
             let target = ((pulses as f32 * d * (0.5 + w0)).round() as usize).min(n);
             format!("n={n}: dθᵢ=2π·{rate:.3}·detune+({k:.2}/8)·Σsin(θⱼ−θᵢ), spread={:.2}; lane fires on a phase wrap; keep top {target} (lane 0)", 0.05 + 0.45 * p.phase.clamp(0.0, 1.0))
         }
-        Mode::EuclideanSwing => format!("n={n}: Euclidean hits with swing feel"),
-        Mode::Bernoulli => format!("n={n}: each step hits with probability d·p"),
-        Mode::AfricanBell => format!("n={n}: rotated 12-step African bell"),
-        Mode::PhaseCanon => format!("n={n}: phase-shifted canon layers"),
-        Mode::ReactionDiffusion => format!("n={n}: reaction-diffusion activator threshold"),
-        Mode::Lorenz => format!("n={n}: Lorenz attractor z-peaks"),
-        Mode::Cantor => format!("n={n}: Cantor set fractal onsets"),
-        Mode::Fibonacci => format!("n={n}: Sturmian/Fibonacci word"),
-        Mode::Genetic => format!("n={n}: genetic mutation of base pattern"),
+        Mode::EuclideanSwing => {
+            let k = euclidean_lane_pulses(pulses, d, 0, n);
+            format!("n={n}: Euclidean k=round({pulses}×{d:.2}×(0.35+{w0:.2}))={k} (lane 0); off-beat hits are accented for swing")
+        }
+        Mode::Bernoulli => format!("n={n}: hit(i)=Bernoulli(d·p) with d={d:.2}, p={:.2}; each step is independent per lane", p.probability),
+        Mode::AfricanBell => format!("n={n}: 12-step bell [x..x..x..x..] rotated by a seeded offset per lane; probability={:.2}", p.probability),
+        Mode::PhaseCanon => format!("n={n}: base pulse train of {pulses} onsets, each lane shifted by lane·n/8; density={d:.2}, probability={:.2}", p.probability),
+        Mode::ReactionDiffusion => format!("n={n}: activator a(i)=sin(2π·i/n·(1+0.1·lane)+0.7·lane); hit when a≥1−d ({:.2}) and Bernoulli(p={:.2})", 1.0 - d, p.probability),
+        Mode::Lorenz => format!("n={n}: Lorenz σ=10, ρ=28, β=8/3, dt=0.01×10 per step; lane hits on z local peaks; probability={:.2}, density={d:.2}", p.probability),
+        Mode::Cantor => format!("n={n}: Cantor set membership at depth 2+lane; hit when x∈Cantor and Bernoulli(d·p={:.2}×{:.2})", d, p.probability),
+        Mode::Fibonacci => format!("n={n}: Sturmian word α=d·(0.5+0.05·lane)={:.3}; hit where floor((i+1)α) changes; probability={:.2}", d * 0.5, p.probability),
+        Mode::Genetic => format!("n={n}: base pattern mutated with rate 1−d ({:.2}); acceptance probability p={:.2}", 1.0 - d, p.probability),
     }
 }
 
