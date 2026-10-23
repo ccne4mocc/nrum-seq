@@ -21,6 +21,9 @@ pub(crate) struct ExportSettings {
     pub bpm: f64,
     /// Clock rate in steps per beat (4 = 1/16).
     pub steps_per_beat: f64,
+    /// Exact loop length in steps. Fractional lengths wrap mid-cell, so this can be shorter
+    /// than the whole-number cell count in `Pattern::steps`.
+    pub loop_steps: f64,
     pub gate: f64,
     pub swing: f64,
     pub velocity: f32,
@@ -44,6 +47,11 @@ pub(crate) fn smf(pattern: &Pattern, settings: &ExportSettings) -> Vec<u8> {
         4.0
     };
     let step_len = 1.0 / spb;
+    let loop_steps = if settings.loop_steps.is_finite() && settings.loop_steps > 0.0 {
+        settings.loop_steps
+    } else {
+        steps as f64
+    };
     let gate = settings.gate.clamp(0.02, 1.0) * step_len;
     let swing = settings.swing.clamp(0.0, 0.5) * step_len;
     let to_tick = |beat: f64| (beat * PPQ as f64).round().clamp(0.0, u32::MAX as f64) as u32;
@@ -68,7 +76,7 @@ pub(crate) fn smf(pattern: &Pattern, settings: &ExportSettings) -> Vec<u8> {
         a.tick.cmp(&b.tick).then(a.order.cmp(&b.order)).then(a.note.cmp(&b.note))
     });
 
-    let loop_end = to_tick(steps as f64 * step_len);
+    let loop_end = to_tick(loop_steps * step_len);
     let mut track = Vec::new();
     // Tempo meta event. 0x51 carries three bytes of microseconds per quarter note.
     let bpm = if settings.bpm.is_finite() && settings.bpm > 0.0 { settings.bpm } else { 120.0 };
@@ -132,6 +140,7 @@ mod tests {
         let settings = ExportSettings {
             bpm: 120.0,
             steps_per_beat: 4.0,
+            loop_steps: steps as f64,
             gate: 0.5,
             swing: 0.0,
             velocity: 1.0,
@@ -195,6 +204,15 @@ mod tests {
         settings.lanes[0].enabled = false;
         let events = channel_events(&smf(&pattern, &settings)[22..]);
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn fractional_loop_uses_the_exact_loop_length() {
+        let (pattern, mut settings) = for_one_lane(36, 5, &[]);
+        settings.loop_steps = 4.5;
+        let bytes = smf(&pattern, &settings);
+        // 4.5 steps * 1/4 beat * 480 PPQ = 540 ticks, encoded as VLQ 0x84 0x1C.
+        assert!(bytes[22..].ends_with(&[0x84, 0x1C, 0xFF, 0x2F, 0x00]));
     }
 
     /// Minimal reader for the events this writer emits: skips meta events and returns

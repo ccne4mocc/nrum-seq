@@ -597,6 +597,24 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
+        Mode::EuclideanSwing | Mode::Bernoulli | Mode::AfricanBell | Mode::PhaseCanon => {
+            circle(&mut v.edges, C, C, 90.0);
+            for tr in 0..TRACKS {
+                for i in 0..n {
+                    if p.hit[tr][i] {
+                        let a = (i as f32 / n as f32) * std::f32::consts::TAU;
+                        let r = 30.0 + tr as f32 * 7.0;
+                        let (x, y) = (C + r * a.cos(), C + r * a.sin());
+                        v.nodes.push(Node { x, y, r: 3.0, on: true, cur: play == Some(i), label: String::new() });
+                    }
+                }
+            }
+            if let Some(i) = play {
+                let a = (i as f32 / n as f32) * std::f32::consts::TAU;
+                let (x, y) = (C + 90.0 * a.cos(), C + 90.0 * a.sin());
+                mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
+            }
+        }
     }
     v
 }

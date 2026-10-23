@@ -69,7 +69,7 @@ component WaveGrid inherits Rectangle {
     in property <[string]> options;
     in property <int> current;
     callback selected(int);
-    height: 42px;
+    height: 46px;
     GridLayout {
         spacing: 3px;
         for i in root.options.length: Rectangle {
@@ -266,7 +266,7 @@ export component AppWindow inherits Window {
     property <int> cells: root.round-steps ? Math.round(root.steps) : Math.ceil(root.steps);
     // Fixed step width. Growing the pattern scrolls the matrix instead of shrinking cells into
     // sub-pixel slivers; the label column stays put while only the cells scroll.
-    property <length> matrix-cell-width: 14px;
+    property <length> matrix-cell-width: root.cells < 64 ? Math.max(14px, 780px / root.cells) : 14px;
     in property <float> pulses: 5;
     in property <float> rotate: 0;
     in property <float> density: 0.65;
@@ -386,7 +386,7 @@ export component AppWindow inherits Window {
     pure function regen-label(mode: int) -> string {
         return "Regenerate after (lengths, 0=off)";
     }
-    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Pebble Box", "Xenakis Sieve", "Kuramoto Lanes"];
+    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Pebble Box", "Xenakis Sieve", "Kuramoto Lanes", "Euclidean-Swing", "Bernoulli", "African Bell", "Phase Canon"];
     property <[string]> mode-help: [
         "Places pulses as evenly as possible around the step ring with Bjorklund spacing. Each lane scales the pulse count by its density profile and anchors its word on a different phase, so the kit interleaves instead of stacking.",
         "Builds a balanced directed graph whose vertices are rest plus the eight drum lanes, then walks every edge once with Hierholzer's algorithm. The Euler circuit becomes the step sequence; density gates which visited lanes actually sound.",
@@ -520,7 +520,7 @@ export component AppWindow inherits Window {
                 TouchArea { clicked => { root.toggle-track(track.index); } }
             }
         }
-        Text { text: "PATTERN MATRIX  ·  \{root.cells} cells  ·  velocity = brightness  ·  probability = opacity  ·  playhead in amber"; color: Theme.text-muted; font-size: 10px; }
+        Text { text: "PATTERN MATRIX  ·  \{root.cells} cells  ·  velocity = brightness  ·  probability = opacity  ·  playhead outlined"; color: Theme.text-muted; font-size: 10px; }
         HorizontalLayout {
             spacing: 4px;
             VerticalLayout {
@@ -607,21 +607,6 @@ export component AppWindow inherits Window {
             // The Pattern arrays are allocated for 1024 steps up front, so changing the ceiling
             // never requires a host or plug-in restart.
             Text { text: "Max steps applies immediately; no restart is needed."; color: Theme.text-muted; font-size: 9px; }
-            Text { text: "PATTERN NUMBERS"; color: Theme.text-muted; font-size: 9px; }
-            HorizontalLayout { spacing: 6px;
-                NumBox {
-                    label: "Steps"; value: root.steps; minimum: 1; maximum: root.max-steps;
-                    step: root.round-steps ? 1 : 0.25; decimals: root.round-steps ? 0 : 2;
-                    changed(v) => { root.set-opt(0, v); }
-                }
-                NumBox { label: "Pulses"; value: root.pulses; minimum: 0; maximum: root.cells; step: 1; changed(v) => { root.set-opt(1, v); } }
-            }
-            HorizontalLayout { spacing: 6px;
-                NumBox { label: "Rotate"; value: root.rotate; minimum: 0; maximum: Math.max(root.cells - 1, 0); step: 1; changed(v) => { root.set-opt(2, v); } }
-                NumBox { label: "Symmetry"; value: root.symmetry; minimum: 1; maximum: 8; step: 1; changed(v) => { root.set-opt(11, v); } }
-            }
-            NumBox { label: "Regen after"; value: root.regenerate-every; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(10, v); } }
-            NumBox { label: "Randomize after lengths"; value: root.randomize-after-lengths; minimum: 0; maximum: 256; step: 1; changed(v) => { root.set-opt(12, v); } }
             Text { text: "RANDOMIZE SCOPE"; color: Theme.text-muted; font-size: 9px; }
             // Five bits of one host parameter (`randomize_scope`). Off keeps that group's
             // current values; on lets RANDOMIZE rewrite it.

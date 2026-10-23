@@ -29,6 +29,10 @@ pub enum Mode {
     #[id = "pebble_box"] #[name = "Pebble Box"] PebbleBox,
     #[id = "sieve"] #[name = "Xenakis Sieve"] Sieve,
     #[id = "kuramoto"] #[name = "Kuramoto Lanes"] Kuramoto,
+    #[id = "euclidean_swing"] #[name = "Euclidean-Swing Hybrid"] EuclideanSwing,
+    #[id = "bernoulli"] #[name = "Probabilistic (Bernoulli)"] Bernoulli,
+    #[id = "african_bell"] #[name = "African Bell Patterns"] AfricanBell,
+    #[id = "phase_canon"] #[name = "Polymetric Phase Canon"] PhaseCanon,
 }
 
 impl Mode {

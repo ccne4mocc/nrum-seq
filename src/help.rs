@@ -136,6 +136,10 @@ pub(crate) fn math(p: &GenParams) -> String {
             let target = ((pulses as f32 * d * (0.5 + w0)).round() as usize).min(n);
             format!("n={n}: dθᵢ=2π·{rate:.3}·detune+({k:.2}/8)·Σsin(θⱼ−θᵢ), spread={:.2}; lane fires on a phase wrap; keep top {target} (lane 0)", 0.05 + 0.45 * p.phase.clamp(0.0, 1.0))
         }
+        Mode::EuclideanSwing => format!("n={n}: Euclidean hits with swing feel"),
+        Mode::Bernoulli => format!("n={n}: each step hits with probability d·p"),
+        Mode::AfricanBell => format!("n={n}: rotated 12-step African bell"),
+        Mode::PhaseCanon => format!("n={n}: phase-shifted canon layers"),
     }
 }
 

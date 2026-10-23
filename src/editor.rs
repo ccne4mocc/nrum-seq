@@ -218,6 +218,7 @@ fn write_midi_file(p: &DrumParams, bpm: f64, folder: &str) -> Result<PathBuf, St
     let settings = midi_export::ExportSettings {
         bpm,
         steps_per_beat: p.rate.value().steps_per_beat(),
+        loop_steps: gen.length as f64,
         gate: p.gate.value() as f64,
         swing: p.swing.value() as f64,
         velocity: p.velocity.value(),

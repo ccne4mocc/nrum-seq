@@ -20,6 +20,10 @@ mod phyllotaxis;
 mod pebble;
 mod sieve;
 mod kuramoto;
+mod euclidean_swing;
+mod bernoulli;
+mod african_bell;
+mod phase_canon;
 
 // The panel draws these algorithms' own curves and cutoffs rather than restating their
 // formulas, so these re-exports exist for `crate::view` alone.
@@ -269,6 +273,10 @@ fn run_mode(q: &GenParams) -> Pattern {
         Mode::PebbleBox => pebble::generate(q),
         Mode::Sieve => sieve::generate(q),
         Mode::Kuramoto => kuramoto::generate(q),
+        Mode::EuclideanSwing => euclidean_swing::generate(q),
+        Mode::Bernoulli => bernoulli::generate(q),
+        Mode::AfricanBell => african_bell::generate(q),
+        Mode::PhaseCanon => phase_canon::generate(q),
     }
 }
 
