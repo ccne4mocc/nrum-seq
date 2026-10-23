@@ -578,6 +578,7 @@ export component AppWindow inherits Window {
     Rectangle {
         x: root.settings-x; y: 0px; width: 300px; height: root.base-height;
         background: Theme.surface; border-width: 1px; border-color: Theme.border;
+        drop-shadow-blur: 16px; drop-shadow-color: #00000055; drop-shadow-offset-y: 4px;
         animate x { duration: 140ms; easing: ease-in-out; }
         VerticalLayout {
             padding: 12px; spacing: 8px;
