@@ -513,6 +513,7 @@ impl Editor for SlintEditor {
             ui.set_generate_on(p.generate.value());
             let gen_key = p.gen_params();
             let cur = update_shared.current_step.load(Relaxed);
+            ui.set_current_step(cur);
             let mask = enabled_mask(p);
             let vel_key = velocity_key(p);
             let mut c = update_cache.lock().unwrap();

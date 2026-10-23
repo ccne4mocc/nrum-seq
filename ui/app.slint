@@ -223,7 +223,7 @@ component ModePanel inherits Rectangle {
     property <float> px-per-unit: 1.4285714;   // 300px square drawing / 210-unit geometry
     property <length> draw-offset-x: 30px;      // letterbox the square drawing in the wider card
     width: 360px; height: 300px;
-    background: Theme.surface; border-radius: 6px; clip: true;
+    background: transparent; border-radius: 6px; clip: true;
     Path { x: root.draw-offset-x; y: 0px; width: 300px; height: 300px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.edges; fill: transparent; stroke: Theme.border; stroke-width: 1px; }
     Path { x: root.draw-offset-x; y: 0px; width: 300px; height: 300px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.lines; fill: transparent; stroke: Theme.c3; stroke-width: 1.4px; }
     Path { x: root.draw-offset-x; y: 0px; width: 300px; height: 300px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.hand; fill: transparent; stroke: Theme.hi; stroke-width: 2px; }
@@ -268,6 +268,8 @@ export component AppWindow inherits Window {
     // Fixed step width. Growing the pattern scrolls the matrix instead of shrinking cells into
     // sub-pixel slivers; the label column stays put while only the cells scroll.
     property <length> matrix-cell-width: root.cells < 64 ? Math.max(14px, 780px / root.cells) : 14px;
+    in-out property <int> current-step: 0;
+    in-out property <bool> follow-step: true;
     in property <float> pulses: 5;
     in property <float> rotate: 0;
     in property <float> density: 0.65;
@@ -519,7 +521,10 @@ export component AppWindow inherits Window {
                 TouchArea { clicked => { root.toggle-track(track.index); } }
             }
         }
-        Text { text: "PATTERN MATRIX  ·  \{root.cells} cells  ·  velocity = brightness  ·  probability = opacity  ·  playhead outlined"; color: Theme.text-muted; font-size: 10px; }
+        HorizontalLayout { spacing: 8px;
+            Text { horizontal-stretch: 1; text: "PATTERN MATRIX  ·  \{root.cells} cells  ·  velocity = brightness  ·  probability = opacity  ·  playhead outlined"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; }
+            Rectangle { width: 92px; height: 20px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TouchArea { clicked => { root.follow-step = !root.follow-step; } } }
+        }
         HorizontalLayout {
             spacing: 4px;
             VerticalLayout {
@@ -535,6 +540,7 @@ export component AppWindow inherits Window {
                 vertical-scrollbar-policy: always-off;
                 horizontal-scrollbar-policy: as-needed;
                 viewport-width: root.cells * root.matrix-cell-width;
+                viewport-x: root.follow-step ? Math.max(0px, Math.min(root.current-step * root.matrix-cell-width - 220px, root.cells * root.matrix-cell-width - 500px)) : 0px;
                 VerticalLayout {
                     width: root.cells * root.matrix-cell-width;
                     spacing: 4px;

@@ -610,9 +610,9 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     let dz = x * y - (8.0 / 3.0) * z;
                     x += dx * 0.01; y += dy * 0.01; z += dz * 0.01;
                 }
-                let px = C + x * 3.2;
-                let py = C - (z - 25.0) * 2.2;
-                let (px, py) = (px.clamp(12.0, 198.0), py.clamp(12.0, 198.0));
+                let px = C + x * 5.0;
+                let py = C - (z - 25.0) * 3.0;
+                let (px, py) = (px.clamp(10.0, 200.0), py.clamp(10.0, 200.0));
                 if let Some((lx, ly)) = prev { mv(&mut v.lines, lx, ly); ln(&mut v.lines, px, py); }
                 prev = Some((px, py));
                 if p.hit[0][i] {
