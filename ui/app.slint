@@ -466,6 +466,9 @@ export component AppWindow inherits Window {
                 VerticalLayout { spacing: 4px;
                     for i in root.mode-names.length: Rectangle {
                         height: 28px; border-radius: 4px;
+                        transform-scale: mode-touch.has-hover ? 1.02 : 1.0;
+                        animate transform-scale { duration: 120ms; easing: ease-out; }
+                        drop-shadow-blur: mode-touch.has-hover ? 8px : 0px; drop-shadow-color: #00000040; drop-shadow-offset-y: mode-touch.has-hover ? 3px : 0px;
                         background: i == root.mode ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (mode-touch.has-hover ? Theme.control-hover : Theme.control);
                         Text { x: 5px; width: parent.width - 10px; height: parent.height; text: root.mode-names[i]; color: i == root.mode ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                         // The wheel steps the mode rather than scrolling this list, so the
