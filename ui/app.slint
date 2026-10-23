@@ -220,19 +220,19 @@ component ModePanel inherits Rectangle {
     in property <string> hand: "M0 0";
     // view.rs builds every panel in a 210-unit space. The paths scale through the viewbox;
     // the node rectangles are scaled by hand so dots and labels grow with the box.
-    property <float> px-per-unit: 1.4285714;   // 300px panel height / 210-unit geometry
-    property <float> px-per-unit-x: 1.7142857;  // 360px panel width / 210-unit geometry
+    property <float> px-per-unit: 1.4285714;   // 300px square drawing / 210-unit geometry
+    property <length> draw-offset-x: 30px;      // letterbox the square drawing in the wider card
     width: 360px; height: 300px;
     background: Theme.surface; border-radius: 6px; clip: true;
-    Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.edges; fill: transparent; stroke: Theme.border; stroke-width: 1px; }
-    Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.lines; fill: transparent; stroke: Theme.c3; stroke-width: 1.4px; }
-    Path { x: 0px; y: 0px; width: parent.width; height: parent.height; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.hand; fill: transparent; stroke: Theme.hi; stroke-width: 2px; }
+    Path { x: root.draw-offset-x; y: 0px; width: 300px; height: 300px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.edges; fill: transparent; stroke: Theme.border; stroke-width: 1px; }
+    Path { x: root.draw-offset-x; y: 0px; width: 300px; height: 300px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.lines; fill: transparent; stroke: Theme.c3; stroke-width: 1.4px; }
+    Path { x: root.draw-offset-x; y: 0px; width: 300px; height: 300px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.hand; fill: transparent; stroke: Theme.hi; stroke-width: 2px; }
     for n in root.nodes: Rectangle {
         // Pebble-box positions change every step; the tween reads as motion. Other panels'
         // nodes are static, so the animation never shows there.
         animate x, y { duration: 120ms; }
-        x: (n.x - n.r) * root.px-per-unit-x; y: (n.y - n.r) * root.px-per-unit;
-        width: n.r * 2 * root.px-per-unit-x; height: n.r * 2 * root.px-per-unit;
+        x: root.draw-offset-x + (n.x - n.r) * root.px-per-unit; y: (n.y - n.r) * root.px-per-unit;
+        width: n.r * 2 * root.px-per-unit; height: n.r * 2 * root.px-per-unit;
         border-radius: n.r * root.px-per-unit;
         background: n.cur ? Theme.hi : (n.on ? Theme.c1 : Theme.cell-off);
         border-width: 1px; border-color: Theme.border;
