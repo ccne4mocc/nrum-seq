@@ -406,7 +406,11 @@ export component AppWindow inherits Window {
         "Scores every step by metric weight, a lane-dependent shifted weight, and deterministic jitter. The highest-scoring steps become onsets, biasing the result toward offbeats and late subdivisions.",
         "Bounces eight pebbles, one per lane, in a box whose gravity can be tilted and strengthened. Each shaker impulse kicks a rotating third of them; a pebble triggers its drum when its wall impact is harder than the density-derived threshold. The panel animates the recorded positions and flashes the wall each hit struck.",
         "Builds a sieve mask from residue classes modulo small primes: two union terms minus a subtracted term. ca_rule picks the moduli, symmetry and phase pick the residues, the pulse count says how many union terms are active. The panel draws the three lattice rows and the resulting step mask; density keeps a fraction of the members.",
-        "Runs eight phase oscillators, one per lane, coupled to their ring neighbours. osc_rate sets the coupling strength, phase the frequency spread, pulses the target onsets, and density the per-lane weight. The panel draws the eight phase pointers, their trails and the mean phase vector, so drift and lock are visible."
+        "Runs eight phase oscillators, one per lane, coupled to their ring neighbours. osc_rate sets the coupling strength, phase the frequency spread, pulses the target onsets, and density the per-lane weight. The panel draws the eight phase pointers, their trails and the mean phase vector, so drift and lock are visible.",
+        "Euclidean spacing with a swing feel: evenly distributed hits plus alternating accents for a swung groove.",
+        "Each step independently triggers per lane with probability density*probability, giving sparse random patterns.",
+        "Rotates a 12-step African bell pattern across lanes for interlocking rhythms.",
+        "Layers phase-shifted copies of a base pattern to create a polymetric canon."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", step: root.round-steps ? 1 : 0.25 },
