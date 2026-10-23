@@ -625,8 +625,10 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
         }
         Mode::EuclideanSwing | Mode::Bernoulli | Mode::AfricanBell | Mode::PhaseCanon | Mode::ReactionDiffusion | Mode::Cantor | Mode::Fibonacci | Mode::Genetic => {
             circle(&mut v.edges, C, C, 90.0);
+            // At long pattern lengths, sample the ring instead of drawing up to 8k dots.
+            let stride = n.div_ceil(96).max(1);
             for tr in 0..TRACKS {
-                for i in 0..n {
+                for i in (0..n).step_by(stride) {
                     if p.hit[tr][i] {
                         let a = (i as f32 / n as f32) * std::f32::consts::TAU;
                         let r = 30.0 + tr as f32 * 7.0;

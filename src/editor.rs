@@ -325,6 +325,21 @@ impl Editor for SlintEditor {
                         _ => p.cell_count(),
                     };
                     if p.pulses.value() > max_pulses { set(&c, &p.pulses, max_pulses); }
+                    // Modes that read a long orbit or fractal benefit from more than the
+                    // default 64-step ceiling. Raise the ceiling once, and let the user lower it.
+                    let wants_long = matches!(
+                        mode,
+                        Mode::Lorenz
+                            | Mode::ReactionDiffusion
+                            | Mode::Cantor
+                            | Mode::Fibonacci
+                            | Mode::Genetic
+                            | Mode::Kuramoto
+                            | Mode::Phyllotaxis
+                    );
+                    if wants_long && p.max_steps.value() < 256 {
+                        set(&c, &p.max_steps, 256);
+                    }
                 });
             }
             {
