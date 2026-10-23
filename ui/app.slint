@@ -386,7 +386,7 @@ export component AppWindow inherits Window {
     pure function regen-label(mode: int) -> string {
         return "Regenerate after (lengths, 0=off)";
     }
-    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Pebble Box", "Xenakis Sieve", "Kuramoto Lanes", "Euclidean-Swing", "Bernoulli", "African Bell", "Phase Canon"];
+    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Pebble Box", "Xenakis Sieve", "Kuramoto Lanes", "Euclidean-Swing", "Bernoulli", "African Bell", "Phase Canon", "Reaction-Diffusion", "Lorenz", "Cantor", "Fibonacci", "Genetic"];
     property <[string]> mode-help: [
         "Places pulses as evenly as possible around the step ring with Bjorklund spacing. Each lane scales the pulse count by its density profile and anchors its word on a different phase, so the kit interleaves instead of stacking.",
         "Builds a balanced directed graph whose vertices are rest plus the eight drum lanes, then walks every edge once with Hierholzer's algorithm. The Euler circuit becomes the step sequence; density gates which visited lanes actually sound.",
@@ -410,7 +410,12 @@ export component AppWindow inherits Window {
         "Euclidean spacing with a swing feel: evenly distributed hits plus alternating accents for a swung groove.",
         "Each step independently triggers per lane with probability density*probability, giving sparse random patterns.",
         "Rotates a 12-step African bell pattern across lanes for interlocking rhythms.",
-        "Layers phase-shifted copies of a base pattern to create a polymetric canon."
+        "Layers phase-shifted copies of a base pattern to create a polymetric canon.",
+        "Reaction-diffusion activator threshold onsets.",
+        "Lorenz attractor z-peak onsets.",
+        "Cantor set fractal rhythm.",
+        "Fibonacci/Sturmian word onsets.",
+        "Genetic mutation of a base pattern."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", step: root.round-steps ? 1 : 0.25 },

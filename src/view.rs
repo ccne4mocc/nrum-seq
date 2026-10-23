@@ -597,7 +597,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
-        Mode::EuclideanSwing | Mode::Bernoulli | Mode::AfricanBell | Mode::PhaseCanon => {
+        Mode::EuclideanSwing | Mode::Bernoulli | Mode::AfricanBell | Mode::PhaseCanon | Mode::ReactionDiffusion | Mode::Lorenz | Mode::Cantor | Mode::Fibonacci | Mode::Genetic => {
             circle(&mut v.edges, C, C, 90.0);
             for tr in 0..TRACKS {
                 for i in 0..n {

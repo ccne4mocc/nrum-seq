@@ -140,6 +140,11 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::Bernoulli => format!("n={n}: each step hits with probability d·p"),
         Mode::AfricanBell => format!("n={n}: rotated 12-step African bell"),
         Mode::PhaseCanon => format!("n={n}: phase-shifted canon layers"),
+        Mode::ReactionDiffusion => format!("n={n}: reaction-diffusion activator threshold"),
+        Mode::Lorenz => format!("n={n}: Lorenz attractor z-peaks"),
+        Mode::Cantor => format!("n={n}: Cantor set fractal onsets"),
+        Mode::Fibonacci => format!("n={n}: Sturmian/Fibonacci word"),
+        Mode::Genetic => format!("n={n}: genetic mutation of base pattern"),
     }
 }
 

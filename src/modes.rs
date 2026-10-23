@@ -33,6 +33,11 @@ pub enum Mode {
     #[id = "bernoulli"] #[name = "Probabilistic (Bernoulli)"] Bernoulli,
     #[id = "african_bell"] #[name = "African Bell Patterns"] AfricanBell,
     #[id = "phase_canon"] #[name = "Polymetric Phase Canon"] PhaseCanon,
+    #[id = "reaction_diffusion"] #[name = "Reaction-Diffusion"] ReactionDiffusion,
+    #[id = "lorenz"] #[name = "Lorenz Attractor"] Lorenz,
+    #[id = "cantor"] #[name = "Cantor Set Rhythm"] Cantor,
+    #[id = "fibonacci"] #[name = "Fibonacci/Sturmian"] Fibonacci,
+    #[id = "genetic"] #[name = "Genetic Mutation"] Genetic,
 }
 
 impl Mode {

@@ -24,6 +24,11 @@ mod euclidean_swing;
 mod bernoulli;
 mod african_bell;
 mod phase_canon;
+mod reaction_diffusion;
+mod lorenz;
+mod cantor;
+mod fibonacci;
+mod genetic;
 
 // The panel draws these algorithms' own curves and cutoffs rather than restating their
 // formulas, so these re-exports exist for `crate::view` alone.
@@ -277,6 +282,11 @@ fn run_mode(q: &GenParams) -> Pattern {
         Mode::Bernoulli => bernoulli::generate(q),
         Mode::AfricanBell => african_bell::generate(q),
         Mode::PhaseCanon => phase_canon::generate(q),
+        Mode::ReactionDiffusion => reaction_diffusion::generate(q),
+        Mode::Lorenz => lorenz::generate(q),
+        Mode::Cantor => cantor::generate(q),
+        Mode::Fibonacci => fibonacci::generate(q),
+        Mode::Genetic => genetic::generate(q),
     }
 }
 
