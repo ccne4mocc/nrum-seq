@@ -270,6 +270,25 @@ export component AppWindow inherits Window {
     property <length> matrix-cell-width: root.cells < 64 ? Math.max(14px, 780px / root.cells) : 14px;
     in-out property <int> current-step: 0;
     in-out property <bool> follow-step: true;
+    in-out property <length> matrix-x: 0px;
+    property <bool> programmatic-scroll: false;
+    changed current-step => {
+        if (root.follow-step) {
+            root.programmatic-scroll = true;
+            root.matrix-x = Math.max(0px, Math.min(root.current-step * root.matrix-cell-width - 220px, root.cells * root.matrix-cell-width - 500px));
+            root.programmatic-scroll = false;
+        }
+    }
+    changed follow-step => {
+        if (root.follow-step) {
+            root.programmatic-scroll = true;
+            root.matrix-x = Math.max(0px, Math.min(root.current-step * root.matrix-cell-width - 220px, root.cells * root.matrix-cell-width - 500px));
+            root.programmatic-scroll = false;
+        }
+    }
+    changed matrix-x => {
+        if (!root.programmatic-scroll) { root.follow-step = false; }
+    }
     in property <float> pulses: 5;
     in property <float> rotate: 0;
     in property <float> density: 0.65;
@@ -307,6 +326,8 @@ export component AppWindow inherits Window {
         root.settings-x = root.settings-open ? root.base-width - 300px : root.base-width;
     }
     in property <bool> free-run: false;
+    in property <bool> invert-on: false;
+    in property <bool> mirror-on: false;
     in property <bool> generate-on: false;
     in property <[TrackRow]> tracks;
     in property <[ViewNode]> view-nodes;
@@ -322,6 +343,8 @@ export component AppWindow inherits Window {
     callback toggle-round-steps();
     callback toggle-track(int);
     callback toggle-free-run();
+    callback toggle-invert();
+    callback toggle-mirror();
     callback generate-pressed();
     callback randomize-pressed();
     callback toggle-scope(int);
@@ -540,7 +563,7 @@ export component AppWindow inherits Window {
                 vertical-scrollbar-policy: always-off;
                 horizontal-scrollbar-policy: as-needed;
                 viewport-width: root.cells * root.matrix-cell-width;
-                viewport-x: root.follow-step ? Math.max(0px, Math.min(root.current-step * root.matrix-cell-width - 220px, root.cells * root.matrix-cell-width - 500px)) : 0px;
+                viewport-x <=> root.matrix-x;
                 VerticalLayout {
                     width: root.cells * root.matrix-cell-width;
                     spacing: 4px;
@@ -563,6 +586,8 @@ export component AppWindow inherits Window {
         }
         HorizontalLayout {
             height: 27px; spacing: 5px;
+            Rectangle { width: 74px; height: 24px; border-radius: 4px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TouchArea { clicked => { root.toggle-invert(); } } }
+            Rectangle { width: 74px; height: 24px; border-radius: 4px; background: root.mirror-on ? Theme.c3.with-alpha(0.35) : Theme.control; Text { text: "MIRROR"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } mirror-touch := TouchArea { clicked => { root.toggle-mirror(); } } }
             Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "Toggle free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
             Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 9px; vertical-alignment: center; }
             OptSlider { width: 230px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }

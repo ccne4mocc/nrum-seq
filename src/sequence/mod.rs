@@ -108,6 +108,10 @@ pub struct GenParams {
     pub symmetry: usize,
     /// Incremented when the user presses Generate; saved with the project.
     pub variation: u32,
+    /// Flip every hit to a rest and every rest to a hit after generation.
+    pub invert: bool,
+    /// Reverse the step order after generation.
+    pub mirror: bool,
 }
 
 impl Default for GenParams {
@@ -115,7 +119,7 @@ impl Default for GenParams {
         Self {
             kind: Mode::Euclidean, steps: 16, length: 16.0, pulses: 5, rotate: 0,
             density: 0.65, probability: 1.0, velocity: 1.0, seed: 0.271, phase: 0.0, osc_rate: 2.0,
-            osc_wave: 0, ca_rule: 30, symmetry: 4, variation: 0,
+            osc_wave: 0, ca_rule: 30, symmetry: 4, variation: 0, invert: false, mirror: false,
         }
     }
 }
@@ -325,6 +329,29 @@ pub fn generate(p: &GenParams) -> Pattern {
         let old_pebbles = out.pebbles; let old_impact = out.impact; let old_phases = out.phases;
         for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
         for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.lsym[i] = old_lsym[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; out.phases[i] = old_phases[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+    }
+    if q.invert {
+        for tr in 0..TRACKS {
+            for i in 0..steps {
+                out.hit[tr][i] = !out.hit[tr][i];
+                if !out.hit[tr][i] { out.impact[i][tr] = 0; }
+            }
+        }
+    }
+    if q.mirror {
+        for tr in 0..TRACKS {
+            for i in 0..steps / 2 {
+                let j = steps - 1 - i;
+                out.hit[tr].swap(i, j);
+                out.accent[tr].swap(i, j);
+            }
+        }
+        for i in 0..steps / 2 {
+            let j = steps - 1 - i;
+            out.state.swap(i, j); out.orbit.swap(i, j); out.lsym.swap(i, j);
+            out.pebbles.swap(i, j); out.impact.swap(i, j); out.phases.swap(i, j);
+            for row in 0..CA_ROWS { out.ca[row].swap(i, j); }
+        }
     }
     // The stable downbeat/backbeat accent shape is applied *after* rotation, so it stays tied to
     // the step grid (and therefore the beat) instead of travelling with the rotated pattern;
@@ -668,6 +695,20 @@ mod tests {
                     }
                     assert!(with_column <= 2, "{kind:?} fires all 8 lanes on one step in {with_column}/12 variations (steps={steps}, density={density})");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn invert_and_mirror_transform_only_the_generated_hits() {
+        let base = GenParams { kind: Mode::Euclidean, steps: 8, length: 8.0, pulses: 3, density: 1.0, probability: 1.0, rotate: 0, variation: 0, ..GenParams::default() };
+        let plain = generate(&base);
+        let inverted = generate(&GenParams { invert: true, ..base });
+        let mirrored = generate(&GenParams { mirror: true, ..base });
+        for tr in 0..TRACKS {
+            for i in 0..8 {
+                assert_eq!(inverted.hit[tr][i], !plain.hit[tr][i], "invert lane {tr} step {i}");
+                assert_eq!(mirrored.hit[tr][i], plain.hit[tr][7 - i], "mirror lane {tr} step {i}");
             }
         }
     }

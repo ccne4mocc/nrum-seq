@@ -140,6 +140,8 @@ pub struct DrumParams {
     #[id = "swing"] pub swing: FloatParam,
     /// A change in either direction requests a fresh deterministic variation.
     #[id = "generate"] pub generate: BoolParam,
+    #[id = "invert"] pub invert: BoolParam,
+    #[id = "mirror"] pub mirror: BoolParam,
     #[id = "freerun"] pub free_run: BoolParam,
 
     #[id = "kick_on"] pub kick_on: BoolParam,
@@ -212,6 +214,8 @@ impl Default for DrumParams {
             gate: FloatParam::new("Gate", 0.12, FloatRange::Linear { min: 0.02, max: 1.0 }),
             swing: FloatParam::new("Swing", 0.0, FloatRange::Linear { min: 0.0, max: 0.5 }),
             generate: BoolParam::new("Generate", false),
+            invert: BoolParam::new("Invert Pattern", false),
+            mirror: BoolParam::new("Mirror Pattern", false),
             free_run: BoolParam::new("Free Run", false),
 
             kick_on: BoolParam::new("Kick Enable", true),
@@ -279,6 +283,8 @@ impl DrumParams {
             ca_rule: self.ca_rule.value().clamp(0, 255) as u8,
             symmetry: self.symmetry.value().clamp(1, 8) as usize,
             variation: self.variation.load(Relaxed),
+            invert: self.invert.value(),
+            mirror: self.mirror.value(),
         }
     }
 
@@ -589,7 +595,7 @@ mod tests {
         let params = DrumParams::default();
         let map = params.param_map();
         let ids: Vec<&str> = map.iter().map(|(id, _, _)| id.as_str()).collect();
-        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_lengths", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "generate", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
+        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_lengths", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "generate", "invert", "mirror", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
             assert!(ids.contains(&expected), "missing parameter {expected}");
         }
         for (id, ptr, _) in &map {

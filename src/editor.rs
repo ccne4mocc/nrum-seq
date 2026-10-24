@@ -386,6 +386,10 @@ impl Editor for SlintEditor {
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_free_run(move || set(&c, &p.free_run, !p.free_run.value()));
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_toggle_invert(move || set(&c, &p.invert, !p.invert.value()));
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_toggle_mirror(move || set(&c, &p.mirror, !p.mirror.value()));
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
@@ -510,6 +514,8 @@ impl Editor for SlintEditor {
             ui.set_symmetry(p.symmetry.value() as f32);
             ui.set_rate(p.rate.value() as i32);
             ui.set_free_run(p.free_run.value());
+            ui.set_invert_on(p.invert.value());
+            ui.set_mirror_on(p.mirror.value());
             ui.set_generate_on(p.generate.value());
             let gen_key = p.gen_params();
             let cur = update_shared.current_step.load(Relaxed);
