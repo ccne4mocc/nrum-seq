@@ -64,6 +64,16 @@ cargo test --lib
 cargo xtask bundle ndrum --release
 ```
 
+Windows bundles are built with the MSVC toolchain for both architectures (CLAP and VST3 in one bundle):
+
+```sh
+rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
+cargo xtask bundle ndrum --release --target x86_64-pc-windows-msvc
+cargo xtask bundle ndrum --release --target i686-pc-windows-msvc
+```
+
+CI runs the same commands in `.github/workflows/windows.yml` and uploads the bundles.
+
 The bundle task places distributable artifacts under `target/bundled/` when the selected platform/backend is supported. For a quick compile-only check use `cargo check --lib` first. `cargo check --all-targets` and `cargo test` pass, but **the plug-in has never been loaded into a DAW** — treat host behaviour as unverified until it has been.
 
 ## Reference project

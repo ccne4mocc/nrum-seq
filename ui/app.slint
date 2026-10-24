@@ -329,6 +329,7 @@ export component AppWindow inherits Window {
     in property <bool> free-run: false;
     in property <bool> invert-on: false;
     in property <bool> mirror-on: false;
+    in property <bool> logging-on: false;
     in property <bool> generate-on: false;
     in property <[TrackRow]> tracks;
     in property <[ViewNode]> view-nodes;
@@ -346,6 +347,7 @@ export component AppWindow inherits Window {
     callback toggle-free-run();
     callback toggle-invert();
     callback toggle-mirror();
+    callback toggle-logging();
     callback generate-pressed();
     callback randomize-pressed();
     callback toggle-scope(int);
@@ -664,6 +666,14 @@ export component AppWindow inherits Window {
             // The Pattern arrays are allocated for 1024 steps up front, so changing the ceiling
             // never requires a host or plug-in restart.
             Text { text: "Max steps applies immediately; no restart is needed."; color: Theme.text-muted; font-size: 9px; }
+            Text { text: "TECHNICAL SUPPORT"; color: Theme.text-muted; font-size: 9px; }
+            Rectangle {
+                height: 26px; border-radius: 4px;
+                background: root.logging-on ? Theme.c1.with-alpha(0.8) : (logging-touch.has-hover ? Theme.control-hover : Theme.control);
+                Text { x: 8px; width: parent.width - 16px; text: root.logging-on ? "LOGGING: ON (nDrum.log)" : "LOGGING: OFF"; color: root.logging-on ? Theme.on-accent : Theme.text; font-size: 9px; vertical-alignment: center; }
+                logging-touch := TouchArea { clicked => { root.toggle-logging(); } }
+            }
+            Text { text: "Writes mode and parameter snapshots to nDrum.log in your home folder."; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
             Text { text: "RANDOMIZE SCOPE"; color: Theme.text-muted; font-size: 9px; }
             // Five bits of one host parameter (`randomize_scope`). Off keeps that group's
             // current values; on lets RANDOMIZE rewrite it.

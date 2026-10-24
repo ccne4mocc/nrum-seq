@@ -16,6 +16,18 @@ slint::include_modules!();
 const WIDTH: u32 = 860;
 const HEIGHT: u32 = 760;
 
+/// Append one technical line to `nDrum.log` in the user's home directory. Called from the GUI
+/// update thread only; the audio path never touches the file system.
+fn log_line(text: &str) {
+    use std::io::Write;
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    let Some(home) = home else { return };
+    let path = PathBuf::from(home).join("nDrum.log");
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{}", text);
+    }
+}
+
 pub fn create(params: Arc<DrumParams>, shared: Arc<Shared>) -> Box<dyn Editor> {
     Box::new(SlintEditor {
         params, shared,
@@ -390,6 +402,8 @@ impl Editor for SlintEditor {
                 ui.on_toggle_invert(move || set(&c, &p.invert, !p.invert.value()));
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_mirror(move || set(&c, &p.mirror, !p.mirror.value()));
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_toggle_logging(move || set(&c, &p.logging, !p.logging.value()));
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
@@ -515,6 +529,7 @@ impl Editor for SlintEditor {
             ui.set_free_run(p.free_run.value());
             ui.set_invert_on(p.invert.value());
             ui.set_mirror_on(p.mirror.value());
+            ui.set_logging_on(p.logging.value());
             ui.set_generate_on(p.generate.value());
             let gen_key = p.gen_params();
             let cur = update_shared.current_step.load(Relaxed);
@@ -525,6 +540,13 @@ impl Editor for SlintEditor {
             if c.gen_key != Some(gen_key) {
                 c.pattern = generate(&gen_key);
                 ui.set_mode_math(SharedString::from(crate::help::math(&gen_key)));
+                if p.logging.value() {
+                    log_line(&format!(
+                        "mode={:?} steps={} density={:.2} probability={:.2} seed={:.3} rotate={} invert={} mirror={}",
+                        gen_key.kind, gen_key.steps, gen_key.density, gen_key.probability,
+                        gen_key.seed, gen_key.rotate, gen_key.invert, gen_key.mirror,
+                    ));
+                }
                 c.gen_key = Some(gen_key);
             }
             let view_key = (gen_key, cur, mask, vel_key);
