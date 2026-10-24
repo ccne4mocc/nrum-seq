@@ -271,23 +271,21 @@ export component AppWindow inherits Window {
     in-out property <int> current-step: 0;
     in-out property <bool> follow-step: true;
     in-out property <length> matrix-x: 0px;
-    property <bool> programmatic-scroll: false;
+    pure function follow-x() -> length {
+        return Math.max(0px, Math.min(root.current-step * root.matrix-cell-width - 220px, root.cells * root.matrix-cell-width - 500px));
+    }
     changed current-step => {
-        if (root.follow-step) {
-            root.programmatic-scroll = true;
-            root.matrix-x = Math.max(0px, Math.min(root.current-step * root.matrix-cell-width - 220px, root.cells * root.matrix-cell-width - 500px));
-            root.programmatic-scroll = false;
-        }
+        if (root.follow-step) { root.matrix-x = root.follow-x(); }
     }
     changed follow-step => {
-        if (root.follow-step) {
-            root.programmatic-scroll = true;
-            root.matrix-x = Math.max(0px, Math.min(root.current-step * root.matrix-cell-width - 220px, root.cells * root.matrix-cell-width - 500px));
-            root.programmatic-scroll = false;
-        }
+        if (root.follow-step) { root.matrix-x = root.follow-x(); }
     }
     changed matrix-x => {
-        if (!root.programmatic-scroll) { root.follow-step = false; }
+        // Only a real user scroll can move matrix-x away from the follow position. Programmatic
+        // writes land exactly on it, so they never disable following.
+        if (root.follow-step && Math.abs(root.matrix-x - root.follow-x()) > 2px) {
+            root.follow-step = false;
+        }
     }
     in property <float> pulses: 5;
     in property <float> rotate: 0;
@@ -479,7 +477,7 @@ export component AppWindow inherits Window {
         padding: 14px; spacing: 8px;
         HorizontalLayout {
             height: 34px; spacing: 6px;
-            VerticalLayout { spacing: 0px; Text { text: "nDrum"; color: Theme.text; font-size: 18px; font-weight: 700; } Text { text: "algorithmic MIDI percussion sequencer  /  CLAP + VST3"; color: Theme.text-muted; font-size: 10px; } }
+            Text { text: "nDrum"; color: Theme.text; font-family: "Comic Sans MS"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : Theme.control; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: generate-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : Theme.control; Text { text: "RANDOMIZE ⚄"; color: randomize-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TouchArea { clicked => { root.randomize-pressed(); } } }
             Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : Theme.control; Text { text: "⚙"; color: settings-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
