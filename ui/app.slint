@@ -310,12 +310,15 @@ export component AppWindow inherits Window {
     in property <bool> scope-feel: true;
     in property <string> credit-author: "";
     in property <string> credit-github: "";
-    in property <string> credit-email: "";
     in property <string> credit-support: "";
     in property <string> midi-folder: "";
     in-out property <string> export-status: "";
     in property <int> theme-index: 0;
     in-out property <bool> mode-menu-open: false;
+    in-out property <length> mode-menu-x: root.base-width;
+    changed mode-menu-open => {
+        root.mode-menu-x = root.mode-menu-open ? root.base-width - 260px : root.base-width;
+    }
     in-out property <bool> settings-open: false;
     // Settings slide in from the right edge of the fixed 860px layout; see the panel at the
     // bottom of this component.
@@ -477,7 +480,9 @@ export component AppWindow inherits Window {
         padding: 14px; spacing: 8px;
         HorizontalLayout {
             height: 34px; spacing: 6px;
-            Text { text: "nDrum"; color: Theme.text; font-family: "Comic Sans MS"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+            Text { text: "nDrum"; color: Theme.text; font-family: "FantasqueSansM Nerd Font Mono"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+            Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "Toggle free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
+            Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 9px; vertical-alignment: center; }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : Theme.control; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: generate-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : Theme.control; Text { text: "RANDOMIZE ⚄"; color: randomize-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TouchArea { clicked => { root.randomize-pressed(); } } }
             Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : Theme.control; Text { text: "⚙"; color: settings-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
@@ -586,23 +591,26 @@ export component AppWindow inherits Window {
             height: 27px; spacing: 5px;
             Rectangle { width: 74px; height: 24px; border-radius: 4px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TouchArea { clicked => { root.toggle-invert(); } } }
             Rectangle { width: 74px; height: 24px; border-radius: 4px; background: root.mirror-on ? Theme.c3.with-alpha(0.35) : Theme.control; Text { text: "MIRROR"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } mirror-touch := TouchArea { clicked => { root.toggle-mirror(); } } }
-            Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "Toggle free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
-            Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 9px; vertical-alignment: center; }
             OptSlider { width: 230px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }
         }
     }
 
-    // Mode picker: a collapsed list on top of the editor. It opens over the content so the
-    // drawing keeps the full width when the menu is closed.
-    if root.mode-menu-open: Rectangle {
-        x: 410px; y: 52px; width: 260px; height: 360px;
-        background: Theme.surface; border-width: 1px; border-color: Theme.border; border-radius: 6px;
-        drop-shadow-blur: 14px; drop-shadow-color: #00000055; drop-shadow-offset-y: 4px;
+    // Mode picker: slides in from the right edge like Settings, so the editor keeps its
+    // full width when the list is closed.
+    if root.mode-menu-x < root.base-width: Rectangle {
+        x: 0px; y: 0px; width: root.base-width; height: root.base-height;
+        background: #00000044;
+        TouchArea { clicked => { root.mode-menu-open = false; } }
+    }
+    Rectangle {
+        x: root.mode-menu-x; y: 0px; width: 260px; height: root.base-height;
+        background: Theme.surface; border-width: 1px; border-color: Theme.border;
+        animate x { duration: 140ms; easing: ease-in-out; }
         ScrollView {
             width: parent.width; height: parent.height;
             vertical-scrollbar-policy: as-needed;
-            vertical-stretch: 1;
-            VerticalLayout { spacing: 3px; padding: 6px;
+            VerticalLayout { spacing: 3px; padding: 12px;
+                Text { text: "MODE"; color: Theme.c1; font-size: 12px; font-weight: 700; }
                 for i in root.mode-names.length: Rectangle {
                     height: 26px; border-radius: 3px;
                     background: i == root.mode ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (menu-touch.has-hover ? Theme.control-hover : Theme.control);
@@ -690,7 +698,6 @@ export component AppWindow inherits Window {
             Text { text: "CREDITS / CONTACT"; color: Theme.text-muted; font-size: 9px; }
             Text { text: "\{root.credit-author}  ·  nDrum"; color: Theme.text; font-size: 10px; }
             TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
-            TextInput { read-only: true; text: root.credit-email; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-support; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
             Text {
                 text: "RANDOMIZE uses the top button. Type exact values here, or use the arrows and wheel.";

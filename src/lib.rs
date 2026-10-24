@@ -400,9 +400,8 @@ impl NDrum {
 
 /// Author contact, shared by the plug-in metadata and the Credits panel.
 pub mod contact {
-    pub const AUTHOR: &str = "ccnn4mocc";
-    pub const EMAIL: &str = "";
-    pub const GITHUB: &str = "https://github.com/ccnn4mocc";
+    pub const AUTHOR: &str = "ccne4mocc / feN";
+    pub const GITHUB: &str = "https://github.com/ccne4mocc";
     pub const SUPPORT: &str = "";
 }
 
@@ -410,7 +409,7 @@ impl Plugin for NDrum {
     const NAME: &'static str = "nDrum";
     const VENDOR: &'static str = contact::AUTHOR;
     const URL: &'static str = contact::GITHUB;
-    const EMAIL: &'static str = contact::EMAIL;
+    const EMAIL: &'static str = "";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout { main_input_channels: None, main_output_channels: None, ..AudioIOLayout::const_default() }];
     // Input is drained and discarded in `process`, so advertising CC input would only make
@@ -666,9 +665,8 @@ mod tests {
 
     #[test]
     fn contact_details_are_the_published_ones() {
-        assert_eq!(contact::AUTHOR, "ccnn4mocc");
-        assert_eq!(contact::EMAIL, "");
-        assert_eq!(contact::GITHUB, "https://github.com/ccnn4mocc");
+        assert_eq!(contact::AUTHOR, "ccne4mocc / feN");
+        assert_eq!(contact::GITHUB, "https://github.com/ccne4mocc");
         assert_eq!(contact::SUPPORT, "");
         assert_eq!(<NDrum as Plugin>::VENDOR, contact::AUTHOR);
     }
