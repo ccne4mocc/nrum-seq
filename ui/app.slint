@@ -449,7 +449,7 @@ export component AppWindow inherits Window {
         "Evolves a base pattern by random mutation and keeps changes with probability p. Density controls mutation rate; the pattern drifts while preserving its original shape."
     ];
     property <[Opt]> opts: [
-        { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 100) / 100}", step: root.round-steps ? 1 : 0.25 },
+        { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 1000) / 1000}", step: root.round-steps ? 1 : 0.01 },
         { label: root.pulse-label(root.mode), min: 0, max: root.pulses-max(root.mode), value: Math.min(root.pulses, root.pulses-max(root.mode)), text: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", step: 1 },
         { label: "Rotate", min: 0, max: Math.max(root.cells - 1, 0), value: Math.min(root.rotate, Math.max(root.cells - 1, 0)), text: "\{Math.round(Math.min(root.rotate, Math.max(root.cells - 1, 0)))}", step: 1 },
         { label: root.density-label(root.mode), min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", step: 0.01 },

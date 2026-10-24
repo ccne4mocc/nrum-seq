@@ -20,7 +20,9 @@ pub(crate) fn math(p: &GenParams) -> String {
     let d = p.density.clamp(0.0, 1.0);
     let w0 = DENSITY_PROFILE[0];
     let pulses = if p.kind == Mode::Cellular { p.pulses.min(CA_ROWS - 1) } else { p.pulses.min(n) };
-    match p.kind {
+    let length = p.length.max(1.0 / 1024.0);
+    let fractional = (length - length.round()).abs() > 1e-4;
+    let line = match p.kind {
         Mode::Euclidean => {
             let k = euclidean_lane_pulses(pulses, d, 0, n);
             format!("E(k,n) with n={n}: k=round({pulses}×{d:.2}×(0.35+{w0:.2}))={k} (lane 0); onset j at floor(j·n/k) from each lane's phase origin")
@@ -148,6 +150,11 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::Cantor => format!("n={n}: Cantor set membership at depth 2+lane; hit when x∈Cantor and Bernoulli(d·p={:.2}×{:.2})", d, p.probability),
         Mode::Fibonacci => format!("n={n}: Sturmian word α=d·(0.5+0.05·lane)={:.3}; hit where floor((i+1)α) changes; probability={:.2}", d * 0.5, p.probability),
         Mode::Genetic => format!("n={n}: base pattern mutated with rate 1−d ({:.2}); acceptance probability p={:.2}", 1.0 - d, p.probability),
+    };
+    if fractional {
+        format!("{line}; loop length={length:.4} steps (grid cells={n}, no rounding)")
+    } else {
+        line
     }
 }
 
@@ -164,6 +171,14 @@ mod tests {
             assert_eq!(line, math(&p), "{kind:?} is not deterministic");
             assert!(line.contains("13"), "{kind:?} math omits the step count: {line}");
         }
+    }
+
+    #[test]
+    fn fractional_lengths_are_reported_without_rounding_them() {
+        let p = GenParams { steps: 17, length: 16.5, ..GenParams::default() };
+        let line = math(&p);
+        assert!(line.contains("loop length=16.5000"), "fractional math omitted the raw length: {line}");
+        assert!(!line.contains("length=17"), "fractional math rounded the length up: {line}");
     }
 
     #[test]
