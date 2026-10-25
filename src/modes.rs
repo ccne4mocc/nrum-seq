@@ -1,4 +1,4 @@
-//! The nineteen generation modes, in one list.
+//! The 28 generation modes, in one list.
 //!
 //! `Mode` is the host-visible enum: the stable `id` values are what a saved project stores and
 //! the `name` values are what the host shows. The generators and the panels match on the same

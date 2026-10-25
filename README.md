@@ -1,62 +1,43 @@
 # nDrum
 
-**Algorithmic percussion MIDI sequencer** in Rust, using `nih-plug` for CLAP/VST3 and Slint + `slint-baseview` for the embedded GUI. It is a MIDI generator effect: put it before a drum sampler or drum rack on a MIDI/instrument track. It intentionally does not synthesize audio or load samples in this starter version.
+**Algorithmic percussion MIDI sequencer plugin** in Rust, using `nih-plug` for CLAP/VST3 and Slint + `slint-baseview` for the embedded GUI. It is a MIDI generator effect: place it before a drum sampler or drum rack on an instrument track to receive generated events. It intentionally does not synthesize audio or load samples.
 
-## What is implemented
+nDrum grew out of many other interests and projects. `_AlgoNemLody`, its direct ancestor, prototyped the host-integration layer for a melodic sequencer. Rather than expanding that into another pitch-focused tool, nDrum kept the subset worth keeping — pure generators, a separate view layer, and a transport-aware MIDI scheduler — and retooled it for eight drum lanes under one shared step grid. The mode set is deliberately broad: mathematical genre excess is the point. There are Euclidean and well-formed rhythms, a logistic map, phyllotaxis, cellular automata, a pebble-box physics toy, a sieve, a Kuramoto oscillator bank, an L-system, phase canons, reaction–diffusion, Lorenz attractors, Cantor sets, Fibonacci/Sturmian words, and genetic mutation.
 
-- Eight MIDI lanes: Kick, Snare, Closed Hat, Open Hat, Clap, Rim, Low Tom, and Percussion.
-- Nineteen deterministic generator modes with mode-specific visualization and mode-sensitive parameters.
-- Additional generators: Raised-Cos Threshold, Slowcat Rhythm, Toussaint Distance, Well-Formed Rhythm, L-System Grammar, Phase Shift / Reich, Polyrhythm Stack, Weighted Syncopation, and Pebble Box.
-- Every mode draws a panel specific to its own algorithm: per-lane pulse rings, motif phrase timelines, modular distance circles, Christoffel slack plots, the grammar's own A/B word, phasing spokes, ratio rings, metrical score bars, an animated pebble box, a residue-class sieve lattice, and eight coupled phase pointers.
-- Global hit probability and velocity controls, automatic regeneration after N complete pattern lengths (0 disables it), and manual or automatic parameter randomization every N complete pattern lengths (0 disables the automatic mode).
-- Randomize scope is five Settings chips (Mode, Length, Rhythm, Tone, Feel) stored as one host-automatable bitmask. Disabled groups keep their current values, and swing is never randomized.
-- Credits/Contact in Settings show the same author, email and support link used for the CLAP/VST3 metadata.
-- Host-automatable lane enables, note numbers, velocities, Gate, Swing, rate, mode, Generate, and Free Run.
-- Swing delays alternate steps in the beat domain, from straight up to a half-step shuffle; a third of a step gives triplet feel.
-- The mouse wheel edits whatever it is hovering: mode, rate, waveform, theme, every parameter slider, and the spin boxes in Settings. The wheel steps the mode list rather than scrolling it, and the list follows the selection. Spin boxes also accept typed values, arrow keys, wheel steps and the `−`/`+` buttons.
-- Each mode shows a multi-sentence description plus a live math line with the current parameters substituted (onsets, thresholds, cell sizes, cutoffs). The numbers come from the generators' own helpers, so the text tracks what is audible.
-- Settings are shown only while in use; the editor window is sized for the worst case so nothing jumps when they appear.
-- The window is a fixed 860×760. The pattern matrix uses a fixed 14px step width and scrolls horizontally as patterns grow, so long patterns stay legible instead of shrinking into slivers; the lane labels stay fixed while the cells move.
-- Theme, editor scale and the MIDI export folder are remembered per user in `~/.config/nDrum/settings.json` (`$XDG_CONFIG_HOME` when set, `%APPDATA%` on Windows) and follow you across projects. Everything else travels with the DAW project.
-- Default lane notes follow a GM-style mapping: Kick 36, Snare 38, Closed Hat 42, Open Hat 46, Clap 39, Rim 37, Low Tom 45, Percussion 50. MIDI is sent on zero-based channel 9 (MIDI channel 10).
-- Fixed-size patterns support 1–1024 steps. Settings sets a lower ceiling (64–1024, default 64) that applies immediately; the default keeps the original behaviour, and the editor preview and audio scheduler share the same capped snapshot. The generation path uses bounded work, and the audio callback uses fixed-size patterns without allocating or locking.
-- Settings can snap the pattern length to whole steps or leave it fractional. With snapping off, a length like 16.5 wraps mid-cell, so the pattern drifts against the step grid instead of repeating in phase. Exact values can be typed into the spin boxes rather than dragged, and the matrix header shows the resulting cell count.
-- Export MIDI writes one full loop of the current pattern to a timestamped Standard MIDI File (type 0, PPQ 480, channel 10) in the folder shown in Settings. It creates a missing folder, opens it after export, and defaults to the host process working directory because plug-in APIs do not expose the DAW project path.
-- Settings include Sketchbook, Neon, Lava, and Forest themes. Sketchbook is the light paper/pencil default with a faint graph-paper grid; the others stay dark. Generator parameters, rate, waveform, and theme selectors support mouse-wheel stepping while hovered. The first palette keeps the host id `aurora`, so existing projects and automation land on Sketchbook.
+## Features
 
-## Generation modes and views
+- Eight MIDI lanes on channel 10, with GM-style default notes (Kick 36, Snare 38, Closed Hat 42, Open Hat 46, Clap 39, Rim 37, Low Tom 45, Percussion 50).
+- 28 deterministic generator modes, each with a mode-specific visualization and mode-specific parameters.
+- Fixed-size 1–1024 step pattern; Settings sets a ceiling (64–1024, default 64) and applies immediately.
+- Fixed-size audio scheduler with no allocation or locking; generation runs on the editor thread and snapshots parameters.
+- Real-time safe audio path: no file I/O, allocations, locks, or unbounded loops inside `Plugin::process()`.
+- Lane-independent hit generation; each lane has its own density profile, phase origin, and enable/note/velocity host parameter.
+- Automatic regeneration and per-length randomization with a scope mask (Mode / Length / Rhythm / Tone / Feel).
+- One-loop MIDI export to a timestamped SMF in a user-chosen folder.
+- Four colour themes: Sketchbook (light), Neon, Lava, Forest.
+- Technical logging toggle; when enabled, mode and parameter snapshots are appended to `~/nDrum.log` (`%USERPROFILE%\nDrum.log` on Windows).
 
-The **Math** column shows the formula with the default snapshot substituted: `steps = 16`, `pulses = 5`, `density = 0.65`, `seed = 0.271`, `phase = 0`, `osc_rate = 2`, `ca_rule = 30`, `symmetry = 4`, `variation = 0`. The editor shows the same line with the *current* values, read from the generators' own helpers so the text cannot disagree with the pattern that is playing.
+## Modes
 
-| Mode | Core method | Math (default values) | Main view |
-|---|---|---|---|
-| Euclidean | Evenly distribute pulses around the ring; each lane scales the count by its density profile and anchors on its own phase origin | `k = round(pulses·density·(0.35+w))` → lane 0 `round(5·0.65·0.85) = 3`; onset `j` at `floor(j·n/k)` | Per-lane pulse rings |
-| Eulerian Walk | Hierholzer traversal of a balanced directed graph; rest is vertex 0, lanes are vertices 1–8 | `d = 1 + (pulses mod 4)` → `1+1 = 2`; circuit length `9·d = 18` | Directed drum-state network |
-| Golden Ratio / Phyllotaxis | Golden-angle spiral: the beat test steps by `1/φ` (the mirror of 137.51°), with a slower `1/φ³` rule | threshold `T = (pulses/n)·(0.35+w)·(0.5+density) = 0.305`; `beat(i) = frac(i·0.618034 + seed + phase + lane·0.137)` | One √i rosette sampled into at most 128 groups, with per-lane trigger arcs and the inner `1/φ³` band where that rule fired |
-| Cellular Automaton | Ring-based elementary cellular automaton (Wolfram rule); pulses selects a generation | `row = (pulses + round(phase·16) + 2·lane) mod 16` → lane 0 row 5; gate `0.45 + 0.55·density·w = 0.63` | Space-time cell grid |
-| Oscillator / Phase | One of eight waveforms (sine, triangle, saw, square, pulse, decay, half-sine, noise) sampled at each step with explicit phase and cycles | `wanted = round(pulses·density·(0.5+w)) = 3`; keep the 3 highest wave samples | Waveform curve with the generator's rank cutoff and step markers |
-| Crystallographic | Seeded motif tiled across the pattern, transformed per unit cell by a symmetry operation | `order = 4`, `unit = n/order = 4`; motif threshold `T = 0.184`; operation `(order−1) mod 8` | 8-lane lattice and symmetry axes |
-| Logistic Map | Logistic orbit; onsets on local peaks above a per-lane cutoff | `x[n+1] = r·x[n]·(1−x[n])`, `r = 3.5+0.5·density = 3.825`, `x0 = 0.328`; cutoff `1−0.236 = 0.764` | Orbit diagram |
-| Markov Walk | Seeded first-order transition walk through rest and the eight drum voices | `p(rest) = 5`; event chance `density·(0.25 + 1.5·pulses/n) = 0.47` | State-transition graph |
-| Raised-Cos Threshold | Smooth raised-cosine envelope whose cycle count is the requested hit count | `env(i) = 0.5−0.5·cos(2π(hits·i/n+φ))`, `hits = 3`, `φ = 0.108`, cutoff `0.916` | Envelope curve and cutoff |
-| Slowcat Rhythm | Short per-lane motifs concatenated over slow subdivisions | `motif = 2+(lane+pulses) mod 7 = 7`; `shift = 4`; `slot = (i+shift) mod motif` | Phrase timeline |
-| Toussaint Distance | Integer boundary crossings of a maximally even pulse train, seeded circular origin, modular-distance accents | `k = round(pulses·density) = 3`, origin `4`; onset when `floor((pos+1)·k/n) ≠ floor(pos·k/n)` | Distance circle |
-| Well-Formed Rhythm | Christoffel/Bresenham word; every lane gets its own phase origin | `k = 3`; `d = (pos·k) mod n`; hit when `(n−d) mod n < k` | Bresenham slack plot |
-| L-System Grammar | Bounded parallel rewriting of a two-symbol alphabet into lane and accent roles | `family = (floor(seed·4)+variation) mod 4 = 1`; lane 0 chance `0.23·grammar·metrical` | The generator's A/B word per step with per-lane gate bars |
-| Phase Shift / Reich | One maximally even motif circularly offset per lane (Reich-style phasing) | `k = round(pulses·density) = 3`; `shift = lane·2 + round(phase·n) + round(seed·n)` → lane 0 shift 4 | Per-lane motif rings, each a rotated copy |
-| Polyrhythm Stack | Fixed integer ratios (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over one duration | lane 0 `k = round(5·0.65) = 3`; lane 1 (3:2) `k = round(8·0.65) = 5` | Ratio rings |
-| Weighted Syncopation | Metric, lane-shifted and jittered scores; the top-k steps become onsets | `target = round(pulses·density·(0.45+w)) = 3`; `score(i) = w(i mod 4)·w((i+3·lane) mod 4)·jitter` | Metrical score bars |
-| Pebble Box | Eight pebbles (one per lane) bounce in a box; a shaker impulse kicks a rotating third and wall impacts above the density threshold fire their lanes | `substeps = osc_rate` (`2`), gravity `0.01+ca_rule/255·2.15 = 0.26` tilted `0°`; impulse every `n/pulses = 3` steps; threshold `(1−density)·4.2 = 1.47` | Animated pebble box with wall-contact flashes |
-| Xenakis Sieve | Residue classes from two union terms minus one subtracted class; each lane reads a rotated copy, with no fixed length limit | `M = ((2,0) ∪ (13,8)) \ (11,5)` → 8 members over 16 steps; lane 0 keeps `round(8·0.65·0.85) = 4` | Residue-class lattice rows, per-step sieve membership and onsets |
-| Kuramoto Lanes | Eight phase oscillators coupled to their ring neighbours; a phase wrap is the trigger and rank selection keeps the requested count | `K = 0.476` from `osc_rate`; rate `5/16 = 0.3125` turn/step, `±5%` detune; lane 0 keeps `round(5·0.65·1.0) = 3` | Eight phase pointers, trails and the mean phase vector |
+Modes are grouped rather than listed exhaustively. Full derivation and view geometry live in `src/sequence/` and `src/view.rs` respectively.
 
-The crystallographic mode is an **algorithmic symmetry palette inspired by periodic/crystallographic operations**, not a claim to enumerate all formal 2D/3D crystallographic space groups.
+**Rhythmic structures**
+- Euclidean / Euclidean-Swing hybrid / Phase Shift (Reich) / Polyrhythm Stack / Well-Formed (Bresenham) / Phase Canon / Slowcat Rhythm / Weighted Syncopation.
+
+**Stochastic and probabilistic**
+- Markov Walk / Bernoulli / Genetic Mutation / Toussaint Distance.
+
+**Physics, chaos, reaction systems, fractals**
+- Logistic Map / Lorenz Attractor / Reaction-Diffusion / Cantor Set / Pebble Box / Kuramoto Lanes.
+
+**Mathematical and formal patterns**
+- Phyllotaxis (golden ratio) / Cellular Automaton / Oscillator Phase / Crystallographic / Xenakis Sieve / Fibonacci / Sturmian Word / Eulerian Walk / African Bell / Raised-Cos Threshold / L-System Grammar.
+
+Many modes draw a panel tied specifically to their algorithm: pulse rings, the CA spacetime, a phyllotaxis rosette, a Lorenz attractor body, phase pointers, or a walking pebble box.
 
 ## Build
 
-The Slint UI uses a hierarchical `TrackRow` model: each lane carries its enabled state and its own step-cell model. This avoids dynamic array element access inside repeaters and keeps lane labels, enable toggles, and grid cells aligned.
-
-Requirements: Rust toolchain compatible with the reference project (Rust 1.88 or newer is a good baseline), a C/C++ build toolchain, and the system graphics/window development libraries required by Slint/Baseview on your platform. The exact Linux package names depend on the distribution.
+Requirements: Rust ≥ 1.88, C/C++ build toolchain, Slint dependencies on Linux. Windows uses only MSVC.
 
 ```sh
 cargo check --lib
@@ -64,7 +45,7 @@ cargo test --lib
 cargo xtask bundle ndrum --release
 ```
 
-Windows bundles are built with the MSVC toolchain for both architectures (CLAP and VST3 in one bundle):
+Windows 32/64-bit:
 
 ```sh
 rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
@@ -72,52 +53,36 @@ cargo xtask bundle ndrum --release --target x86_64-pc-windows-msvc
 cargo xtask bundle ndrum --release --target i686-pc-windows-msvc
 ```
 
-CI runs the same commands in `.github/workflows/windows.yml` and uploads the bundles.
+CI runs the Windows bundle in `.github/workflows/windows.yml` on every push and PR. Linux bundles are built as a manual step. Artifacts land under `target/bundled/` (or `target/<target>/bundled/` for cross-compiled targets).
 
-The bundle task places distributable artifacts under `target/bundled/` when the selected platform/backend is supported. For a quick compile-only check use `cargo check --lib` first. `cargo check --all-targets` and `cargo test` pass, but **the plug-in has never been loaded into a DAW** — treat host behaviour as unverified until it has been.
+## Limitations
 
-## Reference project
-
-The visual and host integration patterns were adapted from the supplied `_AlgoNemLody` project:
-
-- `src/pattern.rs` → pure deterministic pattern generation (`src/sequence/`).
-- `src/view.rs` → pure mode-specific geometry (`src/view.rs`).
-- `src/editor.rs` → Slint `Editor` adapter and host parameter setters (`src/editor.rs`).
-- `ui/app.slint` → mode-specific panel plus step matrix.
-- `Plugin::process()` in `src/lib.rs` → transport-aware, sample-timed MIDI event scheduling.
-
-The existing melody/tuning-specific material (pitch contours, scales, tuning/EDO, Tonnetz triads, piano-roll history) was intentionally not carried into the percussion model. See [`docs/REFERENCE_MAPPING.md`](docs/REFERENCE_MAPPING.md) for the exact reference-to-new-view correspondence and [`docs/WISHLIST.md`](docs/WISHLIST.md) for an unordered list of ideas someone liked.
+- Not release-certified; needs thorough host smoke-testing (CLAP and VST3 hosts).
+- macOS build is not configured.
+- Fixed UI size 860×760; no scaling preference beyond what Slint offers by default.
+- The plug-in generates MIDI rather than audio; it cannot be assigned to a bus and will not do anything without an instrument track.
+- Export MIDI outputs one loop and uses the plug-in process working directory, not the DAW project path.
 
 ## Project layout
 
 ```text
 src/
-  lib.rs                  nih-plug parameters, transport scheduler, CLAP/VST3 exports
-  modes.rs                the nineteen generation modes, as the host parameter and the dispatch key
-  editor.rs               Slint adapter; host parameter callbacks; UI model updates
-  view.rs                 pure geometry for the nineteen generation-mode panels
-  sequence/
-    mod.rs                immutable generator params, fixed-size Pattern, dispatch, PRNG, invariants
-    euclidean.rs          Euclidean rhythms
-    eulerian.rs           Eulerian circuit on a balanced directed graph
-    phyllotaxis.rs        golden ratio / phyllotaxis
-    cellular.rs           elementary cellular automaton
-    oscillator.rs         waveform and phase thresholding
-    crystallographic.rs   periodic symmetry transforms
-    logistic.rs           logistic-map orbit
-    markov.rs             Markov chain state walk
-    lsystem.rs            finite L-system rhythm grammar
-    phase_shift.rs        interlocking circular phase offsets
-    polyrhythm.rs         rational pulse-ratio stack
-    syncopation.rs         weighted metric/offbeat selection
-ui/app.slint             Slint interface and per-lane step matrix
-docs/                     reference map, architecture, wishlist, agent ownership
+  lib.rs              nih-plug parameters, transport scheduler, CLAP/VST3 exports
+  modes.rs            the 28 generation modes and their host id/name metadata
+  editor.rs           Slint adapter and host parameter callbacks
+  globals.rs          cross-component shared state (settings, runtime locks)
+  help.rs             mode math text shown in the editor
+  midi_export.rs      Standard MIDI File writer
+  view.rs             pure geometry for each global/panel view
+  sequence/           one file per generator, each with its own unit tests
+ui/app.slint          Slint widgets, layout and mode picker panel
+docs/                 reference map, architecture, wishlist, agent ownership
+xtask/                bundle and assembly runner
 ```
 
-## Current limitations / next milestones
+## Credits & License
 
-This is a functional starter architecture, not a release-certified plugin. The next steps are to build and smoke-test it in at least one CLAP host and one VST3 host; validate tempo/loop/transport edge cases; verify Slint layout on Linux/macOS/Windows; add ratchets, probability per hit, ghost notes and presets; and then evaluate optional internal sound generation only if that becomes a requirement.
-
-nDrum generates MIDI events from `process()` and declares note output, and Settings can additionally export one loop of the current pattern as a Standard MIDI File. Recording live events into a host clip is still host-dependent: hosts that support capturing MIDI from instrument/effect tracks can do it, while hosts that only record MIDI arriving on the track input cannot. Route the track to a drum instrument and use the host's normal MIDI-recording/printing workflow when you need more than the exported loop.
-
-Research rationale and citations for the algorithms are in [`docs/ALGORITHM_RESEARCH.md`](docs/ALGORITHM_RESEARCH.md).
+- Author: `ccne4mocc / feN`
+- Derived from the `_AlgoNemLody` reference project.
+- Inspired by countless online articles, forum threads and prior prototypes; exact citations are listed in [`docs/ALGORITHM_RESEARCH.md`](docs/ALGORITHM_RESEARCH.md).
+- License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
