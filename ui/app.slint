@@ -271,21 +271,17 @@ export component AppWindow inherits Window {
     in-out property <int> current-step: 0;
     in-out property <bool> follow-step: true;
     in-out property <length> matrix-x: 0px;
+    // `viewport-x` is the content offset and is negative when scrolled right.
     pure function follow-x() -> length {
-        return Math.max(0px, Math.min(root.current-step * root.matrix-cell-width - 220px, root.cells * root.matrix-cell-width - 500px));
+        let max-offset = Math.max(0px, root.cells * root.matrix-cell-width - matrix-scroll.width);
+        let offset = Math.max(0px, Math.min(root.current-step * root.matrix-cell-width - matrix-scroll.width * 0.35, max-offset));
+        return -offset;
     }
     changed current-step => {
         if (root.follow-step) { root.matrix-x = root.follow-x(); }
     }
     changed follow-step => {
         if (root.follow-step) { root.matrix-x = root.follow-x(); }
-    }
-    changed matrix-x => {
-        // Only a real user scroll can move matrix-x away from the follow position. Programmatic
-        // writes land exactly on it, so they never disable following.
-        if (root.follow-step && Math.abs(root.matrix-x - root.follow-x()) > 2px) {
-            root.follow-step = false;
-        }
     }
     in property <float> pulses: 5;
     in property <float> rotate: 0;
@@ -308,6 +304,7 @@ export component AppWindow inherits Window {
     in property <bool> scope-rhythm: true;
     in property <bool> scope-tone: true;
     in property <bool> scope-feel: true;
+    in property <string> settings-path: "";
     in property <string> credit-author: "";
     in property <string> credit-github: "";
     in property <string> credit-support: "";
@@ -483,6 +480,7 @@ export component AppWindow inherits Window {
         HorizontalLayout {
             height: 34px; spacing: 6px;
             Text { text: "nDrum"; color: Theme.text; font-family: "FantasqueSansM Nerd Font Mono"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+            Rectangle { horizontal-stretch: 1; }
             Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "Toggle free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
             Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 9px; vertical-alignment: center; }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : Theme.control; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: generate-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
@@ -569,6 +567,11 @@ export component AppWindow inherits Window {
                 horizontal-scrollbar-policy: as-needed;
                 viewport-width: root.cells * root.matrix-cell-width;
                 viewport-x <=> root.matrix-x;
+                // User drags/wheel disable following; the follow write lands exactly on
+                // `follow-x()`, so a stray programmatic callback cannot turn it off.
+                scrolled() => {
+                    if (Math.abs(root.matrix-x - root.follow-x()) > 2px) { root.follow-step = false; }
+                }
                 VerticalLayout {
                     width: root.cells * root.matrix-cell-width;
                     spacing: 4px;
@@ -647,6 +650,8 @@ export component AppWindow inherits Window {
             }
             Text { text: "COLOUR THEME"; color: Theme.text-muted; font-size: 9px; }
             Selector { options: ["Sketchbook", "Neon", "Lava", "Forest"]; current: root.theme-index; text-size: 10px; selected(i) => { root.set-theme(i); } }
+            Text { text: "CONFIG FILE"; color: Theme.text-muted; font-size: 9px; }
+            Text { text: root.settings-path; color: Theme.text-muted; font-size: 8px; wrap: word-wrap; }
             Text { text: "STEP SPACING"; color: Theme.text-muted; font-size: 9px; }
             // Turning rounding off lets the loop wrap between grid cells, so the pattern
             // drifts against the step grid instead of landing on it.

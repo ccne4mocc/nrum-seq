@@ -41,6 +41,14 @@ fn config_path() -> Option<PathBuf> {
     Some(base?.join("nDrum").join("settings.json"))
 }
 
+/// Human-readable location shown in Settings; uneditable so users can find the file without
+/// guessing where the host's environment points.
+pub(crate) fn config_path_display() -> String {
+    config_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "unavailable (no HOME/XDG_CONFIG_HOME)".to_string())
+}
+
 pub(crate) fn load() -> GlobalSettings {
     config_path()
         .and_then(|p| std::fs::read_to_string(p).ok())

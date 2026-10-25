@@ -461,6 +461,7 @@ impl Editor for SlintEditor {
             ui.set_wave_names(ModelRc::new(VecModel::from(
                 OscWave::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
+            ui.set_settings_path(SharedString::from(crate::globals::config_path_display()));
             ui.set_credit_author(SharedString::from(crate::contact::AUTHOR));
             ui.set_credit_github(SharedString::from(crate::contact::GITHUB));
             ui.set_credit_support(SharedString::from(crate::contact::SUPPORT));
