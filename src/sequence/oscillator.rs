@@ -36,13 +36,6 @@ fn hash01(phase: f32) -> f32 {
     (x - x.floor()) as f32
 }
 
-/// Trigger cutoff for a lane, on the same 0..=1 scale as [`value`]. Shared with the panel so the
-/// drawn threshold line is the threshold the generator applied.
-pub(crate) fn threshold(p: &GenParams) -> f32 {
-    let pulse_ratio = p.pulses as f32 / p.steps as f32;
-    (pulse_ratio * (0.25 + 0.75 * p.density.clamp(0.0, 1.0)) * (0.5 + super::DENSITY_PROFILE[0])).clamp(0.01, 0.99)
-}
-
 /// Quantized oscillator: phase + rate are explicit parameters, wave selects the shape of the
 /// curve the steps are ranked by. The waveform orders the steps and a density-derived rank
 /// cutoff keeps exactly the requested number.
@@ -55,6 +48,12 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let mut wave = [0.0f32; super::MAX_STEPS];
         for i in 0..p.steps {
             wave[i] = value(p.osc_wave, (i as f64 / p.steps as f64 * rate + p.phase as f64 + tr as f64 * 0.071).rem_euclid(1.0) as f32);
+        }
+        // Publish lane 0's ranked curve so the panel draws the samples the generator ranked,
+        // instead of re-deriving an unrotated waveform from the parameters. The shared
+        // post-transform rotates `orbit` with `hit`, so the drawn curve tracks Generate.
+        if tr == 0 {
+            out.orbit[..p.steps].copy_from_slice(&wave[..p.steps]);
         }
         // In-place top-k selection, same tie rule as before: higher wave value first, earlier
         // step wins ties. Exact count, no allocation.

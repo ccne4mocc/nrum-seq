@@ -150,6 +150,9 @@ component NumBox inherits Rectangle {
     border-radius: 4px;
     background: Theme.control; border-width: 1px; border-color: Theme.border;
     horizontal-stretch: 1;
+    // True while the number field has keyboard focus; the root reads it so Rust can decide
+    // whether a key the host tried to keep is meant for typing.
+    out property <bool> editing: input.has-focus;
 
     function clamp-value(v: float) -> float {
         return Math.clamp(v, root.minimum, root.maximum);
@@ -293,6 +296,10 @@ export component AppWindow inherits Window {
     in property <string> credit-email: "";
     in property <string> credit-support: "";
     in property <string> midi-folder: "";
+    // DAW track hosting this instance; empty when the host does not report one.
+    in property <string> track-name: "";
+    // Any text field with keyboard focus. Rust reads this each frame (see `keys.rs`).
+    out property <bool> text-focused: midi-input.has-focus || max-steps-box.editing;
     in-out property <string> export-status: "";
     in property <int> theme-index: 0;
     in-out property <bool> settings-open: false;
@@ -451,7 +458,7 @@ export component AppWindow inherits Window {
         padding: 14px; spacing: 8px;
         HorizontalLayout {
             height: 34px; spacing: 6px;
-            VerticalLayout { spacing: 0px; Text { text: "nDrum"; color: Theme.text; font-size: 18px; font-weight: 700; } Text { text: "algorithmic MIDI percussion sequencer  /  CLAP + VST3"; color: Theme.text-muted; font-size: 10px; } }
+            VerticalLayout { spacing: 0px; Text { text: "nDrum"; color: Theme.text; font-size: 18px; font-weight: 700; } Text { text: root.track-name == "" ? "algorithmic MIDI percussion sequencer  /  CLAP + VST3" : "algorithmic MIDI percussion sequencer  /  CLAP + VST3  /  track: \{root.track-name}"; color: Theme.text-muted; font-size: 10px; overflow: elide; } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : Theme.control; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: generate-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : Theme.control; Text { text: "RANDOMIZE ⚄"; color: randomize-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TouchArea { clicked => { root.randomize-pressed(); } } }
             Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : Theme.control; Text { text: "⚙"; color: settings-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
@@ -616,7 +623,7 @@ export component AppWindow inherits Window {
                 round-touch := TouchArea { clicked => { root.toggle-round-steps(); } }
             }
             Text { text: "PATTERN LIMIT"; color: Theme.text-muted; font-size: 9px; }
-            NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; changed(v) => { root.set-opt(14, v); } }
+            max-steps-box := NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; changed(v) => { root.set-opt(14, v); } }
             // The Pattern arrays are allocated for 1024 steps up front, so changing the ceiling
             // never requires a host or plug-in restart.
             Text { text: "Max steps applies immediately; no restart is needed."; color: Theme.text-muted; font-size: 9px; }
@@ -634,7 +641,7 @@ export component AppWindow inherits Window {
             Rectangle {
                 height: 26px; border-radius: 4px;
                 background: Theme.control; border-width: 1px; border-color: Theme.border;
-                TextInput {
+                midi-input := TextInput {
                     x: 6px; width: parent.width - 12px; height: parent.height;
                     text: root.midi-folder; color: Theme.text; font-size: 9px;
                     vertical-alignment: center;

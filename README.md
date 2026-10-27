@@ -1,6 +1,6 @@
 # nDrum
 
-**Algorithmic percussion MIDI sequencer** in Rust, using `nih-plug` for CLAP/VST3 and Slint + `slint-baseview` for the embedded GUI. It is a MIDI generator effect: put it before a drum sampler or drum rack on a MIDI/instrument track. It intentionally does not synthesize audio or load samples in this starter version.
+**Algorithmic percussion MIDI sequencer** in Rust, using `nice-plug` for CLAP/VST3 and Slint + `slint-baseview` for the embedded GUI. It is a MIDI generator effect: put it before a drum sampler or drum rack on a MIDI/instrument track. It intentionally does not synthesize audio or load samples in this starter version.
 
 ## What is implemented
 
@@ -64,7 +64,11 @@ cargo test --lib
 cargo xtask bundle ndrum --release
 ```
 
-The bundle task places distributable artifacts under `target/bundled/` when the selected platform/backend is supported. For a quick compile-only check use `cargo check --lib` first. `cargo check --all-targets` and `cargo test` pass, but **the plug-in has never been loaded into a DAW** — treat host behaviour as unverified until it has been.
+`nice-plug` is pinned to a git commit (see `Cargo.toml`), not a crates.io version. The crates.io `nice-plug 0.4.x` line uses a different, `baseview 0.4` based editor API that the vendored `slint-baseview` does not target; moving to it means writing a new Slint adapter. [`docs/MIGRATION_nice-plug.md`](docs/MIGRATION_nice-plug.md) records what changed from nih-plug and why. Rust 1.88+ is required (nice-plug itself uses edition 2024).
+
+Optional debug aid: `cargo xtask bundle ndrum --features assert_process_allocs` builds a plug-in that aborts if `process()` allocates (it bundles fine; `cargo test` with this feature is unsupported because the tests install their own counting allocator). Caveat found by running `clap-validator` against such a build: all well-formed processing tests pass, but malformed host events (wrong parameter namespace, inconsistent notes) make nice-plug's *own* wrapper log from the audio thread, and that logging allocates, so the guard aborts. That is framework behaviour, not this plug-in's code. Use the guarded build for development, never ship it.
+
+The bundle task places distributable artifacts under `target/bundled/` when the selected platform/backend is supported. For a quick compile-only check use `cargo check --lib` first. `cargo check --all-targets` and `cargo test` pass, but **the plug-in has never been loaded into a DAW** — treat host behaviour as unverified until it has been. The CLAP build has been run through `clap-validator` 0.3.2 (15 of 21 tests pass; the 3 failures are the same ones the pre-migration nih-plug build produced, and the note-port extension answers correctly when queried directly).
 
 ## Reference project
 
@@ -82,7 +86,7 @@ The existing melody/tuning-specific material (pitch contours, scales, tuning/EDO
 
 ```text
 src/
-  lib.rs                  nih-plug parameters, transport scheduler, CLAP/VST3 exports
+  lib.rs                  nice-plug parameters, transport scheduler, CLAP/VST3 exports
   modes.rs                the nineteen generation modes, as the host parameter and the dispatch key
   editor.rs               Slint adapter; host parameter callbacks; UI model updates
   view.rs                 pure geometry for the nineteen generation-mode panels

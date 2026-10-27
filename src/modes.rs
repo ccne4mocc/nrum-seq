@@ -6,7 +6,7 @@
 //! sync. `src/sequence/` and `src/view.rs` use the plain data type; only this file names the
 //! plug-in enum machinery.
 
-use nih_plug::prelude::Enum;
+use nice_plug::prelude::Enum;
 
 #[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Mode {

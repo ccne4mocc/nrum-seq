@@ -32,9 +32,11 @@ mod genetic;
 
 // The panel draws these algorithms' own curves and cutoffs rather than restating their
 // formulas, so these re-exports exist for `crate::view` alone.
-pub(crate) use oscillator::{
-    threshold as oscillator_threshold, value as oscillator_value, WAVE_COUNT as oscillator_wave_count,
-};
+pub(crate) use oscillator::WAVE_COUNT as oscillator_wave_count;
+// Only the panel's unit tests sample the waveform directly now; the panel itself reads the
+// generator's published `orbit`.
+#[cfg(test)]
+pub(crate) use oscillator::value as oscillator_value;
 pub(crate) use phyllotaxis::{
     lane_threshold as phyllotaxis_threshold, primary_phase as phyllotaxis_primary,
     rules_fired as phyllotaxis_rules, secondary_phase as phyllotaxis_secondary,

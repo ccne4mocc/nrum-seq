@@ -1,6 +1,6 @@
 //! User-global settings, stored outside the DAW project.
 //!
-//! nih-plug already persists every parameter plus `#[persist]` fields with the host's
+//! nice-plug already persists every parameter plus `#[persist]` fields with the host's
 //! project, so this file only holds preferences that should follow the user across every
 //! project: the colour theme, the host scale factor and the MIDI export folder.
 //! Everything musical stays in the project state.
@@ -83,7 +83,7 @@ pub(crate) fn save_now(settings: &GlobalSettings) {
 mod tests {
     use super::*;
     use crate::Theme as PluginTheme;
-    use nih_plug::prelude::Enum;
+    use nice_plug::prelude::Enum;
 
     #[test]
     fn settings_round_trip_through_json() {

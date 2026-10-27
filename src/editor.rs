@@ -1,10 +1,12 @@
 //! Slint GUI adapter, following the reference project's separation between pure geometry and UI glue.
 use crate::globals;
+use crate::keys;
 use crate::midi_export;
 use crate::sequence::{generate, GenParams, Pattern, Rng, MAX_STEPS, MIN_MAX_STEPS, TRACKS};
 use crate::view::{self, View};
 use crate::{cell_count_for, scope, DrumParams, Mode, OscWave, Rate, Shared, Theme as PluginTheme};
-use nih_plug::prelude::*;
+use nice_plug::prelude::*;
+use slint::platform::WindowEvent;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use slint_baseview::{default_gl_config, Size, SlintWindow, WindowHandle, WindowOpenOptions, WindowScalePolicy};
 use std::path::{Path, PathBuf};
@@ -44,6 +46,7 @@ fn global_settings(
 struct SlintEditorHandle {
     window: WindowHandle,
     params: Arc<DrumParams>,
+    shared: Arc<Shared>,
     scale: Arc<AtomicU32>,
     midi_dir: Arc<Mutex<String>>,
 }
@@ -54,7 +57,7 @@ impl Drop for SlintEditorHandle {
         // Theme and host scale are read from live state *here*: a snapshot
         // taken at spawn is stale by the time the user closes the editor, and writing it back
         // would revert every change made during the session. No unit test covers this:
-        // nih-plug's `Param` trait is read-only outside a `GuiContext`, so a test cannot
+        // nice-plug's `Param` trait is read-only outside a `GuiContext`, so a test cannot
         // change the theme and observe what the close path writes. The fix is structural --
         // there is no snapshot field left to go stale.
         globals::save_now(&global_settings(
@@ -62,6 +65,9 @@ impl Drop for SlintEditorHandle {
             f32::from_bits(self.scale.load(Relaxed)),
             &self.midi_dir,
         ));
+        // No text field exists any more, so host keys must go back to the host.
+        self.shared.text_focus.store(false, Relaxed);
+        if let Ok(mut queue) = self.shared.key_queue.lock() { queue.clear(); }
         self.window.close();
     }
 }
@@ -137,7 +143,7 @@ static RANDOMIZE_NONCE: AtomicU32 = AtomicU32::new(1);
 /// True when the RANDOMIZE scope allows this group bit.
 fn scope_enabled(p: &DrumParams, bit: i32) -> bool { p.randomize_scope.value() & bit != 0 }
 
-/// Randomize the active algorithm controls through NIH-plug's parameter setter,
+/// Randomize the active algorithm controls through nice-plug's parameter setter,
 /// so the host, the custom UI, and the generator all observe the same values.
 fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let nonce = RANDOMIZE_NONCE.fetch_add(1, Relaxed);
@@ -272,6 +278,9 @@ impl Editor for SlintEditor {
         // User-global preferences load before the host's project state is shown, so the theme
         // follows the user rather than whatever the project last stored.
         let stored = globals::load();
+        // A previous editor instance may have left a key or a focus flag behind.
+        self.shared.text_focus.store(false, Relaxed);
+        if let Ok(mut queue) = self.shared.key_queue.lock() { queue.clear(); }
         let scale = stored.scale.filter(|s| *s > 0.0).unwrap_or_else(|| f32::from_bits(self.scale.load(Relaxed)));
         // A plugin has no host API for the project path, so the default is the process working
         // directory. The editor shows the absolute path and the user can type another one.
@@ -440,6 +449,8 @@ impl Editor for SlintEditor {
         // rather than by borrowing the editor.
         let update_scale_cell = self.scale.clone();
         let last_randomize_request = AtomicU32::new(update_shared.randomize_request.load(Relaxed));
+        // `u32::MAX` forces the first tick to publish whatever track name is already known.
+        let last_track_rev = AtomicU32::new(u32::MAX);
         let update = move |h: &slint_baseview::SlintWindowHandler<AppWindow>, _window: &mut slint_baseview::Window| {
             let requested = update_shared.randomize_request.load(Relaxed);
             let previous = last_randomize_request.swap(requested, Relaxed);
@@ -451,6 +462,17 @@ impl Editor for SlintEditor {
             }
             let p = &update_params;
             let ui = h.component();
+            // Replay editing keys the host would otherwise have kept for itself.
+            let forwarded = update_shared.key_queue.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
+            for (key, down) in forwarded {
+                let text: SharedString = key.slint_key().into();
+                h.window().dispatch_event(if down { WindowEvent::KeyPressed { text } } else { WindowEvent::KeyReleased { text } });
+            }
+            let track_rev = update_shared.track_rev.load(Relaxed);
+            if last_track_rev.swap(track_rev, Relaxed) != track_rev {
+                let name = update_shared.track_name.lock().map(|n| n.clone()).unwrap_or_default();
+                ui.set_track_name(SharedString::from(name.as_str()));
+            }
             ui.set_mode(p.mode.value() as i32);
             let selected_theme = p.theme.value();
             let theme_index = selected_theme.to_index() as i32;
@@ -506,6 +528,8 @@ impl Editor for SlintEditor {
                 ui.set_mode_math(SharedString::from(crate::help::math(&gen_key)));
                 c.gen_key = Some(gen_key);
             }
+            // Read after the replayed keys were dispatched, so the host hook sees fresh focus.
+            update_shared.text_focus.store(ui.get_text_focused(), Relaxed);
             let view_key = (gen_key, cur, mask, vel_key);
             if c.view_key != Some(view_key) {
                 let v = view::build(&gen_key, &c.pattern, cur);
@@ -542,6 +566,7 @@ impl Editor for SlintEditor {
         Box::new(SlintEditorHandle {
             window,
             params: self.params.clone(),
+            shared: self.shared.clone(),
             scale: self.scale.clone(),
             midi_dir,
         })
@@ -553,6 +578,18 @@ impl Editor for SlintEditor {
         let mut s = globals::load();
         s.scale = if factor > 0.0 { Some(factor) } else { None };
         globals::save(&s);
+        true
+    }
+    /// Claim a host-stolen editing key only while a text field has focus; every other key, and
+    /// every key outside a text field, stays with the host so its shortcuts keep working.
+    fn on_virtual_key_from_host(&self, key_code: VirtualKeyCode, is_down: bool, modifiers: Modifiers) -> bool {
+        if !self.shared.text_focus.load(Relaxed) { return false; }
+        let Some(key) = keys::edit_key(key_code, modifiers) else { return false };
+        if let Ok(mut queue) = self.shared.key_queue.lock() {
+            // A held key repeats at most a few dozen times a second and the tick drains it every
+            // frame; the cap only guards against a window that has stopped ticking.
+            if queue.len() < 64 { queue.push((key, is_down)); }
+        }
         true
     }
     fn param_value_changed(&self, _id: &str, _normalized_value: f32) {}
