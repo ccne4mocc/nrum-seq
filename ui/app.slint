@@ -150,6 +150,9 @@ component NumBox inherits Rectangle {
     border-radius: 4px;
     background: Theme.control; border-width: 1px; border-color: Theme.border;
     horizontal-stretch: 1;
+    // True while the number field has keyboard focus; the root reads it so Rust can decide
+    // whether a key the host tried to keep is meant for typing.
+    out property <bool> editing: input.has-focus;
 
     function clamp-value(v: float) -> float {
         return Math.clamp(v, root.minimum, root.maximum);
@@ -309,6 +312,10 @@ export component AppWindow inherits Window {
     in property <string> credit-github: "";
     in property <string> credit-support: "";
     in property <string> midi-folder: "";
+    // DAW track hosting this instance; empty when the host does not report one.
+    in property <string> track-name: "";
+    // Any text field with keyboard focus. Rust reads this each frame (see `keys.rs`).
+    out property <bool> text-focused: midi-input.has-focus || max-steps-box.editing;
     in-out property <string> export-status: "";
     in property <int> theme-index: 0;
     in-out property <bool> mode-menu-open: false;
@@ -480,6 +487,7 @@ export component AppWindow inherits Window {
         HorizontalLayout {
             height: 34px; spacing: 6px;
             Text { text: "nDrum"; color: Theme.text; font-family: "FantasqueSansM Nerd Font Mono"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+            Text { visible: root.track-name != ""; text: "· \{root.track-name}"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide; }
             Rectangle { horizontal-stretch: 1; }
             Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "Toggle free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
             Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 9px; vertical-alignment: center; }
@@ -667,7 +675,7 @@ export component AppWindow inherits Window {
                 round-touch := TouchArea { clicked => { root.toggle-round-steps(); } }
             }
             Text { text: "PATTERN LIMIT"; color: Theme.text-muted; font-size: 9px; }
-            NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; changed(v) => { root.set-opt(14, v); } }
+            max-steps-box := NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; changed(v) => { root.set-opt(14, v); } }
             // The Pattern arrays are allocated for 1024 steps up front, so changing the ceiling
             // never requires a host or plug-in restart.
             Text { text: "Max steps applies immediately; no restart is needed."; color: Theme.text-muted; font-size: 9px; }
@@ -693,7 +701,7 @@ export component AppWindow inherits Window {
             Rectangle {
                 height: 26px; border-radius: 4px;
                 background: Theme.control; border-width: 1px; border-color: Theme.border;
-                TextInput {
+                midi-input := TextInput {
                     x: 6px; width: parent.width - 12px; height: parent.height;
                     text: root.midi-folder; color: Theme.text; font-size: 9px;
                     vertical-alignment: center;

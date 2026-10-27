@@ -3,6 +3,7 @@
 mod editor;
 mod globals;
 mod help;
+mod keys;
 mod midi_export;
 mod modes;
 mod sequence;
@@ -10,12 +11,12 @@ mod view;
 
 pub use modes::Mode;
 
-use nih_plug::prelude::*;
+use nice_plug::prelude::*;
 use sequence::{
     generate, GenParams, Pattern, DEFAULT_MAX_STEPS, MAX_STEPS, MIN_MAX_STEPS, TRACKS,
 };
-use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering::Relaxed};
+use std::sync::{Arc, Mutex};
 
 #[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Theme {
@@ -315,16 +316,50 @@ fn cell_count_for(raw: f32, snap: bool, ceiling: usize) -> i32 {
 
 /// Lock-free signals shared between the audio scheduler and the editor.
 /// Auto-randomization is requested on the audio thread at a beat boundary and
-/// applied through NIH-plug's ParamSetter on the editor thread.
+/// applied through nice-plug's ParamSetter on the editor thread.
 pub struct Shared {
     pub current_step: AtomicI32,
     pub randomize_request: AtomicU32,
     /// Last host tempo as `f32` bits, for the editor-side MIDI export. Zero means "not seen yet".
     pub tempo_bits: AtomicU32,
+    /// Name of the DAW track hosting this instance, empty when the host does not say.
+    /// Written only on the host main thread (`initialize` and `track_context_changed`) and read
+    /// by the editor. The editor must not ask the wrapper's `GuiContext::track_name()` itself:
+    /// the CLAP wrapper answers that by calling into the host from the calling thread, and the
+    /// editor tick runs on the window thread, not the CLAP main thread.
+    pub track_name: Mutex<String>,
+    /// Bumped whenever `track_name` changes, so the editor only re-reads it when needed.
+    pub track_rev: AtomicU32,
+    /// True while a text field in the editor has keyboard focus. Published by the editor tick,
+    /// read by `Editor::on_virtual_key_from_host` to decide whether to claim a host-stolen key.
+    pub text_focus: AtomicBool,
+    /// Host-forwarded editing keys waiting to be replayed into the UI (`true` = pressed).
+    /// Filled on the host thread, drained by the editor tick. Never touched by `process()`.
+    pub key_queue: Mutex<Vec<(keys::EditKey, bool)>>,
 }
 impl Default for Shared {
     fn default() -> Self {
-        Self { current_step: AtomicI32::new(-1), randomize_request: AtomicU32::new(0), tempo_bits: AtomicU32::new(0) }
+        Self {
+            current_step: AtomicI32::new(-1),
+            randomize_request: AtomicU32::new(0),
+            tempo_bits: AtomicU32::new(0),
+            track_name: Mutex::new(String::new()),
+            track_rev: AtomicU32::new(0),
+            text_focus: AtomicBool::new(false),
+            key_queue: Mutex::new(Vec::new()),
+        }
+    }
+}
+impl Shared {
+    /// Record the host's track name. Returns without a bump when nothing changed.
+    pub fn set_track_name(&self, name: Option<String>) {
+        let name = name.map(|n| n.trim().to_string()).unwrap_or_default();
+        if let Ok(mut current) = self.track_name.lock() {
+            if *current != name {
+                *current = name;
+                self.track_rev.fetch_add(1, Relaxed);
+            }
+        }
     }
 }
 
@@ -427,12 +462,18 @@ impl Plugin for NDrum {
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         Some(editor::create(self.params.clone(), self.shared.clone()))
     }
-    fn initialize(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, _context: &mut impl InitContext<Self>) -> bool {
+    fn initialize(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, context: &mut impl InitContext<Self>) -> bool {
         self.sample_rate = config.sample_rate as f64;
+        // Some hosts report the track here, others only afterwards through `track_context_changed`.
+        self.shared.set_track_name(context.track_name());
         true
     }
+    fn track_context_changed(&mut self, context: &mut impl InitContext<Self>) {
+        // Called on the host main thread, e.g. when the user renames the track.
+        self.shared.set_track_name(context.track_name());
+    }
     fn reset(&mut self) {
-        // nih-plug hands `reset` no ProcessContext, so NoteOffs cannot be sent from here.
+        // nice-plug hands `reset` no ProcessContext, so NoteOffs cannot be sent from here.
         // `active` is deliberately left intact and flushed at the top of the next `process`;
         // clearing it here would drop the note numbers and leave every sounding note stuck.
         self.pending_reset = self.active.iter().any(|a| a.is_some());
@@ -586,8 +627,8 @@ impl Vst3Plugin for NDrum {
     const VST3_CLASS_ID: [u8; 16] = *b"nDrum\0\0\0\0\0\0\0\0\0\0\0";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Instrument, Vst3SubCategory::Tools];
 }
-nih_export_clap!(NDrum);
-nih_export_vst3!(NDrum);
+nice_export_clap!(NDrum);
+nice_export_vst3!(NDrum);
 
 #[cfg(test)]
 mod tests {
@@ -693,6 +734,21 @@ mod tests {
         assert_ne!(palettes[0][0], palettes[1][0]);
         assert_ne!(palettes[1][0], palettes[2][0]);
         assert_ne!(palettes[2][0], palettes[3][0]);
+    }
+
+    #[test]
+    fn track_name_changes_bump_the_revision_only_when_the_name_changes() {
+        let shared = Shared::default();
+        assert_eq!(shared.track_rev.load(Relaxed), 0);
+        shared.set_track_name(Some("  Drums 1 ".to_string()));
+        assert_eq!(*shared.track_name.lock().unwrap(), "Drums 1");
+        assert_eq!(shared.track_rev.load(Relaxed), 1);
+        shared.set_track_name(Some("Drums 1".to_string()));
+        assert_eq!(shared.track_rev.load(Relaxed), 1, "same name must not bump the revision");
+        // A host that stops reporting a name clears it rather than leaving a stale one.
+        shared.set_track_name(None);
+        assert_eq!(*shared.track_name.lock().unwrap(), "");
+        assert_eq!(shared.track_rev.load(Relaxed), 2);
     }
 
     #[test]

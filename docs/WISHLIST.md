@@ -11,7 +11,7 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 - A repeatable smoke-test checklist with host/version/OS, distinguishing untested from passing.
 - Run CI for Linux, macOS and Windows; package CLAP + VST3 in release artifacts.
 - **Windows build has never been attempted.** Assessed from source, not compiled:
-  - Good: no `cfg(target_os)` anywhere in `src/`; `raw-window-handle` is 0.5 consistently across nih-plug, baseview and slint-baseview, so `ParentWindowHandle: HasRawWindowHandle` unifies — that mismatch is the usual cause of Slint plug-ins failing to build on Windows.
+  - Good: no `cfg(target_os)` anywhere in `src/`; `raw-window-handle` is 0.5 consistently across nice-plug, baseview and slint-baseview, so `ParentWindowHandle: HasRawWindowHandle` unifies — that mismatch is the usual cause of Slint plug-ins failing to build on Windows.
   - Good: baseview ships a full `src/platform/win/` backend, and its wgl GL path is behind the `opengl` feature that slint-baseview already enables.
   - Unknown: femtovg over baseview's GDI/wgl context. `wglGetProcAddress` is present so extensions should resolve, but this is the part that only a real build proves.
   - Unknown: `strip = "symbols"` in the release profile. Harmless on PE, but unverified.

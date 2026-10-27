@@ -46,6 +46,14 @@ fn selected_row(params: &GenParams, tr: usize) -> usize {
     }
 }
 
+/// Rank cutoff of lane 0 for the oscillator panel, read from the generator's published `hit` and
+/// `orbit`. Hits are the top-ranked samples, so it is the lowest hit; with `invert` they are the
+/// samples below it, so it is the highest hit.
+fn oscillator_cutoff(p: &Pattern, n: usize, invert: bool) -> f32 {
+    let hits = (0..n).filter(|&i| p.hit[0][i]).map(|i| p.orbit[i]);
+    if invert { hits.fold(0.0, f32::max) } else { hits.fold(1.0, f32::min) }
+}
+
 pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
     let n = p.steps.clamp(1, MAX_STEPS);
     let play = (cur >= 0 && (cur as usize) < n).then_some(cur as usize);
@@ -187,23 +195,26 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::Oscillator => {
+            // Draw the generator's published lane-0 curve (`orbit`), which is already rotated
+            // into display slots, so the picture matches the onsets after Generate. The old
+            // panel re-derived the waveform from the parameters and ignored `rotation`.
+            let x_at = |i: usize| 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
+            let y_at = |value: f32| 176.0 - value * 130.0;
             mv(&mut v.edges, 12.0, 105.0); ln(&mut v.edges, 198.0, 105.0);
-            let points = (n * 3).max(24);
-            for j in 0..points {
-                let phase = (j as f32 / points as f32 * params.osc_rate + params.phase).fract();
-                let value = crate::sequence::oscillator_value(params.osc_wave, phase);
-                let x = 12.0 + j as f32 / (points - 1) as f32 * 186.0;
-                let y = 176.0 - value * 130.0;
-                if j == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
+            for i in 0..n {
+                let (x, y) = (x_at(i), y_at(p.orbit[i]));
+                if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
             }
-            let threshold = crate::sequence::oscillator_threshold(params);
-            let threshold_y = 176.0 - (1.0 - threshold) * 130.0;
+            // The rank cutoff lane 0 actually applied, read from the generator's own outputs
+            // (`hit[0]` + `orbit`), not re-derived. Hits are the top-ranked samples, so the
+            // cutoff is the lowest hit; with Invert on they are the samples below it, so it is
+            // the highest hit. With Hit Probability below 100% a dropped onset can move the
+            // line slightly.
+            let cutoff = oscillator_cutoff(p, n, params.invert);
+            let threshold_y = y_at(cutoff);
             mv(&mut v.edges, 12.0, threshold_y); ln(&mut v.edges, 198.0, threshold_y);
             for i in 0..n {
-                let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
-                let phase = (i as f32 / n as f32 * params.osc_rate + params.phase).fract();
-                let value = crate::sequence::oscillator_value(params.osc_wave, phase);
-                v.nodes.push(Node { x, y: 176.0 - value * 130.0, r: 3.0, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
+                v.nodes.push(Node { x: x_at(i), y: y_at(p.orbit[i]), r: 3.0, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
             }
         }
         Mode::Crystallographic => {
@@ -654,6 +665,38 @@ mod tests {
             for i in 0..=100 {
                 assert!((0.0..=1.0).contains(&crate::sequence::oscillator_value(wave, i as f32 / 100.0)),
                     "wave {wave} left 0..=1 at phase {}", i as f32 / 100.0);
+            }
+        }
+    }
+
+    /// The panel must draw the curve the generator ranked, after rotation: every lane-0 onset
+    /// sits at or above the drawn cutoff and every other step at or below it. Re-deriving the
+    /// waveform from the parameters ignored `rotate` and put the curve out of step with the hits.
+    #[test]
+    fn oscillator_panel_follows_the_rotated_ranked_curve() {
+        for (invert, mirror) in [(false, false), (true, false), (false, true), (true, true)] {
+            for rotate in [0usize, 3, 7, 11] {
+                for wave in 0..crate::sequence::oscillator_wave_count {
+                    let g = GenParams {
+                        kind: Mode::Oscillator, steps: 16, pulses: 5, density: 0.8, probability: 1.0,
+                        rotate, osc_wave: wave, invert, mirror, ..GenParams::default()
+                    };
+                    let pat = generate(&g);
+                    let cutoff = oscillator_cutoff(&pat, 16, invert);
+                    let ctx = format!("wave {wave} rotate {rotate} invert {invert} mirror {mirror}");
+                    for i in 0..16 {
+                        // Normal: hits rank at or above the cutoff. Inverted: at or below it.
+                        let (hit, v) = (pat.hit[0][i], pat.orbit[i]);
+                        if invert { if hit { assert!(v <= cutoff + 1e-6, "{ctx}: step {i}"); } else { assert!(v >= cutoff - 1e-6, "{ctx}: step {i} outranked by the cutoff"); } }
+                        else if hit { assert!(v >= cutoff - 1e-6, "{ctx}: step {i}"); } else { assert!(v <= cutoff + 1e-6, "{ctx}: step {i} outranks the cutoff"); }
+                    }
+                    let view = build(&g, &pat, -1);
+                    assert_eq!(view.nodes.len(), 16);
+                    // Node heights are the published (rotated, mirrored) samples, not a fresh waveform.
+                    for (i, node) in view.nodes.iter().enumerate() {
+                        assert!((node.y - (176.0 - pat.orbit[i] * 130.0)).abs() < 1e-4, "{ctx}");
+                    }
+                }
             }
         }
     }

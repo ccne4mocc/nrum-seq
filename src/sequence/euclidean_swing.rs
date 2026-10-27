@@ -1,4 +1,4 @@
-use super::{set_hit, GenParams, Pattern, Rng, TRACKS};
+use super::{GenParams, Pattern, Rng, TRACKS};
 
 pub(super) fn generate(p: &GenParams) -> Pattern {
     // Euclidean base plus a per-lane swing feel handled at scheduling time.

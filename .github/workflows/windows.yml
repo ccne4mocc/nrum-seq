@@ -23,4 +23,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ndrum-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/bundles
+          # nice-plug's xtask (like nih-plug's) always writes to target/bundled, whatever --target is.
+          path: target/bundled

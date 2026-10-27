@@ -6,7 +6,7 @@
 //! displayed value cannot drift from the pattern that is actually playing.
 
 use crate::modes::Mode;
-use nih_plug::prelude::Enum as _;
+use nice_plug::prelude::Enum as _;
 use crate::sequence::{
     euclidean_lane_pulses, pulse_hits, raised_cosine_cutoff,
     raised_cosine_phase, slowcat_motif_len, GenParams, CA_ROWS, DENSITY_PROFILE,
