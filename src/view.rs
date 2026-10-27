@@ -52,8 +52,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
     let mut v = View::default();
     match params.kind {
         Mode::Euclidean => {
-            // Per-lane rings rather than one aggregate ring: the lanes have different densities,
-            // and collapsing them hid that (and showed hits for lanes the user disabled).
+            // Per-lane rings rather than one aggregate ring
             for tr in 0..TRACKS {
                 let radius = 24.0 + tr as f32 * 9.2;
                 circle(&mut v.edges, C, C, radius);
@@ -96,14 +95,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::Phyllotaxis => {
-            // One shared √i rosette instead of eight overlaid lane spirals. The classic
-            // phyllotaxis picture is already dense at eight lanes and 64 steps; at 1024 it
-            // would be 16k rectangles and unreadable. Sample the spiral into at most 128
-            // groups, then aggregate the lanes that actually fire in each group.
-            //
-            // The eight arcs still carry per-lane information: their lengths are the exact
-            // primary and secondary trigger windows the generator tests. The inner sparse
-            // spiral is the 1/φ³ rule; it only appears where that rule contributed a hit.
+            // One shared √i rosette instead of eight overlaid lane spirals.
             let max_r = 92.0;
             let sec_r = 40.0;
             let shift = p.rotation % n;
@@ -942,4 +934,3 @@ mod tests {
         assert!(marked.iter().any(|y| (*y - row_y(selected_row(&g, 1))).abs() < 0.6), "lane 1 row missing: {marked:?}");
     }
 }
-
