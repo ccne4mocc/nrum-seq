@@ -559,7 +559,10 @@ impl Editor for SlintEditor {
             ui.set_current_step(cur);
             let mask = enabled_mask(p);
             let vel_key = velocity_key(p);
-            let mut c = update_cache.lock().unwrap();
+            let mut c = update_cache.lock().unwrap_or_else(|poisoned| {
+                log_line("WARNING: update cache mutex was poisoned; recovering its inner state");
+                poisoned.into_inner()
+            });
             if c.gen_key != Some(gen_key) {
                 c.pattern = generate(&gen_key);
                 ui.set_mode_math(SharedString::from(crate::help::math(&gen_key)));
@@ -606,7 +609,9 @@ impl Editor for SlintEditor {
             Ok(ui)
         };
         // The window never changes size: the editor reports a fixed 860x760 logical size.
+        log_line("editor spawn: opening parented Slint/baseview window");
         let window = SlintWindow::open_parented(&parent, options, factory, setup, update, |_, _| {});
+        log_line("editor spawn: open_parented returned; native initialization may continue asynchronously");
         Box::new(SlintEditorHandle {
             window,
             params: self.params.clone(),

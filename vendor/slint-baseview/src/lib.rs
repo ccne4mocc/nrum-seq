@@ -55,6 +55,16 @@ pub use baseview::{
 };
 pub use slint;
 pub use slint::PlatformError;
+
+/// Best-effort diagnostics for native editor startup. Never let logging failures
+/// interfere with the audio host or plugin UI lifecycle.
+fn log_backend(message: &str) {
+    use std::io::Write;
+    let path = std::env::temp_dir().join("nDrum-baseview.log");
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{}", message);
+    }
+}
 // The trait a parent window handle must implement to be parented into baseview.
 // This is raw-window-handle **0.5**'s trait (what baseview 0.1.x consumes), even
 // though slint itself uses 0.6 internally. Integrations implement this on their
@@ -408,12 +418,18 @@ impl<T: slint::ComponentHandle> SlintWindowHandler<T> {
 impl<T: slint::ComponentHandle> baseview::WindowHandler for SlintWindowHandler<T> {
     fn on_frame(&mut self, window: &mut baseview::Window) {
         // Make the GL context current for this frame.
-        unsafe { window.gl_context().unwrap().make_current() };
+        log_backend("on_frame: entered");
+        let Some(gl_context) = window.gl_context() else {
+            log_backend("ERROR: baseview window has no OpenGL context");
+            return;
+        };
+        unsafe { gl_context.make_current() };
 
         // On first frame: initialize the renderer and show the component.
         // We defer this until on_frame (rather than doing it in spawn's closure)
         // so the GL context is guaranteed to be current when FemtoVG queries GL_VERSION.
         if !*self.window_shown.borrow() {
+            log_backend("first frame: initializing Slint renderer");
             self.adapter.set_gl_context(window);
             let _ = self.adapter.renderer.get_or_init(|| {
                 self.adapter
@@ -426,6 +442,7 @@ impl<T: slint::ComponentHandle> baseview::WindowHandler for SlintWindowHandler<T
                     .expect("gl_interface must be set before renderer init")
             });
             self.component.show().expect("Failed to show component");
+            log_backend("first frame: component.show() succeeded");
             *self.window_shown.borrow_mut() = true;
 
             // Fires once, so integrations can register UI -> plugin callbacks
@@ -454,8 +471,12 @@ impl<T: slint::ComponentHandle> baseview::WindowHandler for SlintWindowHandler<T
             let _ = renderer.render();
         }
 
-        // Swap buffers after rendering
-        window.gl_context().unwrap().swap_buffers();
+        // Swap buffers after rendering. The context was checked at frame entry.
+        if let Some(gl_context) = window.gl_context() {
+            gl_context.swap_buffers();
+        } else {
+            log_backend("ERROR: OpenGL context disappeared before buffer swap");
+        }
     }
 
     fn on_event(&mut self, _window: &mut baseview::Window, event: Event) -> EventStatus {
@@ -677,7 +698,12 @@ where
     move |baseview_window: &mut Window| {
         // Make the GL context current so that any renderer creation during
         // component init (Slint may call renderer() eagerly) has a valid context.
-        unsafe { baseview_window.gl_context().unwrap().make_current() };
+        log_backend("window factory: entered");
+        if let Some(gl_context) = baseview_window.gl_context() {
+            unsafe { gl_context.make_current() };
+        } else {
+            log_backend("ERROR: window factory received no OpenGL context");
+        }
 
         // Create the Slint window adapter. Start with scale 1.0; the actual
         // system scale arrives via the first WindowEvent::Resized from baseview.
@@ -689,7 +715,14 @@ where
 
         // Install our platform on first open; ignored (Err) on subsequent
         // opens since Slint only allows setting the platform once per process.
-        let _ = slint::platform::set_platform(Box::new(BaseviewSlintPlatform));
+        if let Err(error) = slint::platform::set_platform(Box::new(BaseviewSlintPlatform)) {
+            // Slint permits one process-global platform. An existing platform can be
+            // expected when another instance already initialized this backend; record it
+            // so a host-specific platform conflict is diagnosable.
+            log_backend(&format!("set_platform returned an error: {error}"));
+        } else {
+            log_backend("Slint platform installed");
+        }
 
         // Publish this window's adapter only for the duration of component
         // construction. Slint calls `create_window_adapter` synchronously while
@@ -700,8 +733,18 @@ where
         // therefore this slot).
         let component = {
             let _adapter_guard = CurrentAdapterGuard::set(adapter.clone());
-            component_factory()
-                .unwrap_or_else(|e| panic!("Failed to create Slint component: {}", e))
+            log_backend("component factory: creating Slint component");
+            let result = component_factory();
+            match result {
+                Ok(component) => {
+                    log_backend("component factory: succeeded");
+                    component
+                }
+                Err(error) => {
+                    log_backend(&format!("ERROR: Slint component creation failed: {error}"));
+                    panic!("Failed to create Slint component: {}", error)
+                }
+            }
         };
 
         SlintWindowHandler {
