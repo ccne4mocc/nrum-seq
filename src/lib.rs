@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 pub enum Theme {
     // The host id stays `aurora` so existing projects and automation keep their palette slot;
     // only the display name and the colours changed.
-    #[id = "aurora"] #[name = "Sketchbook"] Sketchbook,
+    #[id = "aurora"] #[name = "Sketch"] Sketchbook,
     #[id = "neon"] #[name = "Neon"] Neon,
     #[id = "lava"] #[name = "Lava"] Lava,
     #[id = "forest"] #[name = "Forest"] Forest,
@@ -439,6 +439,7 @@ impl NDrum {
 /// Author contact, shared by the plug-in metadata and the Credits panel.
 pub mod contact {
     pub const AUTHOR: &str = "ccne4mocc / feN";
+    pub const WEBSITE: &str = "https://ndrums.feneutral.com";
     pub const GITHUB: &str = "https://github.com/ccne4mocc";
     pub const SUPPORT: &str = "";
 }
@@ -710,6 +711,7 @@ mod tests {
     #[test]
     fn contact_details_are_the_published_ones() {
         assert_eq!(contact::AUTHOR, "ccne4mocc / feN");
+        assert_eq!(contact::WEBSITE, "https://ndrums.feneutral.com");
         assert_eq!(contact::GITHUB, "https://github.com/ccne4mocc");
         assert_eq!(contact::SUPPORT, "");
         assert_eq!(<NDrum as Plugin>::VENDOR, contact::AUTHOR);

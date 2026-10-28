@@ -14,7 +14,7 @@ nDrum grew out of many other interests and projects. `_AlgoNemLody`, its direct 
 - Lane-independent hit generation; each lane has its own density profile, phase origin, and enable/note/velocity host parameter.
 - Automatic regeneration and per-length randomization with a scope mask (Mode / Length / Rhythm / Tone / Feel).
 - One-loop MIDI export to a timestamped SMF in a user-chosen folder.
-- Four colour themes: Sketchbook (light), Neon, Lava, Forest.
+- Four colour themes: Sketch (light), Neon, Lava, Forest.
 - Technical logging toggle; when enabled, mode and parameter snapshots are appended to `~/nDrum.log` (`%USERPROFILE%\nDrum.log` on Windows).
 
 ## Modes

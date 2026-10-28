@@ -472,6 +472,7 @@ impl Editor for SlintEditor {
             )));
             ui.set_settings_path(SharedString::from(crate::globals::config_path_display()));
             ui.set_credit_author(SharedString::from(crate::contact::AUTHOR));
+            ui.set_credit_website(SharedString::from(crate::contact::WEBSITE));
             ui.set_credit_github(SharedString::from(crate::contact::GITHUB));
             ui.set_credit_support(SharedString::from(crate::contact::SUPPORT));
         };

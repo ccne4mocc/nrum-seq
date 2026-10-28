@@ -76,7 +76,7 @@ Two independent mechanisms, deliberately:
 
 The consequence of theme being global is that host automation of `theme` will not survive an editor reopen. That is an accepted trade-off for a cosmetic setting.
 
-The default **Sketchbook** palette is a warm paper theme with graphite text, ochre/blue/red pencil accents and a faint graph-paper grid. It keeps the host id `aurora` and index 0, so projects and automation that stored the old Aurora choice open in Sketchbook. Palette values come from `Theme::colors()` and are pushed into named Slint tokens (`surface`, `control`, `text`, `border`, `cell-off`, `on-accent`, and the accents); new UI colours should use those tokens instead of hardcoded hex values so every palette stays legible.
+The default **Sketch** palette is a warm paper theme with graphite text, ochre/blue/red pencil accents and a faint graph-paper grid. It keeps the host id `aurora` and index 0, so projects and automation that stored the old Aurora choice open in Sketch. Palette values come from `Theme::colors()` and are pushed into named Slint tokens (`surface`, `control`, `text`, `border`, `cell-off`, `on-accent`, and the accents); new UI colours should use those tokens instead of hardcoded hex values so every palette stays legible.
 
 `MAX_STEPS` is 1024, but `max_steps` (default 64) is the effective ceiling, so a project keeps the pre-1024 cost unless the user raises it. Generation cost stays linear in the ceiling, and the modes that select a top-k subset rank through a fixed in-place array instead of an O(n²) scan. The ignored `bench_generation_at_max_steps` test measures the eight-lane worst case at 1024; run it before changing the cap.
 

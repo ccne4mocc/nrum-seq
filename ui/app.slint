@@ -309,6 +309,7 @@ export component AppWindow inherits Window {
     in property <bool> scope-feel: true;
     in property <string> settings-path: "";
     in property <string> credit-author: "";
+    in property <string> credit-website: "";
     in property <string> credit-github: "";
     in property <string> credit-support: "";
     in property <string> midi-folder: "";
@@ -474,7 +475,7 @@ export component AppWindow inherits Window {
     Rectangle {
         width: root.base-width; height: root.base-height;
 
-        // Faint graph paper belongs to the Sketchbook palette; the other themes keep the flat
+        // Faint graph paper belongs to the Sketch palette; the other themes keep the flat
         // gradient. It sits below the layout so only the gaps between cards show it.
         Rectangle {
             visible: root.theme-index == 0;
@@ -657,7 +658,7 @@ export component AppWindow inherits Window {
                 Rectangle { width: 74px; height: 22px; border-radius: 4px; background: close-settings.has-hover ? Theme.hi : Theme.control; Text { text: "CLOSE"; color: close-settings.has-hover ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } close-settings := TouchArea { clicked => { root.settings-open = false; } } }
             }
             Text { text: "COLOUR THEME"; color: Theme.text-muted; font-size: 9px; }
-            Selector { options: ["Sketchbook", "Neon", "Lava", "Forest"]; current: root.theme-index; text-size: 10px; selected(i) => { root.set-theme(i); } }
+            Selector { options: ["Sketch", "Neon", "Lava", "Forest"]; current: root.theme-index; text-size: 10px; selected(i) => { root.set-theme(i); } }
             Text { text: "CONFIG FILE"; color: Theme.text-muted; font-size: 9px; }
             Text { text: root.settings-path; color: Theme.text-muted; font-size: 8px; wrap: word-wrap; }
             Text { text: "STEP SPACING"; color: Theme.text-muted; font-size: 9px; }
@@ -673,6 +674,10 @@ export component AppWindow inherits Window {
                     font-size: 9px; vertical-alignment: center;
                 }
                 round-touch := TouchArea { clicked => { root.toggle-round-steps(); } }
+            }
+            Text {
+                text: "Whole steps snap the loop to the step grid. Fractional steps turn off in-plugin quantization, so the loop can wrap mid-step and drift against the grid.";
+                color: Theme.text-muted; font-size: 9px; wrap: word-wrap;
             }
             Text { text: "PATTERN LIMIT"; color: Theme.text-muted; font-size: 9px; }
             max-steps-box := NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; changed(v) => { root.set-opt(14, v); } }
@@ -720,12 +725,9 @@ export component AppWindow inherits Window {
             Rectangle { vertical-stretch: 1; }
             Text { text: "CREDITS / CONTACT"; color: Theme.text-muted; font-size: 9px; }
             Text { text: "\{root.credit-author}  ·  nDrum"; color: Theme.text; font-size: 10px; }
+            TextInput { read-only: true; text: root.credit-website; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-support; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
-            Text {
-                text: "RANDOMIZE uses the top button. Type exact values here, or use the arrows and wheel.";
-                color: Theme.text-muted; font-size: 9px; wrap: word-wrap;
-            }
         }
     }
     }
