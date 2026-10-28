@@ -312,6 +312,7 @@ export component AppWindow inherits Window {
     in property <string> credit-website: "";
     in property <string> credit-github: "";
     in property <string> credit-support: "";
+    in property <string> credit-email: "";
     in property <string> midi-folder: "";
     // DAW track hosting this instance; empty when the host does not report one.
     in property <string> track-name: "";
@@ -728,6 +729,7 @@ export component AppWindow inherits Window {
             TextInput { read-only: true; text: root.credit-website; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-support; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
+            TextInput { read-only: true; text: root.credit-email; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
         }
     }
     }

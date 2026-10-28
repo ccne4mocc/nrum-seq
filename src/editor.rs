@@ -475,6 +475,7 @@ impl Editor for SlintEditor {
             ui.set_credit_website(SharedString::from(crate::contact::WEBSITE));
             ui.set_credit_github(SharedString::from(crate::contact::GITHUB));
             ui.set_credit_support(SharedString::from(crate::contact::SUPPORT));
+            ui.set_credit_email(SharedString::from(crate::contact::EMAIL));
         };
 
         let cache = Arc::new(Mutex::new(Cache { gen_key: None, pattern: Pattern::default(), view_key: None }));

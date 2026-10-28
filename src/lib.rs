@@ -442,13 +442,14 @@ pub mod contact {
     pub const WEBSITE: &str = "https://ndrums.feneutral.com";
     pub const GITHUB: &str = "https://github.com/ccne4mocc";
     pub const SUPPORT: &str = "";
+    pub const EMAIL: &str = "";
 }
 
 impl Plugin for NDrum {
     const NAME: &'static str = "nDrum";
     const VENDOR: &'static str = contact::AUTHOR;
     const URL: &'static str = contact::GITHUB;
-    const EMAIL: &'static str = "";
+    const EMAIL: &'static str = contact::EMAIL;
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout { main_input_channels: None, main_output_channels: None, ..AudioIOLayout::const_default() }];
     // Input is drained and discarded in `process`, so advertising CC input would only make
@@ -714,6 +715,7 @@ mod tests {
         assert_eq!(contact::WEBSITE, "https://ndrums.feneutral.com");
         assert_eq!(contact::GITHUB, "https://github.com/ccne4mocc");
         assert_eq!(contact::SUPPORT, "");
+        assert_eq!(contact::EMAIL, "");
         assert_eq!(<NDrum as Plugin>::VENDOR, contact::AUTHOR);
     }
 
