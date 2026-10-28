@@ -37,7 +37,7 @@ Many modes draw a panel tied specifically to their algorithm: pulse rings, the C
 
 ## Build
 
-Requirements: Rust ≥ 1.88, C/C++ build toolchain, Slint dependencies on Linux. Windows uses only MSVC.
+Requirements: Rust ≥ 1.88, C/C++ build toolchain, Slint dependencies on Linux. Windows can be built cross-compiled from Linux with MinGW, or natively/on CI with MSVC (not yet exercised).
 
 ```sh
 cargo check --lib
@@ -49,19 +49,33 @@ cargo xtask bundle ndrum --release
 
 Optional debug aid: `cargo xtask bundle ndrum --features assert_process_allocs` builds a plug-in that aborts if `process()` allocates (it bundles fine; `cargo test` with this feature is unsupported because the tests install their own counting allocator). Caveat found by running `clap-validator` against such a build: all well-formed processing tests pass, but malformed host events (wrong parameter namespace, inconsistent notes) make nice-plug's *own* wrapper log from the audio thread, and that logging allocates, so the guard aborts. That is framework behaviour, not this plug-in's code. Use the guarded build for development, never ship it.
 
-Windows 32/64-bit:
+Windows (cross-compiled from Linux, verified path):
 
 ```sh
-rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
-cargo xtask bundle ndrum --release --target x86_64-pc-windows-msvc
-cargo xtask bundle ndrum --release --target i686-pc-windows-msvc
+rustup target add x86_64-pc-windows-gnu
+cargo check --target x86_64-pc-windows-gnu
+cargo xtask bundle ndrum --release --target x86_64-pc-windows-gnu
 ```
 
-CI runs the Windows bundle in `.github/workflows/windows.yml` on every push and PR. Linux bundles are built as a manual step. Artifacts land under `target/bundled/` (or `target/<target>/bundled/` for cross-compiled targets).
+MSVC targets (`x86_64-pc-windows-msvc`, `i686-pc-windows-msvc`) should also build but have never been compiled or loaded on a real Windows system; treat them as untested until one is.
+
+```sh
+rustup target add x86_64-pc-windows-msvc
+cargo xtask bundle ndrum --release --target x86_64-pc-windows-msvc
+```
+
+There is no CI in this repository regardless of what older revisions said. Artifacts always land under `target/bundled/` — the xtask does not move them for cross-compiled targets.
+
+### Host verification status (2026-10-28)
+
+- Cross-compiled MinGW x64 build verified in **REAPER 7.83 for Windows x64 running under Wine 11.5** (fresh 64-bit Wine prefix, no dxvk): VST3 and CLAP both scan, load, process and show the full Slint/femtovg editor with no GL/wgl errors in the Wine log. The femtovg-over-wgl editor path therefore holds on a 64-bit Windows ABI.
+- Not yet verified on real Windows. One known Windows failure mode from testing in a VM: with REAPER's per-plugins bridging enabled (which for a 64-bit plugin is a manual REAPER setting, not an architecture mismatch), the editor window fails to appear — bridged VST3 GUI goes through REAPER's IPC and this plugin's custom GL editor expects a directly parented window. Run the plugin unbridged, or investigate the editor path before trusting bridge mode.
+- macOS build is not configured.
 
 ## Limitations
 
 - Not release-certified; needs thorough host smoke-testing (CLAP and VST3 hosts).
+- Windows builds are cross-compilable and load correctly under Wine/REAPER (see Build below), but have never been run on a real Windows system; REAPER bridge mode for the VST3 editor is known to fail there.
 - macOS build is not configured.
 - Fixed UI size 860×760; no scaling preference beyond what Slint offers by default.
 - The plug-in generates MIDI rather than audio; it cannot be assigned to a bus and will not do anything without an instrument track.

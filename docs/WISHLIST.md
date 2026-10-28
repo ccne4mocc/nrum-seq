@@ -10,13 +10,7 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 - Check no-audio MIDI-effect routing into a sampler, host parameter automation, plug-in scan, editor close/reopen, tempo changes, loop points, stop/start and free-run.
 - A repeatable smoke-test checklist with host/version/OS, distinguishing untested from passing.
 - Run CI for Linux, macOS and Windows; package CLAP + VST3 in release artifacts.
-- **Windows build has never been attempted.** Assessed from source, not compiled:
-  - Good: no `cfg(target_os)` anywhere in `src/`; `raw-window-handle` is 0.5 consistently across nice-plug, baseview and slint-baseview, so `ParentWindowHandle: HasRawWindowHandle` unifies — that mismatch is the usual cause of Slint plug-ins failing to build on Windows.
-  - Good: baseview ships a full `src/platform/win/` backend, and its wgl GL path is behind the `opengl` feature that slint-baseview already enables.
-  - Unknown: femtovg over baseview's GDI/wgl context. `wglGetProcAddress` is present so extensions should resolve, but this is the part that only a real build proves.
-  - Unknown: `strip = "symbols"` in the release profile. Harmless on PE, but unverified.
-  - First step, cheap: `rustup target add x86_64-pc-windows-gnu` then `cargo check --target x86_64-pc-windows-gnu`. The toolchain is otherwise already present on the dev machine (`x86_64-w64-mingw32-gcc`, `lld-link`); only the target is missing. That one command would answer most of the above.
-  - Not attempted: `cargo xtask bundle` on Windows, and loading the result in a Windows host.
+- **Windows** (updated 2026-10-28): cross-compile for `x86_64-pc-windows-gnu` builds clean and the bundled VST3 + CLAP load, run and show the full editor in REAPER 7.83 x64 under Wine. Still unverified: any real Windows system, MSVC targets, REAPER bridge mode (editor does not appear when the VST3 is bridged).
 - Check plug-in metadata, class ID stability, GPL-3.0-or-later notices, crash/reload state, parameter versioning and host preset compatibility.
 - Test several hosts, because VST3 MIDI-only routing and CLAP note-effect routing vary by host.
 - Document known host limitations and keep release notes honest.
