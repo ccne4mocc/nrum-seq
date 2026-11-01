@@ -11,7 +11,7 @@ DrumParams (host-visible, automatable) ---> GenParams snapshot
                                                 v
                                       sequence::generate()
                                                 |
-                                   fixed-size Pattern [8 x 1024], 96272 bytes (64-bit)
+                                   fixed-size Pattern [8 x 1024], 104464 bytes (64-bit)
                                                 |
                                                 v
                                         MIDI scheduler
@@ -39,7 +39,7 @@ DrumParams + host tempo ---> editor-side MIDI export
 
 The reference `_AlgoNemLody` project has a strong seam between pure generation (`src/pattern.rs`), pure visualization geometry (`src/view.rs`), and Slint host glue (`src/editor.rs`). nDrum preserves that seam and replaces pitch-oriented output with a multi-lane drum event matrix.
 
-`sequence::Pattern` is a fixed 96272-byte data structure on 64-bit targets: eight hit arrays at up to 1024 steps, eight accent arrays, and the mode visualization state (CA history, logistic orbit, symbolic word, normalized pebble-box frames, and the Kuramoto phase bank). Algorithms are deterministic: parameter snapshots contain seed and a persisted variation counter; no entropy source is consulted during playback. Rotation is a shared post-transform and rotates every per-step view array, including the orbit trace, the symbolic word, the phase bank and the current step, so the playhead always matches what is drawn.
+`sequence::Pattern` is a fixed 104464-byte data structure on 64-bit targets: eight hit arrays at up to 1024 steps, eight accent arrays, and the mode visualization state (CA history, logistic orbit, symbolic word, normalized pebble-box frames, and the Kuramoto phase bank). Algorithms are deterministic: parameter snapshots contain seed and a persisted variation counter; no entropy source is consulted during playback. Rotation is a shared post-transform and rotates every per-step view array, including the orbit trace, the symbolic word, the phase bank and the current step, so the playhead always matches what is drawn.
 
 ## Audio/MIDI thread
 

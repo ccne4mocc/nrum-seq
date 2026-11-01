@@ -143,6 +143,10 @@ pub struct Pattern {
     pub ca: [[bool; MAX_STEPS]; CA_ROWS],
     /// Orbit samples used by the logistic-map plot.
     pub orbit: [f32; MAX_STEPS],
+    /// Secondary coordinate (normalized 0..1) for 2-D views (Hilbert, Ulam, Arnold, Bernoulli).
+    pub theta: [f32; MAX_STEPS],
+    /// Contour value (normalized 0..1) for scatter/contour views (Bernoulli, Reaction-Diffusion).
+    pub u: [f32; MAX_STEPS],
     /// L-System symbol per step: 0 = A, 1 = B. The word the grammar actually produced.
     pub lsym: [u8; MAX_STEPS],
     /// Steps the finished pattern was rotated by. The rotation happens after the mode ran, so
@@ -168,6 +172,8 @@ impl Default for Pattern {
             state: [0; MAX_STEPS],
             ca: [[false; MAX_STEPS]; CA_ROWS],
             orbit: [0.0; MAX_STEPS],
+            theta: [0.0; MAX_STEPS],
+            u: [0.0; MAX_STEPS],
             lsym: [0; MAX_STEPS],
             rotation: 0,
             pebbles: [[0; TRACKS * 2]; MAX_STEPS],

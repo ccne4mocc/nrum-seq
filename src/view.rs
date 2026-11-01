@@ -6,6 +6,8 @@ use std::fmt::Write;
 
 const SIZE: f32 = 210.0;
 const C: f32 = SIZE * 0.5;
+const P: f32 = SIZE;
+fn x_of(i: usize, n: usize) -> f32 { 8.0 + i as f32 / n.max(1) as f32 * (P - 16.0) }
 
 #[derive(Clone, Debug, Default)]
 pub struct Node { pub x: f32, pub y: f32, pub r: f32, pub on: bool, pub cur: bool, pub label: String }
@@ -23,6 +25,7 @@ fn polar(r: f32, turns: f32) -> (f32, f32) {
 }
 fn mv(s: &mut String, x: f32, y: f32) { let _ = write!(s, "M{:.1} {:.1} ", x, y); }
 fn ln(s: &mut String, x: f32, y: f32) { let _ = write!(s, "L{:.1} {:.1} ", x, y); }
+fn line(s: &mut String, a: (f32, f32), b: (f32, f32)) { mv(s, a.0, a.1); ln(s, b.0, b.1); }
 fn circle(s: &mut String, cx: f32, cy: f32, r: f32) {
     let _ = write!(s, "M{:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} ", cx + r, cy, cx - r, cy, cx + r, cy);
 }
@@ -626,7 +629,133 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 v.nodes.push(Node { x: px, y: py, r: 5.0, on: true, cur: true, label: String::new() });
             }
         }
-        Mode::EuclideanSwing | Mode::Bernoulli | Mode::AfricanBell | Mode::PhaseCanon | Mode::ReactionDiffusion | Mode::Cantor | Mode::Fibonacci | Mode::Genetic | Mode::Arnold | Mode::Sturmian | Mode::Hilbert | Mode::Ulam | Mode::Vuza => {
+        Mode::Arnold => {
+            // Polar phase trajectory: circle + rotating points connected in order.
+            circle(&mut v.edges, C, C, 96.0);
+            circle(&mut v.edges, C, C, 30.0);
+            line(&mut v.edges, (C, C), (C, C - 96.0));
+            let mut prev: Option<(f32, f32)> = None;
+            for i in 0..n {
+                let radius = 30.0 + 66.0 * (i as f32 + 1.0) / n as f32;
+                let angle = p.orbit[i];
+                let (x, y) = polar(radius, angle);
+                if let Some(q) = prev { mv(&mut v.lines, q.0, q.1); ln(&mut v.lines, x, y); }
+                prev = Some((x, y));
+                v.nodes.push(Node { x, y, r: if p.hit[0][i] { 4.5 } else { 2.0 }, on: p.hit[0][i], cur: play == Some(i), label: String::new() });
+            }
+            if let Some(i) = play {
+                let radius = 30.0 + 66.0 * (i as f32 + 1.0) / n as f32;
+                let (x, y) = polar(radius, p.orbit[i]);
+                mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
+            }
+        }
+        Mode::Hilbert => {
+            // 2-D space-filling curve grid; sample positions from the curve index.
+            let order = (params.pulses.max(1)).min(6) as u32;
+            let grid = 1usize << order;
+            let total = (grid * grid).max(1);
+            // grid lines
+            for k in 0..=grid {
+                let q = 10.0 + k as f32 * (P - 20.0) / grid as f32;
+                line(&mut v.edges, (q, 10.0), (q, P - 10.0));
+                line(&mut v.edges, (10.0, P - q + 10.0 - 10.0 + 10.0), (P - 10.0, P - q + 10.0 - 10.0 + 10.0));
+            }
+            // curve path
+            fn hilbert_xy(index: usize, n: usize) -> (usize, usize) {
+                let mut x = 0usize; let mut y = 0usize; let mut t = index; let mut s = 1usize;
+                while s < n {
+                    let rx = (t >> 1) & 1;
+                    let ry = (t ^ rx) & 1;
+                    if ry == 0 {
+                        if rx == 1 { x = s - 1 - x; y = s - 1 - y; }
+                        let tmp = x; x = y; y = tmp;
+                    }
+                    x += rx * s; y += ry * s; t >>= 2; s <<= 1;
+                }
+                (x, y)
+            }
+            let mut prev: Option<(f32, f32)> = None;
+            for d in 0..total.min(n * 4).min(total) {
+                let (gx, gy) = hilbert_xy(d, grid);
+                let px = 10.0 + gx as f32 * (P - 20.0) / (grid.max(1) - 1).max(1) as f32;
+                let py = P - 10.0 - gy as f32 * (P - 20.0) / (grid.max(1) - 1).max(1) as f32;
+                if let Some(q) = prev { mv(&mut v.lines, q.0, q.1); ln(&mut v.lines, px, py); }
+                prev = Some((px, py));
+            }
+            // sampled points
+            for i in 0..n {
+                let x = 10.0 + p.orbit[i] * (P - 20.0);
+                let y = P - 10.0 - p.theta[i] * (P - 20.0);
+                v.nodes.push(Node { x, y, r: if p.hit[0][i] { 3.8 } else { 1.5 }, on: p.hit[0][i], cur: play == Some(i), label: String::new() });
+            }
+            if let Some(i) = play {
+                mv(&mut v.hand, C, C); ln(&mut v.hand, 10.0 + p.orbit[i] * (P - 20.0), P - 10.0 - p.theta[i] * (P - 20.0));
+            }
+        }
+        Mode::Ulam => {
+            // Square spiral: map step i to spiral coords using standard algorithm.
+            let mut x = 0i32; let mut y = 0i32;
+            let mut dx = 1i32; let mut dy = 0i32;
+            let mut steps_left = 1i32; let mut turn_count = 0i32;
+            let mut positions: Vec<(i32, i32)> = Vec::with_capacity(n);
+            for _ in 0..n {
+                positions.push((x, y));
+                x += dx; y += dy;
+                steps_left -= 1;
+                if steps_left == 0 {
+                    // turn
+                    let (ndx, ndy) = (-dy, dx);
+                    dx = ndx; dy = ndy;
+                    turn_count += 1;
+                    if turn_count % 2 == 0 { steps_left = turn_count / 2 + 1; } else { steps_left = (turn_count + 1) / 2; }
+                }
+            }
+            // normalize
+            let (mut minx, mut maxx, mut miny, mut maxy) = (0i32, 0i32, 0i32, 0i32);
+            for (px, py) in &positions { minx = minx.min(*px); maxx = maxx.max(*px); miny = miny.min(*py); maxy = maxy.max(*py); }
+            let rngx = (maxx - minx).max(1) as f32;
+            let rngy = (maxy - miny).max(1) as f32;
+            mv(&mut v.edges, 2.0, 2.0); ln(&mut v.edges, P - 2.0, 2.0); ln(&mut v.edges, P - 2.0, P - 2.0); ln(&mut v.edges, 2.0, P - 2.0); ln(&mut v.edges, 2.0, 2.0);
+            let mut prev: Option<(f32, f32)> = None;
+            for i in 0..n {
+                let (px, py) = positions[i];
+                let sx = 2.0 + (px - minx) as f32 / rngx * (P - 4.0);
+                let sy = P - 2.0 - (py - miny) as f32 / rngy * (P - 4.0);
+                if let Some(q) = prev { mv(&mut v.lines, q.0, q.1); ln(&mut v.lines, sx, sy); }
+                prev = Some((sx, sy));
+                if p.hit[0][i] {
+                    v.nodes.push(Node { x: sx, y: sy, r: 4.0, on: true, cur: play == Some(i), label: String::new() });
+                }
+            }
+            if let Some(i) = play {
+                let (px, py) = positions[i];
+                let sx = 2.0 + (px - minx) as f32 / rngx * (P - 4.0);
+                let sy = P - 2.0 - (py - miny) as f32 / rngy * (P - 4.0);
+                mv(&mut v.hand, C, C); ln(&mut v.hand, sx, sy);
+            }
+        }
+        Mode::Bernoulli => {
+            // Scatter of per-step draws with a threshold line.
+            line(&mut v.edges, (8.0, P - 12.0), (P - 8.0, P - 12.0));
+            for i in 0..n {
+                let x = x_of(i, n);
+                let y = 12.0 + (1.0 - p.u[i]) * (P - 24.0);
+                if p.hit[0][i] {
+                    v.nodes.push(Node { x, y, r: 4.0, on: true, cur: play == Some(i), label: String::new() });
+                } else {
+                    v.nodes.push(Node { x, y, r: 1.8, on: false, cur: false, label: String::new() });
+                }
+            }
+            // threshold line
+            let prob = (params.density.clamp(0.0, 1.0) * params.probability.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+            let ty = 12.0 + (1.0 - prob) * (P - 24.0);
+            line(&mut v.lines, (8.0, ty), (P - 8.0, ty));
+            if let Some(i) = play {
+                let x = x_of(i, n);
+                mv(&mut v.hand, x, 12.0); ln(&mut v.hand, x, P - 12.0);
+            }
+        }
+        Mode::EuclideanSwing | Mode::AfricanBell | Mode::PhaseCanon | Mode::ReactionDiffusion | Mode::Cantor | Mode::Fibonacci | Mode::Genetic | Mode::Sturmian | Mode::Vuza => {
             circle(&mut v.edges, C, C, 90.0);
             // At long pattern lengths, sample the ring instead of drawing up to 8k dots.
             let stride = n.div_ceil(96).max(1);

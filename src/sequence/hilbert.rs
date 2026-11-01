@@ -40,6 +40,10 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         for i in 0..n {
             let idx = (i + phase_off) % (grid * grid).max(1);
             let (x, y) = hilbert_xy(idx, grid);
+            if tr == 0 {
+                out.orbit[i] = x as f32 / grid as f32;
+                out.theta[i] = y as f32 / grid as f32;
+            }
             // onset when the point lies on the curve's "corner" or passes threshold
             let on_curve = (x + y) % 2 == 0;
             let mut hit = on_curve && rng.unit() < density * prob;
