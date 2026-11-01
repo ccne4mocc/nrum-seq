@@ -323,6 +323,7 @@ fn cell_count_for(raw: f32, snap: bool, ceiling: usize) -> i32 {
 pub struct Shared {
     pub current_step: AtomicI32,
     pub randomize_request: AtomicU32,
+    pub regen_pulse: AtomicBool,
     /// Last host tempo as `f32` bits, for the editor-side MIDI export. Zero means "not seen yet".
     pub tempo_bits: AtomicU32,
     /// Name of the DAW track hosting this instance, empty when the host does not say.
@@ -345,6 +346,7 @@ impl Default for Shared {
         Self {
             current_step: AtomicI32::new(-1),
             randomize_request: AtomicU32::new(0),
+            regen_pulse: AtomicBool::new(false),
             tempo_bits: AtomicU32::new(0),
             track_name: Mutex::new(String::new()),
             track_rev: AtomicU32::new(0),
@@ -595,6 +597,7 @@ impl Plugin for NDrum {
                     self.loop_length = next_key.length as f64;
                     self.last_key = Some(next_key);
                     self.last_regen_cycle = Some(cycle);
+                    self.shared.regen_pulse.store(true, Relaxed);
                 }
                 // Regeneration can change the step count; clamp the active index to
                 // the new generated length before updating the playhead or reading hits.

@@ -510,6 +510,9 @@ impl Editor for SlintEditor {
                     randomize_parameters(&update_params, &update_context);
                 }
             }
+            if update_shared.regen_pulse.swap(false, Relaxed) {
+                h.component().set_regen_pulse(true);
+            }
             let p = &update_params;
             let ui = h.component();
             // Replay editing keys the host would otherwise have kept for itself.

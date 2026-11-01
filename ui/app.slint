@@ -305,6 +305,8 @@ export component AppWindow inherits Window {
     property <length> matrix-cell-width: root.cells < 64 ? Math.max(14px, 780px / root.cells) : 14px;
     in-out property <int> current-step: 0;
     in-out property <bool> follow-step: true;
+    in-out property <bool> regen-pulse: false;
+    in-out property <length> regen-off-timer: 0px;
     in-out property <length> matrix-x: 0px;
     // `viewport-x` is the content offset and is negative when scrolled right.
     pure function follow-x() -> length {
@@ -526,6 +528,16 @@ export component AppWindow inherits Window {
             for i in 38: Rectangle { y: (i + 1) * 20px; height: 1px; background: Theme.border.with-alpha(0.16); }
             for i in 43: Rectangle { x: (i + 1) * 20px; width: 1px; height: parent.height; background: Theme.border.with-alpha(0.16); }
         }
+        Timer {
+            interval: 180ms;
+            running: root.regen-pulse;
+            triggered => { root.regen-pulse = false; }
+        }
+        Rectangle {
+            visible: root.regen-pulse;
+            width: parent.width; height: parent.height;
+            background: Theme.c1.with-alpha(0.10);
+        }
 
     VerticalLayout {
         padding: 14px; spacing: 8px;
@@ -549,7 +561,7 @@ export component AppWindow inherits Window {
             }
             Rectangle { width: 72px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
             Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 9px; vertical-alignment: center; }
-            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : Theme.control; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: generate-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
+            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : Theme.control; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: generate-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.regen-pulse = true; root.generate-pressed(); } } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : Theme.control; Text { text: "RANDOMIZE ⚄"; color: randomize-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TouchArea { clicked => { root.randomize-pressed(); } } }
             Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : Theme.control; Text { text: "⚙"; color: settings-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
         }
