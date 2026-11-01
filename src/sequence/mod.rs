@@ -29,6 +29,11 @@ mod lorenz;
 mod cantor;
 mod fibonacci;
 mod genetic;
+mod arnold;
+mod sturmian;
+mod hilbert;
+mod ulam;
+mod vuza;
 
 // The panel draws these algorithms' own curves and cutoffs rather than restating their
 // formulas, so these re-exports exist for `crate::view` alone.
@@ -293,6 +298,11 @@ fn run_mode(q: &GenParams) -> Pattern {
         Mode::Cantor => cantor::generate(q),
         Mode::Fibonacci => fibonacci::generate(q),
         Mode::Genetic => genetic::generate(q),
+        Mode::Arnold => arnold::generate(q),
+        Mode::Sturmian => sturmian::generate(q),
+        Mode::Hilbert => hilbert::generate(q),
+        Mode::Ulam => ulam::generate(q),
+        Mode::Vuza => vuza::generate(q),
     }
 }
 

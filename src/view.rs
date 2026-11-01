@@ -626,7 +626,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 v.nodes.push(Node { x: px, y: py, r: 5.0, on: true, cur: true, label: String::new() });
             }
         }
-        Mode::EuclideanSwing | Mode::Bernoulli | Mode::AfricanBell | Mode::PhaseCanon | Mode::ReactionDiffusion | Mode::Cantor | Mode::Fibonacci | Mode::Genetic => {
+        Mode::EuclideanSwing | Mode::Bernoulli | Mode::AfricanBell | Mode::PhaseCanon | Mode::ReactionDiffusion | Mode::Cantor | Mode::Fibonacci | Mode::Genetic | Mode::Arnold | Mode::Sturmian | Mode::Hilbert | Mode::Ulam | Mode::Vuza => {
             circle(&mut v.edges, C, C, 90.0);
             // At long pattern lengths, sample the ring instead of drawing up to 8k dots.
             let stride = n.div_ceil(96).max(1);

@@ -468,7 +468,7 @@ export component AppWindow inherits Window {
     pure function regen-label(mode: int) -> string {
         return "Regenerate after (lengths, 0=off)";
     }
-    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Pebble Box", "Xenakis Sieve", "Kuramoto Lanes", "Euclidean-Swing", "Bernoulli", "African Bell", "Phase Canon", "Reaction-Diffusion", "Lorenz", "Cantor", "Fibonacci", "Genetic"];
+    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Pebble Box", "Xenakis Sieve", "Kuramoto Lanes", "Euclidean-Swing", "Bernoulli", "African Bell", "Phase Canon", "Reaction-Diffusion", "Lorenz", "Cantor", "Fibonacci", "Genetic", "Arnold Circle Map", "Sturmian Word", "Hilbert Curve", "Ulam Spiral Primes", "Vuza Canon"];
     property <[string]> mode-help: [
         "Places pulses as evenly as possible around the step ring with Bjorklund spacing. Each lane scales the pulse count by its density profile and anchors its word on a different phase, so the kit interleaves instead of stacking.",
         "Builds a balanced directed graph whose vertices are rest plus the eight drum lanes, then walks every edge once with Hierholzer's algorithm. The Euler circuit becomes the step sequence; density gates which visited lanes actually sound.",
@@ -497,7 +497,12 @@ export component AppWindow inherits Window {
         "Integrates the Lorenz system (σ=10, ρ=28, β=8/3) and fires each lane on local z-peaks. The panel draws the butterfly attractor and the current orbit so the motion is visible while it plays.",
         "Samples the Cantor set at the lane's iteration depth and turns its gaps into rests. The result is a self-similar rhythm with holes at every scale, gated by density and probability.",
         "Generates a Sturmian (Fibonacci-type) word from an irrational slope and fires where floor((i+1)α) changes. The word is maximally even and avoids long runs at any density.",
-        "Evolves a base pattern by random mutation and keeps changes with probability p. Density controls mutation rate; the pattern drifts while preserving its original shape."
+        "Evolves a base pattern by random mutation and keeps changes with probability p. Density controls mutation rate; the pattern drifts while preserving its original shape.",
+        "Arnold circle map: θ_{n+1}=θ_n+Ω+(K/2π)sin(2πθ_n). Onsets on phase wraps; near rational Ω the map locks (p/q). Recommended N (Hájos groups): 72, 108, 120, 144, 168.",
+        "Sturmian word: maximally even word from irrational slope α; fires where floor((i+1)α) changes. Recommended N: 72, 108, 120, 144, 168.",
+        "Hilbert curve: space-filling 2^k grid; onset on curve vertices. Recommended N (powers of 2 or Hájos groups): 64, 72, 128, 144, 256.",
+        "Ulam spiral primes: onset where spiral position index is prime. Recommended N: 72, 108, 120, 144, 168.",
+        "Vuza canon: supplementary sets A⊕B partition Z_n; aperiodic canon. Recommended N (Hájos groups): 72, 108, 120, 144, 168."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 1000) / 1000}", step: root.round-steps ? 1 : 0.01 },

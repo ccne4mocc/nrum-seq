@@ -150,6 +150,11 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::Cantor => format!("n={n}: Cantor set membership at depth 2+lane; hit when x∈Cantor and Bernoulli(d·p={:.2}×{:.2})", d, p.probability),
         Mode::Fibonacci => format!("n={n}: Sturmian word α=d·(0.5+0.05·lane)={:.3}; hit where floor((i+1)α) changes; probability={:.2}", d * 0.5, p.probability),
         Mode::Genetic => format!("n={n}: base pattern mutated with rate 1−d ({:.2}); acceptance probability p={:.2}", 1.0 - d, p.probability),
+        Mode::Arnold => format!("n={n}: Arnold circle map θ_{{n+1}}=θ_n+Ω+(K/2π)sin(2πθ_n); Ω={:.2}, K={:.2}; onsets on phase wraps", p.phase, p.density),
+        Mode::Sturmian => format!("n={n}: Sturmian word slope α={:.3}; hit where floor((i+1)α) changes; probability={:.2}", 0.3 + 0.4 * p.phase, p.probability),
+        Mode::Hilbert => format!("n={n}: Hilbert curve order {}; density={d:.2}, probability={:.2}", p.pulses, p.probability),
+        Mode::Ulam => format!("n={n}: Ulam spiral; onset where position index is prime; density={d:.2}, probability={:.2}", p.probability),
+        Mode::Vuza => format!("n={n}: Vuza canon modulus {}; probability={:.2}", p.ca_rule, p.probability),
     };
     if fractional {
         format!("{line}; loop length={length:.4} steps (grid cells={n}, no rounding)")

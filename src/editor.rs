@@ -367,6 +367,9 @@ impl Editor for SlintEditor {
                             | Mode::Genetic
                             | Mode::Kuramoto
                             | Mode::Phyllotaxis
+                            | Mode::Arnold
+                            | Mode::Hilbert
+                            | Mode::Ulam
                     );
                     if wants_long && p.max_steps.value() < 256 {
                         set(&c, &p.max_steps, 256);
@@ -485,7 +488,7 @@ impl Editor for SlintEditor {
                 ("RHYTHMIC", &[0, 19, 13, 14, 11, 9, 15, 8]),
                 ("STOCHASTIC", &[7, 20, 27, 10]),
                 ("PHYSICS / FRACTALS", &[6, 24, 23, 25, 16, 18]),
-                ("MATHEMATICAL / FORMAL", &[2, 3, 4, 5, 17, 26, 12, 1, 21, 22]),
+                ("MATHEMATICAL / FORMAL", &[2, 3, 4, 5, 17, 26, 12, 1, 21, 22, 28, 29, 30, 31, 32]),
             ];
             let mut entries: Vec<ModeEntry> = Vec::new();
             for (g, idxs) in groups {

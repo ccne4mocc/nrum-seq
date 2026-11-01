@@ -38,6 +38,11 @@ pub enum Mode {
     #[id = "cantor"] #[name = "Cantor Set Rhythm"] Cantor,
     #[id = "fibonacci"] #[name = "Fibonacci/Sturmian"] Fibonacci,
     #[id = "genetic"] #[name = "Genetic Mutation"] Genetic,
+    #[id = "arnold"] #[name = "Arnold Circle Map"] Arnold,
+    #[id = "sturmian"] #[name = "Sturmian Word"] Sturmian,
+    #[id = "hilbert"] #[name = "Hilbert Curve"] Hilbert,
+    #[id = "ulam"] #[name = "Ulam Spiral Primes"] Ulam,
+    #[id = "vuza"] #[name = "Vuza Canon"] Vuza,
 }
 
 impl Mode {
