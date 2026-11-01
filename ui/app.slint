@@ -566,16 +566,6 @@ export component AppWindow inherits Window {
             height: 28px; spacing: 8px;
             OptSlider { width: 230px; opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
         }
-        Text { text: "DRUM LANES     ·     MIDI channel 10 / GM-style note map"; color: Theme.text-muted; font-size: 10px; }
-        HorizontalLayout {
-            spacing: 5px;
-            for track in root.tracks: Rectangle {
-                height: 28px; border-radius: 4px;
-                background: track.enabled ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 100%) : Theme.cell-off;
-                Text { text: track.name; color: track.enabled ? Theme.on-accent : Theme.text-muted; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
-                TouchArea { clicked => { root.toggle-track(track.index); } }
-            }
-        }
         HorizontalLayout { spacing: 8px;
             Rectangle { horizontal-stretch: 1; }
             Rectangle { width: 92px; height: 20px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TouchArea { clicked => { root.follow-step = !root.follow-step; } } }
@@ -584,10 +574,11 @@ export component AppWindow inherits Window {
             spacing: 4px;
             VerticalLayout {
                 spacing: 4px;
-                for track in root.tracks: Text {
-                    width: 76px; height: 22px;
-                    text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55);
-                    font-size: 9px; vertical-alignment: center;
+                for track in root.tracks: Rectangle {
+                    width: 76px; height: 22px; border-radius: 3px;
+                    background: track.enabled ? Theme.control : Theme.cell-off;
+                    Text { x: 4px; width: parent.width - 8px; height: parent.height; text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55); font-size: 9px; vertical-alignment: center; overflow: elide; }
+                    TouchArea { clicked => { root.toggle-track(track.index); } }
                 }
             }
             matrix-scroll := ScrollView {
