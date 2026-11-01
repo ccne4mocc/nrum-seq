@@ -201,18 +201,18 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
         set(ctx, &p.rotate, rotate);
         set(ctx, &p.density, density.clamp(0.0, 1.0));
     }
-    if scope_enabled(p, scope::TONE) {
-        set(ctx, &p.seed, seed);
-        set(ctx, &p.phase, phase);
+    if scope_enabled(p, scope::TONE) { set(ctx, &p.seed, seed); }
+    if scope_enabled(p, scope::PHASE) { set(ctx, &p.phase, phase); }
+    if scope_enabled(p, scope::ACID) {
         set(ctx, &p.osc_rate, osc_rate);
         set(ctx, &p.osc_wave, wave);
         set(ctx, &p.ca_rule, ca_rule);
         set(ctx, &p.symmetry, symmetry);
     }
+    if scope_enabled(p, scope::CLOCK) { set(ctx, &p.rate, rate); }
     if scope_enabled(p, scope::FEEL) {
         set(ctx, &p.probability, probability.clamp(0.0, 1.0));
         set(ctx, &p.velocity, velocity.clamp(0.01, 1.0));
-        set(ctx, &p.rate, rate);
     }
 }
 
@@ -376,7 +376,7 @@ impl Editor for SlintEditor {
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_scope(move |bit| {
-                    let mask = p.randomize_scope.value() ^ (1 << bit.clamp(0, 4));
+                    let mask = p.randomize_scope.value() ^ (1 << bit.clamp(0, 7));
                     set(&c, &p.randomize_scope, mask);
                 });
             }
@@ -558,6 +558,9 @@ impl Editor for SlintEditor {
             ui.set_scope_length(scope_enabled(p, scope::LENGTH));
             ui.set_scope_rhythm(scope_enabled(p, scope::RHYTHM));
             ui.set_scope_tone(scope_enabled(p, scope::TONE));
+            ui.set_scope_clock(scope_enabled(p, scope::CLOCK));
+            ui.set_scope_phase(scope_enabled(p, scope::PHASE));
+            ui.set_scope_acid(scope_enabled(p, scope::ACID));
             ui.set_scope_feel(scope_enabled(p, scope::FEEL));
             ui.set_seed(p.seed.value());
             ui.set_phase(p.phase.value());

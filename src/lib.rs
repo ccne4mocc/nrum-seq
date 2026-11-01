@@ -98,9 +98,12 @@ pub mod scope {
     pub const LENGTH: i32 = 1 << 1;
     pub const RHYTHM: i32 = 1 << 2;
     pub const TONE: i32 = 1 << 3;
-    pub const FEEL: i32 = 1 << 4;
+    pub const CLOCK: i32 = 1 << 4;
+    pub const PHASE: i32 = 1 << 5;
+    pub const ACID: i32 = 1 << 6;
+    pub const FEEL: i32 = 1 << 7;
     /// Everything: the default, and what RANDOMIZE did before the scope existed.
-    pub const ALL: i32 = MODE | LENGTH | RHYTHM | TONE | FEEL;
+    pub const ALL: i32 = MODE | LENGTH | RHYTHM | TONE | CLOCK | PHASE | ACID | FEEL;
 }
 
 
@@ -205,7 +208,7 @@ impl Default for DrumParams {
             velocity: percentage_param("Global Velocity", 1.0),
             regenerate_every: IntParam::new("Regenerate After (lengths; 0 = Off, Chaos = Live)", 0, IntRange::Linear { min: 0, max: 256 }),
             randomize_after_lengths: IntParam::new("Randomize After (lengths; 0 = Off)", 0, IntRange::Linear { min: 0, max: 256 }),
-            randomize_scope: IntParam::new("Randomize Scope (Mode|Length|Rhythm|Tone|Feel)", scope::ALL, IntRange::Linear { min: 0, max: scope::ALL }),
+            randomize_scope: IntParam::new("Randomize Scope (Mode|Length|Rhythm|Tone|Clock|Phase|Acid|Feel)", scope::ALL, IntRange::Linear { min: 0, max: scope::ALL }),
             seed: FloatParam::new("Seed", 0.271, FloatRange::Linear { min: 0.0, max: 1.0 }),
             phase: FloatParam::new("Phase", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
             osc_rate: FloatParam::new("Oscillator Cycles", 2.0, FloatRange::Linear { min: 0.125, max: 8.0 }),

@@ -338,6 +338,9 @@ export component AppWindow inherits Window {
     in property <bool> scope-length: true;
     in property <bool> scope-rhythm: true;
     in property <bool> scope-tone: true;
+    in property <bool> scope-clock: true;
+    in property <bool> scope-phase: true;
+    in property <bool> scope-acid: true;
     in property <bool> scope-feel: true;
     in property <string> settings-path: "";
     in property <string> credit-author: "";
@@ -362,6 +365,9 @@ export component AppWindow inherits Window {
     in-out property <bool> wave-menu-open: false;
     in-out property <length> wave-menu-x: 0px;
     in-out property <length> wave-menu-y: 0px;
+    in-out property <bool> scope-menu-open: false;
+    in-out property <length> scope-menu-x: 0px;
+    in-out property <length> scope-menu-y: 0px;
     in-out property <bool> settings-open: false;
     // Settings slide in from the right edge of the fixed 860px layout; see the panel at the
     // bottom of this component.
@@ -669,7 +675,24 @@ export component AppWindow inherits Window {
         }
         HorizontalLayout {
             height: 27px; spacing: 5px;
-            OptSlider { width: 230px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }
+            HorizontalLayout {
+                spacing: 0px;
+                OptSlider { width: 205px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }
+                scope-gear := Rectangle {
+                    width: 25px; height: 25px; border-radius: 4px;
+                    background: root.scope-menu-open ? Theme.c2.with-alpha(0.5) : (scope-touch.has-hover ? Theme.control-hover : Theme.control);
+                    Text { text: "⚙"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+                    scope-touch := TouchArea {
+                        clicked => {
+                            root.scope-menu-open = !root.scope-menu-open;
+                            if (root.scope-menu-open) {
+                                root.scope-menu-x = scope-gear.absolute-position.x + scope-gear.width - 160px;
+                                root.scope-menu-y = scope-gear.absolute-position.y - 118px;
+                            }
+                        }
+                    }
+                }
+            }
             OptSlider { width: 230px; opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } }
         }
     }
@@ -746,12 +769,19 @@ export component AppWindow inherits Window {
             Text { text: "RANDOMIZE SCOPE"; color: Theme.text-muted; font-size: 9px; }
             // Five bits of one host parameter (`randomize_scope`). Off keeps that group's
             // current values; on lets RANDOMIZE rewrite it.
-            HorizontalLayout { spacing: 4px;
-                ScopeChip { label: "MODE"; active: root.scope-mode; toggled => { root.toggle-scope(0); } }
-                ScopeChip { label: "LENGTH"; active: root.scope-length; toggled => { root.toggle-scope(1); } }
-                ScopeChip { label: "RHYTHM"; active: root.scope-rhythm; toggled => { root.toggle-scope(2); } }
-                ScopeChip { label: "TONE"; active: root.scope-tone; toggled => { root.toggle-scope(3); } }
-                ScopeChip { label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(4); } }
+            VerticalLayout { spacing: 4px;
+                HorizontalLayout { spacing: 4px;
+                    ScopeChip { label: "MODE"; active: root.scope-mode; toggled => { root.toggle-scope(0); } }
+                    ScopeChip { label: "LENGTH"; active: root.scope-length; toggled => { root.toggle-scope(1); } }
+                    ScopeChip { label: "RHYTHM"; active: root.scope-rhythm; toggled => { root.toggle-scope(2); } }
+                    ScopeChip { label: "TONE"; active: root.scope-tone; toggled => { root.toggle-scope(3); } }
+                }
+                HorizontalLayout { spacing: 4px;
+                    ScopeChip { label: "CLOCK"; active: root.scope-clock; toggled => { root.toggle-scope(4); } }
+                    ScopeChip { label: "PHASE"; active: root.scope-phase; toggled => { root.toggle-scope(5); } }
+                    ScopeChip { label: "ACID"; active: root.scope-acid; toggled => { root.toggle-scope(6); } }
+                    ScopeChip { label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(7); } }
+                }
             }
             Text { text: "MIDI EXPORT"; color: Theme.text-muted; font-size: 9px; }
             Rectangle {
@@ -794,9 +824,36 @@ export component AppWindow inherits Window {
         selected(i) => { root.set-osc-wave(i); root.wave-menu-open = false; }
     }
     // Outside-click catcher for the dropdowns.
-    if root.clock-menu-open || root.wave-menu-open: Rectangle {
+    if root.clock-menu-open || root.wave-menu-open || root.scope-menu-open: Rectangle {
         x: 0px; y: 0px; width: root.base-width; height: root.base-height;
         background: #00000008;
-        TouchArea { clicked => { root.clock-menu-open = false; root.wave-menu-open = false; } }
+        TouchArea { clicked => { root.clock-menu-open = false; root.wave-menu-open = false; root.scope-menu-open = false; } }
+    }
+    // Randomize-scope popup.
+    if root.scope-menu-open: Rectangle {
+        x: root.scope-menu-x; y: root.scope-menu-y;
+        width: 160px; height: 112px;
+        border-radius: 4px; background: Theme.surface;
+        border-width: 1px; border-color: Theme.border;
+        drop-shadow-blur: 12px; drop-shadow-color: #00000055; drop-shadow-offset-y: 3px;
+        VerticalLayout {
+            padding: 4px; spacing: 3px;
+            HorizontalLayout { spacing: 3px;
+                ScopeChip { width: 74px; label: "MODE"; active: root.scope-mode; toggled => { root.toggle-scope(0); } }
+                ScopeChip { width: 74px; label: "LENGTH"; active: root.scope-length; toggled => { root.toggle-scope(1); } }
+            }
+            HorizontalLayout { spacing: 3px;
+                ScopeChip { width: 74px; label: "RHYTHM"; active: root.scope-rhythm; toggled => { root.toggle-scope(2); } }
+                ScopeChip { width: 74px; label: "TONE"; active: root.scope-tone; toggled => { root.toggle-scope(3); } }
+            }
+            HorizontalLayout { spacing: 3px;
+                ScopeChip { width: 74px; label: "CLOCK"; active: root.scope-clock; toggled => { root.toggle-scope(4); } }
+                ScopeChip { width: 74px; label: "PHASE"; active: root.scope-phase; toggled => { root.toggle-scope(5); } }
+            }
+            HorizontalLayout { spacing: 3px;
+                ScopeChip { width: 74px; label: "ACID"; active: root.scope-acid; toggled => { root.toggle-scope(6); } }
+                ScopeChip { width: 74px; label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(7); } }
+            }
+        }
     }
 }
