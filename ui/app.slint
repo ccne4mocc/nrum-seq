@@ -548,11 +548,11 @@ export component AppWindow inherits Window {
         "Samples the Cantor set at the lane's iteration depth and turns its gaps into rests. The result is a self-similar rhythm with holes at every scale, gated by density and probability.",
         "Generates a Sturmian (Fibonacci-type) word from an irrational slope and fires where floor((i+1)α) changes. The word is maximally even and avoids long runs at any density.",
         "Evolves a base pattern by random mutation and keeps changes with probability p. Density controls mutation rate; the pattern drifts while preserving its original shape.",
-        "Arnold circle map: θ_{n+1}=θ_n+Ω+(K/2π)sin(2πθ_n). Onsets on phase wraps; near rational Ω the map locks (p/q).",
-        "Sturmian word: maximally even word from irrational slope α; fires where floor((i+1)α) changes.",
-        "Hilbert curve: space-filling 2^k grid; onset on curve vertices.",
-        "Ulam spiral primes: onset where spiral position index is prime.",
-        "Vuza canon: supplementary sets A⊕B partition Z_n; aperiodic canon. Recommended N (Hájos groups): 72, 108, 120, 144, 168."
+        "Arnold circle map: a point walks around a circle; each step it moves by Ω plus a wiggle. When Ω is a simple fraction the walk locks into a repeating pattern. Onsets happen when the walk wraps around.",
+        "Sturmian word: a maximally even rhythm built from an irrational slope. Onsets fire where floor((i+1)α) changes; no long gaps or clusters.",
+        "Hilbert curve: a line that fills a square grid. Onsets land on the curve's corners; phase rotates the curve by quarter turns.",
+        "Ulam spiral: write numbers in a spiral; onsets land on prime numbers. Density thins the prime hits.",
+        "Vuza canon: two complementary sets tile the whole cycle with no overlaps or gaps. Recommended N (Hájos groups): 72, 108, 120, 144, 168."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 1000) / 1000}", step: root.round-steps ? 1 : 0.01 },
