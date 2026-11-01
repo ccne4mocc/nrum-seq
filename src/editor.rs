@@ -470,6 +470,21 @@ impl Editor for SlintEditor {
             ui.set_wave_names(ModelRc::new(VecModel::from(
                 OscWave::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
+            // Grouped mode list for the dropdown picker.
+            let groups: &[( &str, &[usize] )] = &[
+                ("RHYTHMIC", &[0, 19, 13, 14, 11, 9, 15, 8]),
+                ("STOCHASTIC", &[7, 20, 27, 10]),
+                ("PHYSICS / FRACTALS", &[6, 24, 23, 25, 16, 18]),
+                ("MATHEMATICAL / FORMAL", &[2, 3, 4, 5, 17, 26, 12, 1, 21, 22]),
+            ];
+            let mut entries: Vec<ModeEntry> = Vec::new();
+            for (g, idxs) in groups {
+                entries.push(ModeEntry { group: SharedString::from(*g), index: -1, header: true });
+                for i in *idxs {
+                    entries.push(ModeEntry { group: SharedString::from(*g), index: *i as i32, header: false });
+                }
+            }
+            ui.set_mode_entries(ModelRc::new(VecModel::from(entries)));
             ui.set_settings_path(SharedString::from(crate::globals::config_path_display()));
             ui.set_credit_author(SharedString::from(crate::contact::AUTHOR));
             ui.set_credit_website(SharedString::from(crate::contact::WEBSITE));
