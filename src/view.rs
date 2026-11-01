@@ -774,7 +774,46 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.hand, x, 12.0); ln(&mut v.hand, x, P - 12.0);
             }
         }
-        Mode::EuclideanSwing | Mode::AfricanBell | Mode::PhaseCanon | Mode::Cantor | Mode::Fibonacci | Mode::Genetic | Mode::Sturmian | Mode::Vuza => {
+        Mode::Cantor => {
+            // Cantor set: draw surviving intervals at successive depths.
+            let mut cur_intervals: Vec<(f32, f32)> = vec![(8.0, P - 8.0)];
+            for depth in 0..4 {
+                let mut next: Vec<(f32, f32)> = Vec::new();
+                for (a, b) in &cur_intervals {
+                    let (a, b) = (*a, *b);
+                    let third = (b - a) / 3.0;
+                    next.push((a, a + third));
+                    next.push((b - third, b));
+                }
+                let y = 30.0 + depth as f32 * 36.0;
+                for (a, b) in &cur_intervals {
+                    let (a, b) = (*a, *b);
+                    line(&mut v.edges, (a, y), (b, y));
+                }
+                cur_intervals = next;
+            }
+            // onsets on surviving points
+            for i in 0..n {
+                let x = x_of(i, n);
+                // cantor membership test
+                let mut t = i as f32 / n as f32;
+                let mut member = true;
+                for _ in 0..6 {
+                    t *= 3.0;
+                    let digit = (t as usize) % 3;
+                    if digit == 1 { member = false; break; }
+                    t -= (t as usize) as f32;
+                }
+                if member && p.hit[0][i] {
+                    v.nodes.push(Node { x, y: 30.0, r: 3.5, on: true, cur: play == Some(i), label: String::new() });
+                }
+            }
+            if let Some(i) = play {
+                let x = x_of(i, n);
+                mv(&mut v.hand, x, 12.0); ln(&mut v.hand, x, P - 12.0);
+            }
+        }
+        Mode::EuclideanSwing | Mode::AfricanBell | Mode::PhaseCanon | Mode::Fibonacci | Mode::Genetic | Mode::Sturmian | Mode::Vuza => {
             circle(&mut v.edges, C, C, 90.0);
             // At long pattern lengths, sample the ring instead of drawing up to 8k dots.
             let stride = n.div_ceil(96).max(1);
