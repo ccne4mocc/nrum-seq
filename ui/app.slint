@@ -20,6 +20,7 @@ export global Theme {
 
 export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string }
 export struct ModeEntry { group: string, index: int, header: bool }
+export struct ModeRow { header: bool, group: string, left: int, right: int, has-right: bool }
 export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float }
 export struct TrackRow { index: int, name: string, enabled: bool, cells: [StepCell] }
 export struct Opt { label: string, min: float, max: float, value: float, text: string, step: float }
@@ -267,11 +268,11 @@ component DropdownList inherits Rectangle {
 }
 
 component ModeDropdown inherits Rectangle {
-    in property <[ModeEntry]> entries;
+    in property <[ModeRow]> rows;
     in property <[string]> names;
     in property <int> current;
     callback selected(int);
-    width: 260px; height: 360px;
+    width: 460px; height: 432px;
     background: Theme.surface; border-width: 1px; border-color: Theme.border;
     drop-shadow-blur: 16px; drop-shadow-color: #00000055; drop-shadow-offset-y: 4px;
     clip: true;
@@ -279,24 +280,34 @@ component ModeDropdown inherits Rectangle {
         width: parent.width; height: parent.height;
         vertical-scrollbar-policy: as-needed;
         VerticalLayout {
-            spacing: 3px; padding: 8px; alignment: start;
-            for i in root.entries.length: Rectangle {
-                height: root.entries[i].header ? 18px : 24px;
+            padding: 8px; spacing: 4px; alignment: start;
+            for r in root.rows: Rectangle {
+                height: r.header ? 18px : 24px;
+                width: 444px;
                 border-radius: 3px;
-                background: root.entries[i].header
-                    ? transparent
-                    : (root.entries[i].index == root.current ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (item-touch.has-hover ? Theme.control-hover : Theme.control));
-                Text {
-                    x: 6px; width: parent.width - 12px; height: parent.height;
-                    text: root.entries[i].header ? root.entries[i].group : root.names[root.entries[i].index];
-                    color: root.entries[i].header ? Theme.text-muted : (root.entries[i].index == root.current ? Theme.on-accent : Theme.text);
-                    font-size: root.entries[i].header ? 8px : 9px;
-                    font-weight: root.entries[i].header ? 700 : 400;
-                    vertical-alignment: center; overflow: elide;
+                background: transparent;
+                if r.header: Text {
+                    x: 6px; width: 432px; height: parent.height;
+                    text: r.group; color: Theme.text-muted; font-size: 8px; font-weight: 700; vertical-alignment: center; overflow: elide;
                 }
-                item-touch := TouchArea {
-                    enabled: !root.entries[i].header;
-                    clicked => { if (!root.entries[i].header) { root.selected(root.entries[i].index); } }
+                if !r.header: HorizontalLayout {
+                    spacing: 6px; padding-left: 0px; padding-right: 0px;
+                    Rectangle {
+                        horizontal-stretch: 1; height: parent.height; border-radius: 3px;
+                        background: r.left == root.current ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (left-touch.has-hover ? Theme.control-hover : Theme.control);
+                        Text { x: 6px; width: parent.width - 12px; height: parent.height; text: root.names[r.left]; color: r.left == root.current ? Theme.on-accent : Theme.text; font-size: 9px; vertical-alignment: center; overflow: elide; }
+                        left-touch := TouchArea { clicked => { root.selected(r.left); } }
+                    }
+                    if r.has-right: Rectangle {
+                        horizontal-stretch: 1; height: parent.height; border-radius: 3px;
+                        background: r.right == root.current ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (right-touch.has-hover ? Theme.control-hover : Theme.control);
+                        Text { x: 6px; width: parent.width - 12px; height: parent.height; text: root.names[r.right]; color: r.right == root.current ? Theme.on-accent : Theme.text; font-size: 9px; vertical-alignment: center; overflow: elide; }
+                        right-touch := TouchArea { clicked => { root.selected(r.right); } }
+                    }
+                    if !r.has-right: Rectangle { horizontal-stretch: 1; }
+                }
+                row-touch := TouchArea {
+                    enabled: false;
                 }
             }
         }
@@ -308,7 +319,7 @@ export component AppWindow inherits Window {
     // Fixed layout size: the window never resizes (a live resize glitched the GL surface),
     // so the host cannot be fought over it.
     in property <length> base-width: 860px;
-    in property <length> base-height: 760px;
+    in property <length> base-height: 660px;
     preferred-width: root.base-width; preferred-height: root.base-height;
     background: @linear-gradient(135deg, Theme.bg1 0%, Theme.bg2 50%, Theme.bg3 100%);
     in property <int> mode: 0;
@@ -362,6 +373,7 @@ export component AppWindow inherits Window {
     in property <float> ca-rule: 30;
     in property <float> symmetry: 4;
     in property <int> rate: 3;
+    in property <[string]> rate-names;
     in property <int> osc-wave: 0;
     in property <[string]> wave-names;
     in property <bool> scope-mode: true;
@@ -387,6 +399,7 @@ export component AppWindow inherits Window {
     in property <int> theme-index: 0;
     in-out property <bool> mode-menu-open: false;
     in property <[ModeEntry]> mode-entries;
+    in property <[ModeRow]> mode-rows;
     in-out property <length> mode-menu-x: 0px;
     in-out property <length> mode-menu-y: 0px;
     in-out property <bool> clock-menu-open: false;
@@ -436,10 +449,19 @@ export component AppWindow inherits Window {
     // Only expose mode-specific controls the selected mode actually uses, and label them with
     // what they mean in that mode. `GenParams` still carries every field; this is presentation.
     pure function shows-param(mode: int, key: int) -> bool {
-        if (key == 1) { return !(mode == 20 || mode == 21 || mode == 23 || mode == 24 || mode == 25 || mode == 26 || mode == 27); }
-        if (key == 5) { return mode == 2 || mode == 3 || mode == 4 || mode == 6 || mode == 8 || mode == 13 || mode == 16 || mode == 17 || mode == 18; }
+        // pulses: hidden for modes that never read p.pulses
+        if (key == 1) { return !(mode == 19 || mode == 20 || mode == 21 || mode == 23 || mode == 24 || mode == 25 || mode == 26 || mode == 27 || mode == 28 || mode == 29 || mode == 31 || mode == 32); }
+        // seed: well-formed is seed-independent
+        if (key == 4) { return mode != 11; }
+        // phase: only modes that consume p.phase
+        if (key == 5) { return mode == 2 || mode == 3 || mode == 4 || mode == 6 || mode == 8 || mode == 13 || mode == 16 || mode == 17 || mode == 18 || mode == 28 || mode == 29 || mode == 31; }
+        // osc_rate: oscillator, pebble, kuramoto
         if (key == 6) { return mode == 4 || mode == 16 || mode == 18; }
-        if (key == 7) { return mode == 3 || mode == 16 || mode == 17; } // Pebble reuses the CA knob as gravity
+        // ca_rule: cellular, pebble, sieve, vuza
+        if (key == 7) { return mode == 3 || mode == 16 || mode == 17 || mode == 32; }
+        // probability: stochastic/chaos modes
+        if (key == 8) { return mode == 20 || mode == 21 || mode == 22 || mode == 23 || mode == 24 || mode == 25 || mode == 26 || mode == 27 || mode == 28 || mode == 29 || mode == 30 || mode == 31 || mode == 32; }
+        // symmetry: crystallographic, sieve
         if (key == 11) { return mode == 5 || mode == 17; }
         return true;
     }
@@ -526,10 +548,10 @@ export component AppWindow inherits Window {
         "Samples the Cantor set at the lane's iteration depth and turns its gaps into rests. The result is a self-similar rhythm with holes at every scale, gated by density and probability.",
         "Generates a Sturmian (Fibonacci-type) word from an irrational slope and fires where floor((i+1)α) changes. The word is maximally even and avoids long runs at any density.",
         "Evolves a base pattern by random mutation and keeps changes with probability p. Density controls mutation rate; the pattern drifts while preserving its original shape.",
-        "Arnold circle map: θ_{n+1}=θ_n+Ω+(K/2π)sin(2πθ_n). Onsets on phase wraps; near rational Ω the map locks (p/q). Recommended N (Hájos groups): 72, 108, 120, 144, 168.",
-        "Sturmian word: maximally even word from irrational slope α; fires where floor((i+1)α) changes. Recommended N: 72, 108, 120, 144, 168.",
-        "Hilbert curve: space-filling 2^k grid; onset on curve vertices. Recommended N (powers of 2 or Hájos groups): 64, 72, 128, 144, 256.",
-        "Ulam spiral primes: onset where spiral position index is prime. Recommended N: 72, 108, 120, 144, 168.",
+        "Arnold circle map: θ_{n+1}=θ_n+Ω+(K/2π)sin(2πθ_n). Onsets on phase wraps; near rational Ω the map locks (p/q).",
+        "Sturmian word: maximally even word from irrational slope α; fires where floor((i+1)α) changes.",
+        "Hilbert curve: space-filling 2^k grid; onset on curve vertices.",
+        "Ulam spiral primes: onset where spiral position index is prime.",
         "Vuza canon: supplementary sets A⊕B partition Z_n; aperiodic canon. Recommended N (Hájos groups): 72, 108, 120, 144, 168."
     ];
     property <[Opt]> opts: [
@@ -579,16 +601,24 @@ export component AppWindow inherits Window {
             Text { text: "nDrum"; color: Theme.text; font-family: "FantasqueSansM Nerd Font Mono"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
             Text { visible: root.track-name != ""; text: "· \{root.track-name}"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide; }
             Rectangle { horizontal-stretch: 1; }
-            // Clock-rate picker (Nelody-style): single field + dropdown.
+            Text { text: "CLOCK"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; }
+            // Clock-rate picker: half width, centered list.
             Rectangle {
-                width: 96px; height: 24px; border-radius: 4px; background: clock-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
-                Text { x: 6px; width: parent.width - 28px; height: parent.height; text: root.rate < 6 ? (root.rate == 0 ? "1/4" : (root.rate == 1 ? "1/8" : (root.rate == 2 ? "1/8T" : (root.rate == 3 ? "1/16" : (root.rate == 4 ? "1/16T" : "1/32"))))) : ""; color: Theme.text; font-size: 9px; vertical-alignment: center; overflow: elide; }
-                Text { x: parent.width - 16px; width: 12px; height: parent.height; text: "▾"; color: Theme.text-muted; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+                width: 48px; height: 24px; border-radius: 4px; background: clock-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
+                Text { x: 0px; width: parent.width; height: parent.height; text: root.rate < root.rate-names.length ? root.rate-names[root.rate] : ""; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                 clock-field-touch := TouchArea {
                     clicked => {
                         root.clock-menu-open = !root.clock-menu-open;
                         if (root.clock-menu-open) { root.clock-menu-x = clock-field-touch.absolute-position.x; root.clock-menu-y = clock-field-touch.absolute-position.y + clock-field-touch.height + 2px; }
                         root.wave-menu-open = false;
+                    }
+                    scroll-event(e) => {
+                        if (e.delta-y != 0px) {
+                            root.set-rate((root.rate + (e.delta-y > 0px ? 1 : -1)).clamp(0, root.rate-names.length - 1));
+                            accept
+                        } else {
+                            reject
+                        }
                     }
                 }
             }
@@ -609,13 +639,24 @@ export component AppWindow inherits Window {
                     height: 30px; border-radius: 4px;
                     background: mode-menu-touch.has-hover ? Theme.control-hover : Theme.control;
                     Text { x: 8px; width: parent.width - 16px; height: parent.height; text: "MODE  ·  \{root.mode-names[root.mode]}  ▾"; color: Theme.c1; font-size: 13px; font-weight: 700; vertical-alignment: center; overflow: elide; }
-                    mode-menu-touch := TouchArea { clicked => {
-                        root.mode-menu-open = !root.mode-menu-open;
-                        if (root.mode-menu-open) {
-                            root.mode-menu-x = mode-header.absolute-position.x;
-                            root.mode-menu-y = mode-header.absolute-position.y + mode-header.height + 2px;
+                    mode-menu-touch := TouchArea { 
+                        clicked => {
+                            root.mode-menu-open = !root.mode-menu-open;
+                            if (root.mode-menu-open) {
+                                root.mode-menu-x = mode-header.absolute-position.x;
+                                root.mode-menu-y = mode-header.absolute-position.y + mode-header.height + 2px;
+                            }
                         }
-                    } }
+                        scroll-event(e) => {
+                            if (e.delta-y != 0px) {
+                                let len = root.mode-names.length;
+                                root.set-mode((root.mode + (e.delta-y > 0px ? 1 : -1)).clamp(0, len - 1));
+                                accept
+                            } else {
+                                reject
+                            }
+                        }
+                    }
                 }
                 Text { text: root.mode-help[root.mode]; color: Theme.text; font-size: 13px; wrap: word-wrap; }
                 // Live formula with the current snapshot substituted; pushed by Rust from the
@@ -635,7 +676,13 @@ export component AppWindow inherits Window {
                     if root.shows-param(root.mode, 6): OptSlider { opt: root.opts[6]; changed(v) => { root.set-opt(6, v); } }
                     if root.shows-param(root.mode, 7): OptSlider { opt: root.opts[7]; changed(v) => { root.set-opt(7, v); } }
                 }
-                HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[8]; changed(v) => { root.set-opt(8, v); } } OptSlider { opt: root.opts[9]; changed(v) => { root.set-opt(9, v); } } }
+                HorizontalLayout { spacing: 5px;
+                    OptSlider { horizontal-stretch: 1; opt: root.opts[8]; changed(v) => { root.set-opt(8, v); } }
+                    VerticalLayout { width: 230px; spacing: 5px;
+                        OptSlider { opt: root.opts[9]; changed(v) => { root.set-opt(9, v); } }
+                        OptSlider { opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
+                    }
+                }
                 if root.shows-param(root.mode, 11): HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
                 if root.mode == 4: HorizontalLayout {
                     Rectangle {
@@ -653,12 +700,6 @@ export component AppWindow inherits Window {
                     Rectangle { horizontal-stretch: 1; }
                 }
             }
-        }
-        // Rate and swing are clock controls, so they get their own full-width row under the
-        // generator options instead of sharing the cramped options column.
-        HorizontalLayout {
-            height: 28px; spacing: 8px;
-            OptSlider { width: 230px; opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
         }
         HorizontalLayout { spacing: 8px;
             Rectangle { width: 74px; height: 20px; border-radius: 3px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TouchArea { clicked => { root.toggle-invert(); } } }
@@ -678,7 +719,7 @@ export component AppWindow inherits Window {
                 }
             }
             matrix-scroll := ScrollView {
-                horizontal-stretch: 1; height: 218px;
+                horizontal-stretch: 1; height: 168px;
                 vertical-scrollbar-policy: always-off;
                 horizontal-scrollbar-policy: as-needed;
                 viewport-width: root.cells * root.matrix-cell-width;
@@ -702,20 +743,24 @@ export component AppWindow inherits Window {
                                 background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : Theme.cell-off;
                                 opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
                                 border-width: cell.playing ? 2px : 0px; border-color: Theme.hi;
+                                // Velocity bar: height encodes velocity.
+                                if cell.hit: Rectangle {
+                                    x: 1px; y: parent.height - Math.max(2px, cell.velocity * (parent.height - 2px));
+                                    width: parent.width - 3px; height: Math.max(2px, cell.velocity * (parent.height - 2px));
+                                    border-radius: 1px;
+                                    background: Theme.hi.with-alpha(0.55);
+                                }
+                                // Probability indicator: top strip whose opacity encodes probability.
+                                if cell.hit && cell.probability < 1.0: Rectangle {
+                                    x: 1px; y: 1px;
+                                    width: parent.width - 3px; height: 2px;
+                                    border-radius: 1px;
+                                    background: Theme.on-accent.with-alpha(0.9 * (1.0 - cell.probability));
+                                }
                             }
                         }
                     }
                 }
-            }
-        }
-        HorizontalLayout {
-            height: 24px; spacing: 8px;
-            Text { horizontal-stretch: 1; text: root.export-status; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide; }
-            Rectangle {
-                width: 96px; height: 24px; border-radius: 4px;
-                background: export-touch.has-hover ? Theme.c2 : Theme.control;
-                Text { text: "EXPORT MIDI"; color: export-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
-                export-touch := TouchArea { clicked => { root.export-midi(); } }
             }
         }
         HorizontalLayout {
@@ -739,6 +784,14 @@ export component AppWindow inherits Window {
                 }
             }
             OptSlider { width: 230px; opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } }
+            Rectangle { horizontal-stretch: 1; }
+            Text { text: root.export-status; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide; }
+            Rectangle {
+                width: 96px; height: 24px; border-radius: 4px;
+                background: export-touch.has-hover ? Theme.c2 : Theme.control;
+                Text { text: "EXPORT MIDI"; color: export-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+                export-touch := TouchArea { clicked => { root.export-midi(); } }
+            }
         }
     }
 
@@ -749,8 +802,9 @@ export component AppWindow inherits Window {
         TouchArea { clicked => { root.mode-menu-open = false; } }
     }
     if root.mode-menu-open: ModeDropdown {
-        x: root.mode-menu-x; y: root.mode-menu-y;
-        entries: root.mode-entries; names: root.mode-names; current: root.mode;
+        x: Math.min(root.mode-menu-x, root.base-width - 460px);
+        y: Math.min(root.mode-menu-y, root.base-height - 432px);
+        rows: root.mode-rows; names: root.mode-names; current: root.mode;
         selected(i) => { root.set-mode(i); root.mode-menu-open = false; }
     }
 
@@ -811,23 +865,7 @@ export component AppWindow inherits Window {
                 logging-touch := TouchArea { clicked => { root.toggle-logging(); } }
             }
             Text { text: "Writes mode and parameter snapshots to nDrum.log in your home folder."; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
-            Text { text: "RANDOMIZE SCOPE"; color: Theme.text-muted; font-size: 9px; }
-            // Five bits of one host parameter (`randomize_scope`). Off keeps that group's
-            // current values; on lets RANDOMIZE rewrite it.
-            VerticalLayout { spacing: 4px;
-                HorizontalLayout { spacing: 4px;
-                    ScopeChip { label: "MODE"; active: root.scope-mode; toggled => { root.toggle-scope(0); } }
-                    ScopeChip { label: "LENGTH"; active: root.scope-length; toggled => { root.toggle-scope(1); } }
-                    ScopeChip { label: "RHYTHM"; active: root.scope-rhythm; toggled => { root.toggle-scope(2); } }
-                    ScopeChip { label: "TONE"; active: root.scope-tone; toggled => { root.toggle-scope(3); } }
-                }
-                HorizontalLayout { spacing: 4px;
-                    ScopeChip { label: "CLOCK"; active: root.scope-clock; toggled => { root.toggle-scope(4); } }
-                    ScopeChip { label: "PHASE"; active: root.scope-phase; toggled => { root.toggle-scope(5); } }
-                    ScopeChip { label: "ACID"; active: root.scope-acid; toggled => { root.toggle-scope(6); } }
-                    ScopeChip { label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(7); } }
-                }
-            }
+            // RANDOMIZE SCOPE removed (redundant)
             Text { text: "MIDI EXPORT"; color: Theme.text-muted; font-size: 9px; }
             Rectangle {
                 height: 26px; border-radius: 4px;
@@ -855,8 +893,8 @@ export component AppWindow inherits Window {
     // Clock-rate dropdown overlay.
     if root.clock-menu-open: DropdownList {
         x: root.clock-menu-x; y: root.clock-menu-y;
-        width: 120px; height: 180px;
-        options: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"];
+        width: 96px; height: 260px;
+        options: root.rate-names;
         current: root.rate;
         selected(i) => { root.set-rate(i); root.clock-menu-open = false; }
     }

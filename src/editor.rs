@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 slint::include_modules!();
 const WIDTH: u32 = 860;
-const HEIGHT: u32 = 760;
+const HEIGHT: u32 = 660;
 
 /// Append one technical line to `nDrum.log` in the user's home directory. Called from the GUI
 /// update thread only; the audio path never touches the file system.
@@ -191,7 +191,7 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let symmetry = 1 + rng.below(8) as i32;
     let probability = 0.35 + 0.65 * rng.unit();
     let velocity = 0.45 + 0.55 * rng.unit();
-    let rate = Rate::from_index(rng.below(6));
+    let rate = Rate::from_index(rng.below(14));
     // Leave swing alone: it is a feel setting, not a generator setting.
 
     if scope_enabled(p, scope::MODE) { set(ctx, &p.mode, mode); }
@@ -392,7 +392,7 @@ impl Editor for SlintEditor {
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
-                ui.on_set_rate(move |v| set(&c, &p.rate, Rate::from_index(v.clamp(0, 5) as usize)));
+                ui.on_set_rate(move |v| set(&c, &p.rate, Rate::from_index(v.clamp(0, 13) as usize)));
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
@@ -497,6 +497,9 @@ impl Editor for SlintEditor {
             ui.set_wave_names(ModelRc::new(VecModel::from(
                 OscWave::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
+            ui.set_rate_names(ModelRc::new(VecModel::from(
+                Rate::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
+            )));
             // Grouped mode list for the dropdown picker.
             let groups: &[( &str, &[usize] )] = &[
                 ("RHYTHMIC", &[0, 19, 13, 14, 11, 9, 15, 8]),
@@ -511,7 +514,32 @@ impl Editor for SlintEditor {
                     entries.push(ModeEntry { group: SharedString::from(*g), index: *i as i32, header: false });
                 }
             }
-            ui.set_mode_entries(ModelRc::new(VecModel::from(entries)));
+            ui.set_mode_entries(ModelRc::new(VecModel::from(entries.clone())));
+            // Build paired rows so the two columns stay on the same height/row.
+            let mut rows: Vec<ModeRow> = Vec::new();
+            let mut i = 0;
+            while i < entries.len() {
+                if entries[i].header {
+                    rows.push(ModeRow { header: true, group: entries[i].group.clone(), left: -1, right: -1, has_right: false });
+                    i += 1;
+                    let mut items: Vec<i32> = Vec::new();
+                    while i < entries.len() && !entries[i].header {
+                        items.push(entries[i].index);
+                        i += 1;
+                    }
+                    let mut j = 0;
+                    while j < items.len() {
+                        let left = items[j];
+                        let right = if j + 1 < items.len() { items[j + 1] } else { -1 };
+                        let has_right = j + 1 < items.len();
+                        rows.push(ModeRow { header: false, group: SharedString::default(), left, right, has_right });
+                        j += 2;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            ui.set_mode_rows(ModelRc::new(VecModel::from(rows)));
             ui.set_settings_path(SharedString::from(crate::globals::config_path_display()));
             ui.set_credit_author(SharedString::from(crate::contact::AUTHOR));
             ui.set_credit_website(SharedString::from(crate::contact::WEBSITE));

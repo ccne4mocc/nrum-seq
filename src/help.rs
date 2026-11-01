@@ -154,7 +154,7 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::Sturmian => format!("n={n}: Sturmian word slope α={:.3}; hit where floor((i+1)α) changes; probability={:.2}", 0.3 + 0.4 * p.phase, p.probability),
         Mode::Hilbert => format!("n={n}: Hilbert curve order {}; density={d:.2}, probability={:.2}", p.pulses, p.probability),
         Mode::Ulam => format!("n={n}: Ulam spiral; onset where position index is prime; density={d:.2}, probability={:.2}", p.probability),
-        Mode::Vuza => format!("n={n}: Vuza canon modulus {}; probability={:.2}", p.ca_rule, p.probability),
+        Mode::Vuza => format!("n={n}: Vuza canon modulus {}; probability={:.2} — Recommended N (Hájos groups): 72, 108, 120, 144, 168", p.ca_rule, p.probability),
     };
     if fractional {
         format!("{line}; loop length={length:.4} steps (grid cells={n}, no rounding)")

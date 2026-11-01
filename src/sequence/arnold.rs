@@ -10,14 +10,10 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let mut rng = Rng::new(p.seed, p.variation, 0xA7_00_00_00 + tr as u64);
         let detune = (rng.unit() * 0.1) as f64;
         let mut theta = (tr as f64) / (TRACKS as f64);
-        let mut wraps = 0usize;
         for i in 0..n {
-            let prev = theta;
             theta = theta + omega + detune + (k / (2.0 * std::f64::consts::PI)) * (2.0 * std::f64::consts::PI * theta).sin();
             // keep in [0,1)
             theta = theta - theta.floor();
-            let wrapped = theta < prev;
-            if wrapped { wraps += 1; }
             let mut hit = rng.unit() < (p.density.clamp(0.0, 1.0) * prob).clamp(0.0, 1.0);
             if hit && tr > 0 && (0..tr).all(|k| out.hit[k][i]) { hit = false; }
             let accent = if hit { 0.6 + 0.4 * rng.unit() as f32 } else { 0.0 };

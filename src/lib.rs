@@ -72,10 +72,46 @@ pub enum Rate {
     #[id = "1_16"] #[name = "1/16"] Sixteenth,
     #[id = "1_16t"] #[name = "1/16T"] SixteenthTriplet,
     #[id = "1_32"] #[name = "1/32"] ThirtySecond,
+    #[id = "1_4_dot"] #[name = "1/4."] QuarterDotted,
+    #[id = "1_8_dot"] #[name = "1/8."] EighthDotted,
+    #[id = "1_16_dot"] #[name = "1/16."] SixteenthDotted,
+    #[id = "1_32t"] #[name = "1/32T"] ThirtySecondTriplet,
+    #[id = "1_32_dot"] #[name = "1/32."] ThirtySecondDotted,
+    #[id = "1_64"] #[name = "1/64"] SixtyFourth,
+    #[id = "1_64t"] #[name = "1/64T"] SixtyFourthTriplet,
+    #[id = "1_64_dot"] #[name = "1/64."] SixtyFourthDotted,
 }
+#[allow(dead_code)]
 impl Rate {
-    fn steps_per_beat(self) -> f64 {
-        match self { Self::Quarter => 1.0, Self::Eighth => 2.0, Self::EighthTriplet => 3.0, Self::Sixteenth => 4.0, Self::SixteenthTriplet => 6.0, Self::ThirtySecond => 8.0 }
+    pub(crate) fn steps_per_beat(self) -> f64 {
+        match self {
+            Self::Quarter => 1.0,
+            Self::QuarterDotted => 1.0 / 1.5,
+            Self::Eighth => 2.0,
+            Self::EighthDotted => 2.0 / 1.5,
+            Self::EighthTriplet => 3.0,
+            Self::Sixteenth => 4.0,
+            Self::SixteenthDotted => 4.0 / 1.5,
+            Self::SixteenthTriplet => 6.0,
+            Self::ThirtySecond => 8.0,
+            Self::ThirtySecondDotted => 8.0 / 1.5,
+            Self::ThirtySecondTriplet => 12.0,
+            Self::SixtyFourth => 16.0,
+            Self::SixtyFourthDotted => 16.0 / 1.5,
+            Self::SixtyFourthTriplet => 24.0,
+        }
+    }
+    const RATE_ORDER: [Rate; 14] = [
+        Rate::Quarter, Rate::QuarterDotted,
+        Rate::Eighth, Rate::EighthDotted, Rate::EighthTriplet,
+        Rate::Sixteenth, Rate::SixteenthDotted, Rate::SixteenthTriplet,
+        Rate::ThirtySecond, Rate::ThirtySecondDotted, Rate::ThirtySecondTriplet,
+        Rate::SixtyFourth, Rate::SixtyFourthDotted, Rate::SixtyFourthTriplet,
+    ];
+    pub(crate) fn stepped(self, delta: i32) -> Rate {
+        let pos = Self::RATE_ORDER.iter().position(|r| *r == self).unwrap_or(0) as i32;
+        let last = Self::RATE_ORDER.len() as i32 - 1;
+        Self::RATE_ORDER[(pos + delta).clamp(0, last) as usize]
     }
 }
 
