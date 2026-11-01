@@ -542,7 +542,7 @@ export component AppWindow inherits Window {
                     if root.shows-param(root.mode, 7): OptSlider { opt: root.opts[7]; changed(v) => { root.set-opt(7, v); } }
                 }
                 HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[8]; changed(v) => { root.set-opt(8, v); } } OptSlider { opt: root.opts[9]; changed(v) => { root.set-opt(9, v); } } }
-                HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } } if root.shows-param(root.mode, 11): OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
+                if root.shows-param(root.mode, 11): HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
                 if root.mode == 4: HorizontalLayout {
                     Rectangle {
                         width: 200px; height: 24px; border-radius: 4px; background: wave-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
@@ -567,6 +567,8 @@ export component AppWindow inherits Window {
             OptSlider { width: 230px; opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
         }
         HorizontalLayout { spacing: 8px;
+            Rectangle { width: 74px; height: 20px; border-radius: 3px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TouchArea { clicked => { root.toggle-invert(); } } }
+            Rectangle { width: 74px; height: 20px; border-radius: 3px; background: root.mirror-on ? Theme.c3.with-alpha(0.35) : Theme.control; Text { text: "MIRROR"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } mirror-touch := TouchArea { clicked => { root.toggle-mirror(); } } }
             Rectangle { horizontal-stretch: 1; }
             Rectangle { width: 92px; height: 20px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TouchArea { clicked => { root.follow-step = !root.follow-step; } } }
         }
@@ -613,10 +615,19 @@ export component AppWindow inherits Window {
             }
         }
         HorizontalLayout {
+            height: 24px; spacing: 8px;
+            Text { horizontal-stretch: 1; text: root.export-status; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide; }
+            Rectangle {
+                width: 96px; height: 24px; border-radius: 4px;
+                background: export-touch.has-hover ? Theme.c2 : Theme.control;
+                Text { text: "EXPORT MIDI"; color: export-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+                export-touch := TouchArea { clicked => { root.export-midi(); } }
+            }
+        }
+        HorizontalLayout {
             height: 27px; spacing: 5px;
-            Rectangle { width: 74px; height: 24px; border-radius: 4px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TouchArea { clicked => { root.toggle-invert(); } } }
-            Rectangle { width: 74px; height: 24px; border-radius: 4px; background: root.mirror-on ? Theme.c3.with-alpha(0.35) : Theme.control; Text { text: "MIRROR"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } mirror-touch := TouchArea { clicked => { root.toggle-mirror(); } } }
             OptSlider { width: 230px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }
+            OptSlider { width: 230px; opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } }
         }
     }
 
@@ -724,12 +735,6 @@ export component AppWindow inherits Window {
                     edited => { root.set-midi-folder(self.text); }
                     accepted => { root.set-midi-folder(self.text); }
                 }
-            }
-            Rectangle {
-                height: 26px; border-radius: 4px;
-                background: export-touch.has-hover ? Theme.c2 : Theme.control;
-                Text { text: "EXPORT MIDI (ONE LOOP)"; color: export-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
-                export-touch := TouchArea { clicked => { root.export-midi(); } }
             }
             Text { text: root.export-status; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
             // Push the contact block to the bottom of the panel; the controls stay top-aligned.
