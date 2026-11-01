@@ -79,6 +79,8 @@ component OptSlider inherits Rectangle {
     callback changed(float);
     height: 25px;
     border-radius: 4px; background: Theme.control; clip: true;
+    property <bool> edit-open: false;
+    property <string> draft: "";
     Rectangle {
         x: 0px; y: 0px; height: parent.height;
         width: parent.width * Math.clamp((root.opt.value - root.opt.min) / (root.opt.max - root.opt.min), 0, 1);
@@ -93,6 +95,12 @@ component OptSlider inherits Rectangle {
                 root.changed(root.opt.min + Math.clamp(ta.mouse-x / ta.width, 0, 1) * (root.opt.max - root.opt.min));
             }
         }
+        double-clicked => {
+            if (!root.edit-open) {
+                root.draft = root.opt.text;
+                root.edit-open = true;
+            }
+        }
         moved => { if (ta.pressed) { root.changed(root.opt.min + Math.clamp(ta.mouse-x / ta.width, 0, 1) * (root.opt.max - root.opt.min)); } }
         // Wheel editing is active only while this control is hovered. Snap to the
         // parameter's step grid first, then move exactly one step per wheel notch.
@@ -102,6 +110,26 @@ component OptSlider inherits Rectangle {
                 accept
             } else {
                 reject
+            }
+        }
+    }
+    if root.edit-open: Rectangle {
+        x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px;
+        border-radius: 3px; background: Theme.surface; border-width: 1px; border-color: Theme.c2;
+        entry := TextInput {
+            x: 4px; width: parent.width - 8px; height: parent.height;
+            text: root.draft; color: Theme.text; font-size: 11px;
+            horizontal-alignment: right; vertical-alignment: center;
+            edited => { root.draft = self.text; }
+            accepted => {
+                if (root.draft.is-float()) {
+                    root.changed(Math.clamp(root.draft.to-float(), root.opt.min, root.opt.max));
+                }
+                root.edit-open = false;
+            }
+            key-pressed(event) => {
+                if (event.text == Key.Escape) { root.edit-open = false; return accept; }
+                return reject;
             }
         }
     }

@@ -356,6 +356,20 @@ impl Editor for SlintEditor {
                         _ => 5,
                     };
                     if p.pulses.value() == 0 { set(&c, &p.pulses, default_pulses.min(max_pulses)); }
+                    // Mode-specific default density/phase so a freshly selected mode lands on
+                    // a sensible starting point.
+                    let default_density = match mode {
+                        Mode::Bernoulli | Mode::Cantor => 0.3,
+                        Mode::Logistic | Mode::ReactionDiffusion => 0.7,
+                        _ => 0.65,
+                    };
+                    let default_phase = match mode {
+                        Mode::Phyllotaxis => 0.0,
+                        Mode::PhaseShift => 0.25,
+                        _ => 0.0,
+                    };
+                    if (p.density.value() - 0.65).abs() < 1e-4 { set(&c, &p.density, default_density); }
+                    if p.phase.value().abs() < 1e-4 { set(&c, &p.phase, default_phase); }
                     // Modes that read a long orbit or fractal benefit from more than the
                     // default 64-step ceiling. Raise the ceiling once, and let the user lower it.
                     let wants_long = matches!(
