@@ -346,6 +346,16 @@ impl Editor for SlintEditor {
                         _ => p.cell_count(),
                     };
                     if p.pulses.value() > max_pulses { set(&c, &p.pulses, max_pulses); }
+                    // Mode-specific default pulse count, so a freshly selected mode lands on
+                    // a sensible starting point instead of inheriting the previous mode's value.
+                    let default_pulses = match mode {
+                        Mode::Cellular => 8,
+                        Mode::Eulerian => 2,
+                        Mode::Sieve => 1,
+                        Mode::PebbleBox => 4,
+                        _ => 5,
+                    };
+                    if p.pulses.value() == 0 { set(&c, &p.pulses, default_pulses.min(max_pulses)); }
                     // Modes that read a long orbit or fractal benefit from more than the
                     // default 64-step ceiling. Raise the ceiling once, and let the user lower it.
                     let wants_long = matches!(

@@ -294,7 +294,7 @@ export component AppWindow inherits Window {
         root.mode-scroll-y = -Math.max(0px, Math.min(mode * 32px - 116px, root.mode-names.length * 32px - 332px));
     }
     in property <float> steps: 16;
-    in property <float> max-steps: 64;
+    in property <float> max-steps: 1024;
     in property <bool> round-steps: true;
     // The grid cells the generator will fill, mirroring `cell_count_for`: snap rounds, free
     // length takes the ceiling. Header and bounds read this so they cannot disagree with the

@@ -70,7 +70,7 @@ pub const MAX_STEPS: usize = 1024;
 /// Lowest selectable ceiling. It is the historical limit, so an untouched project behaves
 /// exactly as it did before the ceiling became adjustable.
 pub const MIN_MAX_STEPS: usize = 64;
-pub const DEFAULT_MAX_STEPS: usize = 64;
+pub const DEFAULT_MAX_STEPS: usize = 1024;
 pub const CA_ROWS: usize = 16;
 // Spelled out: `std::f64::consts::GOLDEN_RATIO` is unstable on older toolchains, which made the
 // documented "Rust 1.88 or newer" baseline wrong.
