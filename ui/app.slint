@@ -51,37 +51,7 @@ component Selector inherits Rectangle {
                 // Enum parameters (rate, waveform, theme) can be stepped with the wheel too.
                 scroll-event(e) => {
                     if (e.delta-y != 0px) {
-                        root.selected((root.current + (e.delta-y < 0px ? 1 : -1)) < 0 ? 0 : ((root.current + (e.delta-y < 0px ? 1 : -1)) >= root.options.length ? root.options.length - 1 : root.current + (e.delta-y < 0px ? 1 : -1)));
-                        accept
-                    } else {
-                        reject
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Eight waveform names do not fit the options column in one legible row, so the picker
-// lays them out as a 2x4 grid. Names come from Rust (`OscWave::variants()`), so adding a
-// waveform only touches the enum.
-component WaveGrid inherits Rectangle {
-    in property <[string]> options;
-    in property <int> current;
-    callback selected(int);
-    height: 46px;
-    GridLayout {
-        spacing: 3px;
-        for i in root.options.length: Rectangle {
-            border-radius: 3px;
-            background: i == root.current ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (ta.has-hover ? Theme.control-hover : Theme.control);
-            Text { text: root.options[i]; color: i == root.current ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
-            ta := TouchArea {
-                clicked => { root.selected(i); }
-                // The wheel steps the waveform, matching every other picker.
-                scroll-event(e) => {
-                    if (e.delta-y != 0px) {
-                        root.selected(Math.max(0, Math.min(root.current + (e.delta-y < 0px ? 1 : -1), root.options.length - 1)));
+                        root.selected((root.current + (e.delta-y > 0px ? 1 : -1)) < 0 ? 0 : ((root.current + (e.delta-y > 0px ? 1 : -1)) >= root.options.length ? root.options.length - 1 : root.current + (e.delta-y > 0px ? 1 : -1)));
                         accept
                     } else {
                         reject
@@ -127,7 +97,7 @@ component OptSlider inherits Rectangle {
         // parameter's step grid first, then move exactly one step per wheel notch.
         scroll-event(e) => {
             if (e.delta-y != 0px) {
-                root.changed(Math.clamp(root.opt.min + Math.round((root.opt.value - root.opt.min) / root.opt.step + (e.delta-y < 0px ? 1 : -1)) * root.opt.step, root.opt.min, root.opt.max));
+                root.changed(Math.clamp(root.opt.min + Math.round((root.opt.value - root.opt.min) / root.opt.step + (e.delta-y > 0px ? 1 : -1)) * root.opt.step, root.opt.min, root.opt.max));
                 accept
             } else {
                 reject
@@ -191,7 +161,7 @@ component NumBox inherits Rectangle {
         x: 0px; y: 0px; width: parent.width - 34px; height: parent.height;
         scroll-event(e) => {
             if (e.delta-y != 0px) {
-                root.nudge(e.delta-y < 0px ? 1 : -1);
+                root.nudge(e.delta-y > 0px ? 1 : -1);
                 return accept;
             }
             return reject;
@@ -240,6 +210,30 @@ component ModePanel inherits Rectangle {
         background: n.cur ? Theme.hi : (n.on ? Theme.c1 : Theme.cell-off);
         border-width: 1px; border-color: Theme.border;
         Text { width: parent.width; height: parent.height; text: n.label; font-size: 7px * root.px-per-unit; color: (n.cur || n.on) ? Theme.on-accent : Theme.text; horizontal-alignment: center; vertical-alignment: center; }
+    }
+}
+
+// Dropdown list overlay (Nelody-style). Anchored to its triggering field by the caller.
+component DropdownList inherits Rectangle {
+    in property <[string]> options;
+    in property <int> current;
+    callback selected(int);
+    width: 200px; height: 260px;
+    background: Theme.surface; border-width: 1px; border-color: Theme.border;
+    drop-shadow-blur: 12px; drop-shadow-color: #00000055; drop-shadow-offset-y: 3px;
+    clip: true;
+    ScrollView {
+        width: parent.width; height: parent.height;
+        vertical-scrollbar-policy: as-needed;
+        VerticalLayout {
+            spacing: 3px; padding: 6px; alignment: start;
+            for i in root.options.length: Rectangle {
+                height: 24px; border-radius: 3px;
+                background: i == root.current ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%) : (item-touch.has-hover ? Theme.control-hover : Theme.control);
+                Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.options[i]; color: i == root.current ? Theme.on-accent : Theme.text; font-size: 9px; vertical-alignment: center; overflow: elide; }
+                item-touch := TouchArea { clicked => { root.selected(i); } }
+            }
+        }
     }
 }
 
@@ -325,6 +319,12 @@ export component AppWindow inherits Window {
     changed mode-menu-open => {
         root.mode-menu-x = root.mode-menu-open ? root.base-width - 260px : root.base-width;
     }
+    in-out property <bool> clock-menu-open: false;
+    in-out property <length> clock-menu-x: 0px;
+    in-out property <length> clock-menu-y: 0px;
+    in-out property <bool> wave-menu-open: false;
+    in-out property <length> wave-menu-x: 0px;
+    in-out property <length> wave-menu-y: 0px;
     in-out property <bool> settings-open: false;
     // Settings slide in from the right edge of the fixed 860px layout; see the panel at the
     // bottom of this component.
@@ -491,7 +491,20 @@ export component AppWindow inherits Window {
             Text { text: "nDrum"; color: Theme.text; font-family: "FantasqueSansM Nerd Font Mono"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
             Text { visible: root.track-name != ""; text: "· \{root.track-name}"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide; }
             Rectangle { horizontal-stretch: 1; }
-            Rectangle { width: 96px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "Toggle free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
+            // Clock-rate picker (Nelody-style): single field + dropdown.
+            Rectangle {
+                width: 96px; height: 24px; border-radius: 4px; background: clock-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
+                Text { x: 6px; width: parent.width - 28px; height: parent.height; text: root.rate < 6 ? (root.rate == 0 ? "1/4" : (root.rate == 1 ? "1/8" : (root.rate == 2 ? "1/8T" : (root.rate == 3 ? "1/16" : (root.rate == 4 ? "1/16T" : "1/32"))))) : ""; color: Theme.text; font-size: 9px; vertical-alignment: center; overflow: elide; }
+                Text { x: parent.width - 16px; width: 12px; height: parent.height; text: "▾"; color: Theme.text-muted; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+                clock-field-touch := TouchArea {
+                    clicked => {
+                        root.clock-menu-open = !root.clock-menu-open;
+                        if (root.clock-menu-open) { root.clock-menu-x = clock-field-touch.absolute-position.x; root.clock-menu-y = clock-field-touch.absolute-position.y + clock-field-touch.height + 2px; }
+                        root.wave-menu-open = false;
+                    }
+                }
+            }
+            Rectangle { width: 72px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TouchArea { clicked => { root.toggle-free-run(); } } }
             Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 9px; vertical-alignment: center; }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : Theme.control; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: generate-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TouchArea { clicked => { root.generate-pressed(); } } }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : Theme.control; Text { text: "RANDOMIZE ⚄"; color: randomize-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TouchArea { clicked => { root.randomize-pressed(); } } }
@@ -515,7 +528,6 @@ export component AppWindow inherits Window {
                 // same helpers the generator calls, so it cannot drift from what is playing.
                 Text { text: root.mode-math; color: Theme.text-muted; font-size: 11px; wrap: word-wrap; }
                 Rectangle { height: 5px; }
-                Text { text: "GENERATOR OPTIONS"; color: Theme.text-muted; font-size: 9px; }
                 HorizontalLayout { spacing: 5px;
                     OptSlider { opt: root.opts[0]; changed(v) => { root.set-opt(0, v); } }
                     if root.shows-param(root.mode, 1): OptSlider { opt: root.opts[1]; changed(v) => { root.set-opt(1, v); } }
@@ -532,8 +544,19 @@ export component AppWindow inherits Window {
                 HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[8]; changed(v) => { root.set-opt(8, v); } } OptSlider { opt: root.opts[9]; changed(v) => { root.set-opt(9, v); } } }
                 HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } } if root.shows-param(root.mode, 11): OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
                 if root.mode == 4: HorizontalLayout {
-                    Text { text: "WAVE"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; }
-                    WaveGrid { horizontal-stretch: 1; options: root.wave-names; current: root.osc-wave; selected(i) => { root.set-osc-wave(i); } }
+                    Rectangle {
+                        width: 200px; height: 24px; border-radius: 4px; background: wave-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
+                        Text { x: 6px; width: parent.width - 28px; height: parent.height; text: root.osc-wave < root.wave-names.length ? root.wave-names[root.osc-wave] : ""; color: Theme.text; font-size: 9px; vertical-alignment: center; overflow: elide; }
+                        Text { x: parent.width - 16px; width: 12px; height: parent.height; text: "▾"; color: Theme.text-muted; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+                        wave-field-touch := TouchArea {
+                            clicked => {
+                                root.wave-menu-open = !root.wave-menu-open;
+                                if (root.wave-menu-open) { root.wave-menu-x = wave-field-touch.absolute-position.x; root.wave-menu-y = wave-field-touch.absolute-position.y + wave-field-touch.height + 2px; }
+                                root.clock-menu-open = false;
+                            }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
                 }
             }
         }
@@ -541,10 +564,6 @@ export component AppWindow inherits Window {
         // generator options instead of sharing the cramped options column.
         HorizontalLayout {
             height: 28px; spacing: 8px;
-            Text { text: "CLOCK"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; }
-            Text { text: "RATE"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; }
-            Selector { horizontal-stretch: 1; options: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"]; current: root.rate; text-size: 9px; selected(i) => { root.set-rate(i); } }
-            Text { text: "SWING"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; }
             OptSlider { width: 230px; opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
         }
         Text { text: "DRUM LANES     ·     MIDI channel 10 / GM-style note map"; color: Theme.text-muted; font-size: 10px; }
@@ -558,7 +577,7 @@ export component AppWindow inherits Window {
             }
         }
         HorizontalLayout { spacing: 8px;
-            Text { horizontal-stretch: 1; text: "PATTERN MATRIX  ·  \{root.cells} cells  ·  velocity = brightness  ·  probability = opacity  ·  playhead outlined"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; }
+            Rectangle { horizontal-stretch: 1; }
             Rectangle { width: 92px; height: 20px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TouchArea { clicked => { root.follow-step = !root.follow-step; } } }
         }
         HorizontalLayout {
@@ -732,5 +751,27 @@ export component AppWindow inherits Window {
             TextInput { read-only: true; text: root.credit-email; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
         }
     }
+    }
+    // Clock-rate dropdown overlay.
+    if root.clock-menu-open: DropdownList {
+        x: root.clock-menu-x; y: root.clock-menu-y;
+        width: 120px; height: 180px;
+        options: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"];
+        current: root.rate;
+        selected(i) => { root.set-rate(i); root.clock-menu-open = false; }
+    }
+    // Waveform dropdown overlay (oscillator mode).
+    if root.wave-menu-open: DropdownList {
+        x: root.wave-menu-x; y: root.wave-menu-y;
+        width: 160px; height: 260px;
+        options: root.wave-names;
+        current: root.osc-wave;
+        selected(i) => { root.set-osc-wave(i); root.wave-menu-open = false; }
+    }
+    // Outside-click catcher for the dropdowns.
+    if root.clock-menu-open || root.wave-menu-open: Rectangle {
+        x: 0px; y: 0px; width: root.base-width; height: root.base-height;
+        background: #00000008;
+        TouchArea { clicked => { root.clock-menu-open = false; root.wave-menu-open = false; } }
     }
 }
