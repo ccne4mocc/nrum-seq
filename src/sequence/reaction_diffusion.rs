@@ -8,6 +8,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         for i in 0..n {
             // Simple Gray-Scott-like threshold on a sinusoidal activator.
             let a = (i as f32 / n as f32 * std::f32::consts::TAU * (1.0 + tr as f32 * 0.1) + tr as f32 * 0.7).sin();
+            if tr == 0 { out.u[i] = (a + 1.0) * 0.5; }
             let mut hit = a >= (1.0 - p.density.clamp(0.0,1.0)) && rng.unit() < p.probability.clamp(0.0,1.0);
             if hit && tr > 0 && (0..tr).all(|k| out.hit[k][i]) { hit = false; }
             let accent = if hit { 0.6 + 0.4*rng.unit() } else { 0.0 };

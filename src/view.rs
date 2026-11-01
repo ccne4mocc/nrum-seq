@@ -755,7 +755,26 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 mv(&mut v.hand, x, 12.0); ln(&mut v.hand, x, P - 12.0);
             }
         }
-        Mode::EuclideanSwing | Mode::AfricanBell | Mode::PhaseCanon | Mode::ReactionDiffusion | Mode::Cantor | Mode::Fibonacci | Mode::Genetic | Mode::Sturmian | Mode::Vuza => {
+        Mode::ReactionDiffusion => {
+            // Activator threshold plot: draw the activator curve and the threshold line.
+            let mut started = false;
+            for i in 0..n {
+                let x = x_of(i, n);
+                let y = 12.0 + (1.0 - p.u[i]) * (P - 24.0);
+                if !started { mv(&mut v.lines, x, y); started = true; } else { ln(&mut v.lines, x, y); }
+                if p.hit[0][i] {
+                    v.nodes.push(Node { x, y, r: 3.5, on: true, cur: play == Some(i), label: String::new() });
+                }
+            }
+            let thr = 1.0 - params.density.clamp(0.0, 1.0);
+            let ty = 12.0 + (1.0 - thr) * (P - 24.0);
+            line(&mut v.edges, (8.0, ty), (P - 8.0, ty));
+            if let Some(i) = play {
+                let x = x_of(i, n);
+                mv(&mut v.hand, x, 12.0); ln(&mut v.hand, x, P - 12.0);
+            }
+        }
+        Mode::EuclideanSwing | Mode::AfricanBell | Mode::PhaseCanon | Mode::Cantor | Mode::Fibonacci | Mode::Genetic | Mode::Sturmian | Mode::Vuza => {
             circle(&mut v.edges, C, C, 90.0);
             // At long pattern lengths, sample the ring instead of drawing up to 8k dots.
             let stride = n.div_ceil(96).max(1);
