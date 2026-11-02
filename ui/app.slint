@@ -1,5 +1,5 @@
 import { ScrollView } from "std-widgets.slint";
-// nDrum: algorithm-first MIDI drum sequencer. Rust pushes deterministic pattern and view data.
+// nrum sequencer: algorithm-first MIDI drum sequencer. Rust pushes deterministic pattern and view data.
 export global Theme {
     in-out property <color> c1: #a67c00;
     in-out property <color> c2: #3f6591;
@@ -486,9 +486,9 @@ component LfoCell inherits Rectangle {
         // 2px keeps the 30x28 drag points inside the 822px rack width.
         spacing: 2px;
         Rectangle {
-            width: 30px; height: 28px; background: transparent;
+            width: 28px; height: 28px; background: transparent;
             Rectangle {
-                y: 0px; width: 30px; height: 28px; border-radius: 4px;
+                y: 1px; width: 28px; height: 26px; border-radius: 4px;
                 background: root.accent;
                 Text { text: "\{root.index}"; color: Theme.on-accent; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                 handle-touch := TouchArea {
@@ -585,7 +585,7 @@ component ModePanel inherits Rectangle {
     }
 }
 
-// Dropdown list overlay (Nelody-style). Anchored to its triggering field by the caller.
+// Dropdown list overlay (nelody sequencer-style). Anchored to its triggering field by the caller.
 component DropdownList inherits Rectangle {
     in property <[string]> options;
     in property <int> current;
@@ -657,7 +657,7 @@ component ModeDropdown inherits Rectangle {
 }
 
 export component AppWindow inherits Window {
-    title: "nDrum";
+    title: "nrum sequencer";
     // Fixed layout size: the window never resizes (a live resize glitched the GL surface),
     // so the host cannot be fought over it.
     in property <length> base-width: 860px;
@@ -1026,11 +1026,11 @@ export component AppWindow inherits Window {
         padding: 14px; spacing: 8px;
         HorizontalLayout {
             height: 34px; spacing: 6px;
-            Text { text: "nDrum"; color: Theme.text; font-family: "FantasqueSansM Nerd Font Mono"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+            Text { text: "nrum sequencer"; color: Theme.text; font-family: "FantasqueSansM Nerd Font Mono"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
             Text { visible: root.track-name != ""; text: "· \{root.track-name}"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide; }
             Rectangle { horizontal-stretch: 1; }
             Text { text: "CLOCK RATE"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; }
-            // Clock-rate picker: sized like Nelody's rate field.
+            // Clock-rate picker: sized like nelody sequencer's rate field.
             Rectangle {
                 width: 70px; height: 25px; border-radius: 4px; background: clock-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
                 Text { x: 0px; width: parent.width; height: parent.height; text: root.rate < root.rate-names.length ? root.rate-names[root.rate] : ""; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
@@ -1336,7 +1336,7 @@ export component AppWindow inherits Window {
         Text { text: "\{ModDrag.lfo}"; color: Theme.on-accent; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
     }
 
-    // Grouped mode dropdown (Nelody-style), anchored to the mode header.
+    // Grouped mode dropdown (nelody sequencer-style), anchored to the mode header.
     if root.mode-menu-open: Rectangle {
         x: 0px; y: 0px; width: root.base-width; height: root.base-height;
         background: #00000044;
@@ -1404,10 +1404,10 @@ export component AppWindow inherits Window {
             Rectangle {
                 height: 26px; border-radius: 4px;
                 background: root.logging-on ? Theme.c1.with-alpha(0.8) : (logging-touch.has-hover ? Theme.control-hover : Theme.control);
-                Text { x: 8px; width: parent.width - 16px; text: root.logging-on ? "LOGGING: ON (nDrum.log)" : "LOGGING: OFF"; color: root.logging-on ? Theme.on-accent : Theme.text; font-size: 9px; vertical-alignment: center; }
+                Text { x: 8px; width: parent.width - 16px; text: root.logging-on ? "LOGGING: ON (nrum-sequencer.log)" : "LOGGING: OFF"; color: root.logging-on ? Theme.on-accent : Theme.text; font-size: 9px; vertical-alignment: center; }
                 logging-touch := TouchArea { clicked => { root.toggle-logging(); } }
             }
-            Text { text: "Writes mode and parameter snapshots to nDrum.log in your home folder."; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
+            Text { text: "Writes mode and parameter snapshots to nrum-sequencer.log in your home folder."; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
             // RANDOMIZE SCOPE removed (redundant)
             Text { text: "MIDI EXPORT"; color: Theme.text-muted; font-size: 9px; }
             Rectangle {
@@ -1429,7 +1429,7 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 spacing: 0px;
                 Text { text: "CREDITS / CONTACT"; color: Theme.text-muted; font-size: 9px; }
-                Text { text: "\{root.credit-author}  ·  nDrum"; color: Theme.text; font-size: 10px; }
+                Text { text: "\{root.credit-author}  ·  nrum sequencer"; color: Theme.text; font-size: 10px; }
                 TextInput { read-only: true; text: root.credit-website; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }
                 TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }
                 TextInput { read-only: true; text: root.credit-support; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }

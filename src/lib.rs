@@ -1,4 +1,4 @@
-//! nDrum: algorithmic multichannel percussion pattern generation, emitted as MIDI.
+//! nrum sequencer: algorithmic multichannel percussion pattern generation, emitted as MIDI.
 //! The plug-in intentionally has no audio renderer: route it to a drum sampler / rack.
 mod editor;
 mod globals;
@@ -237,7 +237,7 @@ pub struct DrumParams {
     #[id = "generate"] pub generate: BoolParam,
     #[id = "invert"] pub invert: BoolParam,
     #[id = "mirror"] pub mirror: BoolParam,
-    /// Write technical diagnostics to `nDrum.log` in the user's home directory.
+    /// Write technical diagnostics to `nrum-sequencer.log` in the user's home directory.
     #[id = "logging"] pub logging: BoolParam,
     #[id = "freerun"] pub free_run: BoolParam,
 
@@ -787,7 +787,7 @@ fn resume_cursor(carried: Option<i64>, jumped: bool, start: f64, end: f64, spb: 
 #[derive(Clone, Copy)]
 struct Active { note: u8, off_beat: f64 }
 
-pub struct NDrum {
+pub struct NrumSequencer {
     params: Arc<DrumParams>,
     shared: Arc<Shared>,
     /// Actual snapshot the current pattern was generated from (including modulation).
@@ -812,7 +812,7 @@ pub struct NDrum {
     last_mod_cycle: Option<i64>,
     sample_rate: f64,
 }
-impl Default for NDrum {
+impl Default for NrumSequencer {
     fn default() -> Self {
         Self {
             params: Arc::new(DrumParams::default()), shared: Arc::new(Shared::default()),
@@ -823,7 +823,7 @@ impl Default for NDrum {
     }
 }
 
-impl NDrum {
+impl NrumSequencer {
     fn stop_all(&mut self, ctx: &mut impl ProcessContext<Self>) {
         for t in 0..TRACKS {
             if let Some(a) = self.active[t].take() {
@@ -842,8 +842,8 @@ pub mod contact {
     pub const EMAIL: &str = "";
 }
 
-impl Plugin for NDrum {
-    const NAME: &'static str = "nDrum";
+impl Plugin for NrumSequencer {
+    const NAME: &'static str = "nrum sequencer";
     const VENDOR: &'static str = contact::AUTHOR;
     const URL: &'static str = contact::GITHUB;
     const EMAIL: &'static str = contact::EMAIL;
@@ -1062,19 +1062,19 @@ impl Plugin for NDrum {
     }
 }
 
-impl ClapPlugin for NDrum {
+impl ClapPlugin for NrumSequencer {
     const CLAP_ID: &'static str = "com.ndrum.ndrum";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("Algorithmic percussion MIDI sequencer with eight drum lanes");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(contact::GITHUB);
     const CLAP_SUPPORT_URL: Option<&'static str> = Some(contact::SUPPORT);
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::NoteEffect, ClapFeature::Utility];
 }
-impl Vst3Plugin for NDrum {
+impl Vst3Plugin for NrumSequencer {
     const VST3_CLASS_ID: [u8; 16] = *b"nDrum\0\0\0\0\0\0\0\0\0\0\0";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Instrument, Vst3SubCategory::Tools];
 }
-nice_export_clap!(NDrum);
-nice_export_vst3!(NDrum);
+nice_export_clap!(NrumSequencer);
+nice_export_vst3!(NrumSequencer);
 
 #[cfg(test)]
 mod tests {
@@ -1173,7 +1173,7 @@ mod tests {
         assert_eq!(contact::GITHUB, "https://github.com/ccne4mocc");
         assert_eq!(contact::SUPPORT, "");
         assert_eq!(contact::EMAIL, "");
-        assert_eq!(<NDrum as Plugin>::VENDOR, contact::AUTHOR);
+        assert_eq!(<NrumSequencer as Plugin>::VENDOR, contact::AUTHOR);
     }
 
     #[test]
@@ -1200,7 +1200,7 @@ mod tests {
     #[test]
     fn neon_is_the_fresh_default_theme() {
         assert_eq!(DrumParams::default().theme.value(), Theme::Neon);
-        assert_eq!(<NDrum as Plugin>::VERSION, "1.2.0");
+        assert_eq!(<NrumSequencer as Plugin>::VERSION, "1.2.0");
     }
 
     #[test]

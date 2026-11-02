@@ -55,9 +55,9 @@ pub enum Mode {
 /// Keep host indices alone — this only changes presentation. Adding a mode means appending it to
 /// the enum and to exactly one group here.
 ///
-/// Labels and order are shared with Nelody's `ModeGroup`. Keep them identical in both projects:
+/// Labels and order are shared with nelody sequencer's `ModeGroup`. Keep them identical in both projects:
 /// Rhythm, Stochastic, Chaos / Physics, Fractal, Cellular, Geometric, Number Theory,
-/// Music Theory, Acid. nDrum has no acid modes, so that group is omitted rather than rendered
+/// Music Theory, Acid. nrum sequencer has no acid modes, so that group is omitted rather than rendered
 /// empty. Within a group the host order is preserved.
 pub const GROUPS: &[(&str, &[Mode])] = &[
     ("Rhythm", &[
@@ -126,8 +126,8 @@ mod tests {
                 "Number Theory",
                 "Music Theory",
             ],
-            "keep this order and these labels identical to Nelody's ModeGroup::ALL; \
-             nDrum omits only the empty Acid group"
+            "keep this order and these labels identical to nelody sequencer's ModeGroup::ALL; \
+             nrum sequencer omits only the empty Acid group"
         );
     }
 

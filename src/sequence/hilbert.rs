@@ -45,7 +45,7 @@ pub(crate) fn rotate(order: u32, d: usize, turns: usize) -> (usize, usize) {
     (x, y)
 }
 
-/// Nelody-style Hilbert sampling: `d = i·total/n`, so the loop walks the whole curve. `pulses`
+/// nelody sequencer-style Hilbert sampling: `d = i·total/n`, so the loop walks the whole curve. `pulses`
 /// is the order (1..5), `phase` turns the curve by quarter turns, and `seed` shifts the
 /// curve-position-to-lane mapping. Density thins each lane's assigned cells evenly.
 pub(super) fn generate(p: &GenParams) -> Pattern {

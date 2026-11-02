@@ -42,9 +42,9 @@ Each step receives a metrical weight, a lane-dependent offset, and seeded jitter
   phase bank is published per step in `Pattern.phases`, and the panel draws the eight pointers,
   their trails and the order-parameter vector.
 
-## Added in the Nelody migration
+## Added in the nelody sequencer migration
 
-The 29-mode Nelody review supplied tested implementations for six additional rhythmic families,
+The 29-mode nelody sequencer review supplied tested implementations for six additional rhythmic families,
 adapted here to eight lanes: **Thue–Morse** (A010060 word, Nørgård infinity-series accents),
 **Rudin–Shapiro** (A020985 word), **Brownian** (Irwin-Hall Gaussian increments, folded walk),
 **Lévy flight** (Pareto steps with a real heavy tail), **Tent map** (attractor start plus

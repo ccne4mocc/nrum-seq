@@ -43,7 +43,7 @@ replaced the editor with a `baseview 0.4` `SpawnedEditor`/`HostCallbacks` model,
 
 ## Verification (Linux x86_64)
 - `cargo test --lib`: 102 passed, 0 failed, 1 ignored benchmark.
-- `cargo xtask bundle ndrum` builds CLAP and VST3; exports present.
+- `cargo xtask bundle nrum-sequencer` builds CLAP and VST3; exports present.
 - `clap-validator` 0.3.2: 15 passed / 3 failed / 3 skipped, identical to the nih-plug build of the same source. The 3 failures are the validator's output-note-port queries; querying the extension directly succeeds on both builds.
 - nih-plug build vs nice-plug build of the same source: all 51 CLAP parameter ids, names, ranges and defaults identical; default saved state byte-identical; a modified state saved by the nih build loads into the nice build (and back) with identical values and identical re-saved JSON. `hash_param_id` (used by VST3 too) is byte-identical in both frameworks.
 - Not verified: loading in any DAW, the VST3 build beyond its exported symbols, the UI rendering. (There is no Windows CI in the repository.)

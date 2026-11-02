@@ -1,7 +1,7 @@
 use super::{frac, set_hit, GenParams, Pattern, TRACKS, PHI_INV};
 use std::f64::consts::TAU;
 
-/// Coupling `K` for the Arnold circle map. Matching the Nelody generator, density is the
+/// Coupling `K` for the Arnold circle map. Matching the nelody sequencer generator, density is the
 /// coupling knob and high density means weak coupling: `K = (1 - density) * 1.4`.
 pub(crate) fn coupling(density: f32) -> f64 {
     (1.0 - density.clamp(0.0, 1.0)) as f64 * 1.4
