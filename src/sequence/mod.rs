@@ -34,10 +34,25 @@ mod sturmian;
 mod hilbert;
 mod ulam;
 mod vuza;
+mod thue_morse;
+mod rudin_shapiro;
+mod brownian;
+mod levy_flight;
+mod tent_map;
+mod henon_map;
 
 // The panel draws these algorithms' own curves and cutoffs rather than restating their
 // formulas, so these re-exports exist for `crate::view` alone.
+pub(crate) use arnold::coupling as arnold_coupling;
+pub(crate) use brownian::sigma as brownian_sigma;
+pub(crate) use cellular::selected_row as cellular_row;
+pub(crate) use fibonacci::alpha as fibonacci_alpha;
+pub(crate) use henon_map::a_of as henon_a;
+pub(crate) use hilbert::{rotate as hilbert_rotate, turns as hilbert_turns};
+pub(crate) use levy_flight::{step_min as levy_step_min, tail_alpha as levy_alpha};
+pub(crate) use logistic::{r_of as logistic_r, x0 as logistic_x0};
 pub(crate) use oscillator::WAVE_COUNT as oscillator_wave_count;
+pub(crate) use tent_map::mu_of as tent_mu;
 // Only the panel's unit tests sample the waveform directly now; the panel itself reads the
 // generator's published `orbit`.
 #[cfg(test)]
@@ -57,7 +72,6 @@ pub(crate) use lsystem::{
     lane_threshold as lsystem_threshold,
     step_chance as lsystem_step_chance,
 };
-pub(crate) use logistic::r_of as logistic_r;
 pub(crate) use pebble::gravity as pebble_gravity;
 pub(crate) use sieve::{classes as sieve_classes, member as sieve_member};
 pub(crate) use kuramoto::{
@@ -241,6 +255,10 @@ pub(super) fn rotated_pos(i: usize, offset: usize, n: usize) -> usize {
     (i + n - offset % n) % n
 }
 
+/// Fractional part in `0..1` for any finite value, including negatives.
+#[inline]
+pub(crate) fn frac(x: f64) -> f64 { x - x.floor() }
+
 #[inline]
 pub(super) fn set_hit(out: &mut Pattern, track: usize, step: usize, hit: bool, accent: f32) {
     out.hit[track][step] = hit;
@@ -259,6 +277,46 @@ pub(super) fn top_k(scores: &[f32; MAX_STEPS], n: usize, k: usize, hits: &mut [b
         std::array::from_fn(|i| if i < n { (scores[i], i) } else { (f32::NEG_INFINITY, usize::MAX) });
     ranked[..n].sort_unstable_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     for &(_, i) in &ranked[..k] { hits[i] = true; }
+}
+
+/// Triangle-wave reflection into `0..=1`, exact for any displacement. Iterative reflection loops
+/// need the step to be smaller than the range and pin a long jump to the wall.
+pub(super) fn fold01(x: f64) -> f64 {
+    let m = x.rem_euclid(2.0);
+    if m <= 1.0 { m } else { 2.0 - m }
+}
+
+/// Mark `k` steps, spread evenly over the structural ones first. `primary[i]` flags the steps the
+/// algorithm itself calls onsets (Thue-Morse 1s, sieve members, prime cells). Fewer than `k`:
+/// take every primary step. More: pick `k` evenly spaced among them. Ranking by an arbitrary
+/// tie-break leaves the end of the loop empty, which is the defect this replaces.
+/// Allocation-free: fixed stack arrays only.
+pub(super) fn select_spread(primary: &[bool; MAX_STEPS], n: usize, k: usize, hits: &mut [bool; MAX_STEPS]) {
+    hits[..n].fill(false);
+    let k = k.min(n);
+    if k == 0 { return; }
+    let m = primary[..n].iter().filter(|&&b| b).count();
+    let mark = |want: usize, which: bool, hits: &mut [bool; MAX_STEPS]| {
+        let cnt = if which { m } else { n - m };
+        if want == 0 || cnt == 0 { return; }
+        let (mut c, mut j) = (0usize, 0usize);
+        for i in 0..n {
+            if primary[i] != which { continue; }
+            // the j-th of `want` picks candidate floor((2j+1)·cnt / 2·want): centred in its slice
+            if j < want && c == (2 * j + 1) * cnt / (2 * want) { hits[i] = true; j += 1; }
+            c += 1;
+        }
+    };
+    mark(k.min(m), true, hits);
+    if k > m { mark(k - m, false, hits); }
+}
+
+/// Exact onset count for a lane from the shared pulse/density profile. Used by the walk and map
+/// modes whose onsets are the largest steps of one orbit.
+#[inline]
+pub(crate) fn lane_wanted(pulses: usize, density: f32, lane: usize, n: usize) -> usize {
+    let scaled = pulses.min(n) as f32 * density.clamp(0.0, 1.0) * (0.5 + DENSITY_PROFILE[lane]);
+    (scaled.round() as usize).min(n)
 }
 
 /// Stable step accents: backbeat and downbeat are emphasized without tying any lane to pitch.
@@ -309,6 +367,12 @@ fn run_mode(q: &GenParams) -> Pattern {
         Mode::Hilbert => hilbert::generate(q),
         Mode::Ulam => ulam::generate(q),
         Mode::Vuza => vuza::generate(q),
+        Mode::ThueMorse => thue_morse::generate(q),
+        Mode::RudinShapiro => rudin_shapiro::generate(q),
+        Mode::Brownian => brownian::generate(q),
+        Mode::LevyFlight => levy_flight::generate(q),
+        Mode::TentMap => tent_map::generate(q),
+        Mode::HenonMap => henon_map::generate(q),
     }
 }
 
@@ -343,10 +407,11 @@ pub fn generate(p: &GenParams) -> Pattern {
     out.rotation = shift;
     if shift != 0 {
         let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
-        let old_ca = out.ca; let old_orbit = out.orbit; let old_lsym = out.lsym;
+        let old_ca = out.ca; let old_orbit = out.orbit; let old_theta = out.theta; let old_u = out.u;
+        let old_lsym = out.lsym;
         let old_pebbles = out.pebbles; let old_impact = out.impact; let old_phases = out.phases;
         for tr in 0..TRACKS { for i in 0..steps { let src = (i + steps - shift) % steps; out.hit[tr][i] = old_hit[tr][src]; out.accent[tr][i] = old_acc[tr][src]; } }
-        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.lsym[i] = old_lsym[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; out.phases[i] = old_phases[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
+        for i in 0..steps { let src = (i + steps - shift) % steps; out.state[i] = old_state[src]; out.orbit[i] = old_orbit[src]; out.theta[i] = old_theta[src]; out.u[i] = old_u[src]; out.lsym[i] = old_lsym[src]; out.pebbles[i] = old_pebbles[src]; out.impact[i] = old_impact[src]; out.phases[i] = old_phases[src]; for row in 0..CA_ROWS { out.ca[row][i] = old_ca[row][src]; } }
     }
     if q.invert {
         for tr in 0..TRACKS {
@@ -366,7 +431,8 @@ pub fn generate(p: &GenParams) -> Pattern {
         }
         for i in 0..steps / 2 {
             let j = steps - 1 - i;
-            out.state.swap(i, j); out.orbit.swap(i, j); out.lsym.swap(i, j);
+            out.state.swap(i, j); out.orbit.swap(i, j); out.theta.swap(i, j); out.u.swap(i, j);
+            out.lsym.swap(i, j);
             out.pebbles.swap(i, j); out.impact.swap(i, j); out.phases.swap(i, j);
             for row in 0..CA_ROWS { out.ca[row].swap(i, j); }
         }
@@ -532,6 +598,98 @@ mod tests {
             let p = GenParams { kind, density: 0.82, probability: 0.67, steps: 17, pulses: 7, rotate: 0, ..GenParams::default() };
             let a = generate(&p); let b = generate(&GenParams { rotate: 3, ..p });
             for tr in 0..TRACKS { for i in 0..p.steps { assert_eq!(b.hit[tr][i], a.hit[tr][(i + p.steps - 3) % p.steps], "{kind:?}"); } }
+        }
+    }
+
+    #[test]
+    fn rotation_reorders_every_per_step_view_array() {
+        // The view arrays are the generator's published geometry. If only `hit` follows the
+        // rotation, every panel drawn from `theta`/`u` (Arnold, Hilbert, Ulam, Bernoulli,
+        // Reaction-Diffusion) points at the wrong step after Generate or a variation bump.
+        let n = 17usize;
+        for kind in Mode::all() {
+            let p = GenParams { kind, density: 0.82, probability: 1.0, steps: n, pulses: 7, rotate: 0, ..GenParams::default() };
+            let a = generate(&p);
+            let b = generate(&GenParams { rotate: 3, ..p });
+            for i in 0..n {
+                let src = (i + n - 3) % n;
+                assert_eq!(b.state[i], a.state[src], "{kind:?} state at {i}");
+                assert_eq!(b.orbit[i], a.orbit[src], "{kind:?} orbit at {i}");
+                assert_eq!(b.theta[i], a.theta[src], "{kind:?} theta at {i}");
+                assert_eq!(b.u[i], a.u[src], "{kind:?} u at {i}");
+                assert_eq!(b.lsym[i], a.lsym[src], "{kind:?} lsym at {i}");
+                assert_eq!(b.pebbles[i], a.pebbles[src], "{kind:?} pebbles at {i}");
+                assert_eq!(b.impact[i], a.impact[src], "{kind:?} impact at {i}");
+                assert_eq!(b.phases[i], a.phases[src], "{kind:?} phases at {i}");
+                for row in 0..CA_ROWS { assert_eq!(b.ca[row][i], a.ca[row][src], "{kind:?} ca row {row} at {i}"); }
+            }
+        }
+    }
+
+    #[test]
+    fn mirror_reorders_every_per_step_view_array() {
+        let n = 17usize;
+        for kind in Mode::all() {
+            let p = GenParams { kind, density: 0.82, probability: 1.0, steps: n, pulses: 7, ..GenParams::default() };
+            let a = generate(&p);
+            let b = generate(&GenParams { mirror: true, ..p });
+            for i in 0..n {
+                let src = n - 1 - i;
+                assert_eq!(b.state[i], a.state[src], "{kind:?} state at {i}");
+                assert_eq!(b.orbit[i], a.orbit[src], "{kind:?} orbit at {i}");
+                assert_eq!(b.theta[i], a.theta[src], "{kind:?} theta at {i}");
+                assert_eq!(b.u[i], a.u[src], "{kind:?} u at {i}");
+                assert_eq!(b.lsym[i], a.lsym[src], "{kind:?} lsym at {i}");
+                assert_eq!(b.pebbles[i], a.pebbles[src], "{kind:?} pebbles at {i}");
+                assert_eq!(b.impact[i], a.impact[src], "{kind:?} impact at {i}");
+                assert_eq!(b.phases[i], a.phases[src], "{kind:?} phases at {i}");
+                for row in 0..CA_ROWS { assert_eq!(b.ca[row][i], a.ca[row][src], "{kind:?} ca row {row} at {i}"); }
+            }
+        }
+    }
+
+    #[test]
+    fn select_spread_is_exact_even_and_prefers_structural_steps() {
+        for n in [8usize, 16, 32, 100] {
+            let mut primary = [false; MAX_STEPS];
+            for i in 0..n { primary[i] = i % 3 == 0 || i % 7 == 0; }
+            let m = primary[..n].iter().filter(|&&b| b).count();
+            for k in 1..=n {
+                let mut hits = [false; MAX_STEPS];
+                select_spread(&primary, n, k, &mut hits);
+                assert_eq!(hits[..n].iter().filter(|&&h| h).count(), k, "n={n} k={k}");
+                if k <= m { assert!((0..n).all(|i| !hits[i] || primary[i]), "n={n} k={k}: left the structural steps"); }
+                else { assert!((0..n).all(|i| !primary[i] || hits[i]), "n={n} k={k}: dropped a structural step"); }
+            }
+            for k in [2usize, 3, 5] {
+                if k > m { continue; }
+                let mut hits = [false; MAX_STEPS];
+                select_spread(&primary, n, k, &mut hits);
+                let on: Vec<usize> = (0..n).filter(|&i| hits[i]).collect();
+                let widest = on.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0);
+                assert!(widest <= 2 * n / k + 2, "n={n} k={k}: gap {widest} in {on:?}");
+            }
+        }
+        let mut h = [true; MAX_STEPS];
+        select_spread(&[false; MAX_STEPS], 0, 3, &mut h);
+    }
+
+    #[test]
+    fn fold01_reflects_any_displacement() {
+        for (x, want) in [(0.3, 0.3), (-0.3, 0.3), (1.2, 0.8), (2.5, 0.5), (-1.25, 0.75), (1e6 + 0.25, 0.25), (-7.0, 1.0)] {
+            assert!((fold01(x) - want).abs() < 1e-9, "{x} -> {} want {want}", fold01(x));
+        }
+    }
+
+    #[test]
+    fn lane_wanted_matches_the_density_profile() {
+        for pulses in [0usize, 1, 5, 16, 64] {
+            for density in [0.0f32, 0.25, 0.65, 1.0] {
+                for tr in 0..TRACKS {
+                    let want = ((pulses.min(64) as f32 * density * (0.5 + DENSITY_PROFILE[tr])).round() as usize).min(64);
+                    assert_eq!(lane_wanted(pulses, density, tr, 64), want, "pulses={pulses} d={density} lane={tr}");
+                }
+            }
         }
     }
 

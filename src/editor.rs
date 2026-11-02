@@ -110,7 +110,12 @@ fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
     // from a read taken after (or before) the set.
     let cap = p.step_ceiling();
     let cells = if key == 0 { cell_count_for(value, snap, cap) } else { p.cell_count() };
-    let max_pulses = if p.mode.value() == Mode::Cellular { 15 } else { cells };
+    let max_pulses = match p.mode.value() {
+        Mode::Cellular => 15,
+        Mode::Sieve => 2,
+        Mode::Hilbert => 5,
+        _ => cells,
+    };
     match key {
         0 => {
             // Snap on: store a whole number. A raw slider position such as 16.37 would display
@@ -134,6 +139,68 @@ fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
         12 => set(c, &p.randomize_after_lengths, (value.round() as i32).clamp(0, 256)),
         13 => set(c, &p.swing, value.clamp(0.0, 0.5)),
         _ => {},
+    }
+}
+
+/// One mode-selection path for the grouped list and the mode-header wheel.
+fn apply_mode(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
+    let last = <Mode as Enum>::variants().len() as i32 - 1;
+    let mode = Mode::from_index(index.clamp(0, last) as usize);
+    set(c, &p.mode, mode);
+    let max_pulses = match mode {
+        Mode::Cellular => 15,
+        Mode::Sieve => 2,
+        Mode::Hilbert => 5,
+        _ => p.cell_count(),
+    };
+    if p.pulses.value() > max_pulses { set(c, &p.pulses, max_pulses); }
+    // Mode-specific default pulse count, so a freshly selected mode lands on
+    // a sensible starting point instead of inheriting the previous mode's value.
+    let default_pulses = match mode {
+        Mode::Cellular => 8,
+        Mode::Eulerian => 2,
+        Mode::Sieve => 1,
+        Mode::PebbleBox => 4,
+        _ => 5,
+    };
+    if p.pulses.value() == 0 { set(c, &p.pulses, default_pulses.min(max_pulses)); }
+    // Mode-specific default density/phase so a freshly selected mode lands on
+    // a sensible starting point.
+    let default_density = match mode {
+        Mode::Bernoulli | Mode::Cantor => 0.3,
+        Mode::Logistic | Mode::ReactionDiffusion => 0.7,
+        _ => 0.65,
+    };
+    let default_phase = match mode {
+        Mode::Phyllotaxis => 0.0,
+        Mode::PhaseShift => 0.25,
+        _ => 0.0,
+    };
+    if (p.density.value() - 0.65).abs() < 1e-4 { set(c, &p.density, default_density); }
+    if p.phase.value().abs() < 1e-4 { set(c, &p.phase, default_phase); }
+    // Modes that read a long orbit or fractal benefit from more than the
+    // default 64-step ceiling. Raise the ceiling once, and let the user lower it.
+    let wants_long = matches!(
+        mode,
+        Mode::Lorenz
+            | Mode::ReactionDiffusion
+            | Mode::Cantor
+            | Mode::Fibonacci
+            | Mode::Genetic
+            | Mode::Kuramoto
+            | Mode::Phyllotaxis
+            | Mode::Arnold
+            | Mode::Hilbert
+            | Mode::Ulam
+            | Mode::ThueMorse
+            | Mode::RudinShapiro
+            | Mode::Brownian
+            | Mode::LevyFlight
+            | Mode::TentMap
+            | Mode::HenonMap
+    );
+    if wants_long && p.max_steps.value() < 256 {
+        set(c, &p.max_steps, 256);
     }
 }
 
@@ -178,6 +245,7 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let pulse_limit = match mode_after {
         Mode::Cellular => 15,
         Mode::Sieve => 2,
+        Mode::Hilbert => 5,
         _ => cells_after,
     };
     let pulses = rng.below(pulse_limit + 1) as i32;
@@ -336,58 +404,13 @@ impl Editor for SlintEditor {
             ui.set_midi_folder(SharedString::from(folder.as_str()));
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
-                ui.on_set_mode(move |v| {
-                    let last = <Mode as Enum>::variants().len() as i32 - 1;
-                    let mode = Mode::from_index(v.clamp(0, last) as usize);
-                    set(&c, &p.mode, mode);
-                    let max_pulses = match mode {
-                        Mode::Cellular => 15,
-                        Mode::Sieve => 2,
-                        _ => p.cell_count(),
-                    };
-                    if p.pulses.value() > max_pulses { set(&c, &p.pulses, max_pulses); }
-                    // Mode-specific default pulse count, so a freshly selected mode lands on
-                    // a sensible starting point instead of inheriting the previous mode's value.
-                    let default_pulses = match mode {
-                        Mode::Cellular => 8,
-                        Mode::Eulerian => 2,
-                        Mode::Sieve => 1,
-                        Mode::PebbleBox => 4,
-                        _ => 5,
-                    };
-                    if p.pulses.value() == 0 { set(&c, &p.pulses, default_pulses.min(max_pulses)); }
-                    // Mode-specific default density/phase so a freshly selected mode lands on
-                    // a sensible starting point.
-                    let default_density = match mode {
-                        Mode::Bernoulli | Mode::Cantor => 0.3,
-                        Mode::Logistic | Mode::ReactionDiffusion => 0.7,
-                        _ => 0.65,
-                    };
-                    let default_phase = match mode {
-                        Mode::Phyllotaxis => 0.0,
-                        Mode::PhaseShift => 0.25,
-                        _ => 0.0,
-                    };
-                    if (p.density.value() - 0.65).abs() < 1e-4 { set(&c, &p.density, default_density); }
-                    if p.phase.value().abs() < 1e-4 { set(&c, &p.phase, default_phase); }
-                    // Modes that read a long orbit or fractal benefit from more than the
-                    // default 64-step ceiling. Raise the ceiling once, and let the user lower it.
-                    let wants_long = matches!(
-                        mode,
-                        Mode::Lorenz
-                            | Mode::ReactionDiffusion
-                            | Mode::Cantor
-                            | Mode::Fibonacci
-                            | Mode::Genetic
-                            | Mode::Kuramoto
-                            | Mode::Phyllotaxis
-                            | Mode::Arnold
-                            | Mode::Hilbert
-                            | Mode::Ulam
-                    );
-                    if wants_long && p.max_steps.value() < 256 {
-                        set(&c, &p.max_steps, 256);
-                    }
+                ui.on_set_mode(move |v| apply_mode(&c, &p, v));
+            }
+            {
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_step_mode(move |delta| {
+                    // Step the order the list is drawn in, not the raw host index.
+                    apply_mode(&c, &p, p.mode.value().step_in_display_order(delta).to_index() as i32);
                 });
             }
             {
@@ -500,18 +523,17 @@ impl Editor for SlintEditor {
             ui.set_rate_names(ModelRc::new(VecModel::from(
                 Rate::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
-            // Grouped mode list for the dropdown picker.
-            let groups: &[( &str, &[usize] )] = &[
-                ("RHYTHMIC", &[0, 19, 13, 14, 11, 9, 15, 8]),
-                ("STOCHASTIC", &[7, 20, 27, 10]),
-                ("PHYSICS / FRACTALS", &[6, 24, 23, 25, 16, 18]),
-                ("MATHEMATICAL / FORMAL", &[2, 3, 4, 5, 17, 26, 12, 1, 21, 22, 28, 29, 30, 31, 32]),
-            ];
+            ui.set_version(SharedString::from(env!("CARGO_PKG_VERSION")));
+            // One grouped order, shared with the header wheel. Names are pushed from the enum so
+            // the Slint array cannot drift out of index order.
+            ui.set_mode_names(ModelRc::new(VecModel::from(
+                Mode::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
+            )));
             let mut entries: Vec<ModeEntry> = Vec::new();
-            for (g, idxs) in groups {
+            for (g, modes) in crate::modes::GROUPS {
                 entries.push(ModeEntry { group: SharedString::from(*g), index: -1, header: true });
-                for i in *idxs {
-                    entries.push(ModeEntry { group: SharedString::from(*g), index: *i as i32, header: false });
+                for mode in *modes {
+                    entries.push(ModeEntry { group: SharedString::from(*g), index: mode.to_index() as i32, header: false });
                 }
             }
             ui.set_mode_entries(ModelRc::new(VecModel::from(entries.clone())));

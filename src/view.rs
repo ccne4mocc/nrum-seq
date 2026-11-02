@@ -1,5 +1,5 @@
 //! Pure GUI geometry. Keep this free of Slint and plug-in types so every view can be tested.
-use crate::sequence::{GenParams, Pattern, MAX_STEPS, TRACKS, CA_ROWS};
+use crate::sequence::{cellular_row, GenParams, Pattern, MAX_STEPS, TRACKS, CA_ROWS};
 use crate::modes::Mode;
 use std::f32::consts::TAU;
 use std::fmt::Write;
@@ -39,14 +39,13 @@ fn arc(s: &mut String, r: f32, from: f32, to: f32) {
 }
 fn aggregate_hit(p: &Pattern, i: usize) -> bool { (0..TRACKS).any(|t| p.hit[t][i]) }
 
-/// Generation the cellular generator reads for one lane. Must match `cellular::generate`;
-/// it also collapses to row 0 at one step, where the ring wraps onto itself.
-fn selected_row(params: &GenParams, tr: usize) -> usize {
-    if params.steps <= 1 {
-        0
-    } else {
-        (params.pulses + (params.phase * CA_ROWS as f32).round() as usize + tr * 2) % CA_ROWS
-    }
+/// Generator step that produced display slot `i`: the inverse of the rotation and mirror applied
+/// by `sequence::generate`. Views that redraw generator geometry (residue classes, word weights,
+/// spiral coordinates) must index through this or they drift from the notes after Generate,
+/// Rotate or Mirror.
+fn src_index(params: &GenParams, pat: &Pattern, i: usize, n: usize) -> usize {
+    let j = if params.mirror { n - 1 - i } else { i };
+    (j + n - pat.rotation % n) % n
 }
 
 /// Rank cutoff of lane 0 for the oscillator panel, read from the generator's published `hit` and
@@ -110,6 +109,12 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             let max_r = 92.0;
             let sec_r = 40.0;
             let shift = p.rotation % n;
+            // Generator step -> display slot. Mirror runs after rotation, so it reverses the
+            // rotated slot; ignoring it made the rosette point at the wrong hits.
+            let slot_of = |g: usize| {
+                let rotated = (g + shift) % n;
+                if params.mirror { (2 * n - 1 - rotated) % n } else { rotated }
+            };
             circle(&mut v.edges, C, C, max_r);
             for tr in 0..TRACKS {
                 let threshold = crate::sequence::phyllotaxis_threshold(params, tr) as f32;
@@ -122,7 +127,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let g1 = (g0 + stride).min(n);
                 let mut lanes = 0usize;
                 for g in g0..g1 {
-                    let slot = (g + shift) % n;
+                    let slot = slot_of(g);
                     for tr in 0..TRACKS {
                         if p.hit[tr][slot]
                             && crate::sequence::phyllotaxis_rules(g, tr, params) & 1 != 0
@@ -134,7 +139,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let mid = g0 + (g1 - g0) / 2;
                 let r = max_r * ((mid as f32 + 1.0) / n as f32).sqrt();
                 let (x, y) = polar(r, crate::sequence::phyllotaxis_primary(mid, 0, params) as f32);
-                let cur = (g0..g1).any(|g| play == Some((g + shift) % n));
+                let cur = (g0..g1).any(|g| play == Some(slot_of(g)));
                 let on = lanes > 0;
                 v.nodes.push(Node {
                     x, y,
@@ -146,7 +151,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 // fired. That keeps the inner band readable and its length bounded too.
                 let mut secondary = 0usize;
                 for g in g0..g1 {
-                    let slot = (g + shift) % n;
+                    let slot = slot_of(g);
                     for tr in 0..TRACKS {
                         if p.hit[tr][slot]
                             && crate::sequence::phyllotaxis_rules(g, tr, params) & 2 != 0
@@ -167,7 +172,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
             // The playhead: the radius line to the step currently sounding, on lane 0.
             if let Some(i) = play {
-                let g = (i + n - shift) % n;
+                let g = src_index(params, p, i, n);
                 let r = max_r * ((g as f32 + 1.0) / n as f32).sqrt();
                 let (x, y) = polar(r, crate::sequence::phyllotaxis_primary(g, 0, params) as f32);
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
@@ -178,7 +183,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             let ch = 172.0 / CA_ROWS as f32;
             // Each lane reads its own generation, so mark every lane's row rather than the one
             // the old `pulses % CA_ROWS` guess pointed at.
-            let lane_rows: [usize; TRACKS] = std::array::from_fn(|tr| selected_row(params, tr));
+            let lane_rows: [usize; TRACKS] = std::array::from_fn(|tr| cellular_row(params, tr));
             for row in 0..CA_ROWS {
                 for i in 0..n {
                     let on = p.ca[row][i];
@@ -356,7 +361,6 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             // shape the generator never computes.
             let cw = 184.0 / n as f32;
             let ch = 152.0 / TRACKS as f32;
-            let shift = p.rotation % n;
             // The word the grammar produced, one symbol per step.
             for i in 0..n {
                 let x = 13.0 + (i as f32 + 0.5) * cw;
@@ -367,9 +371,9 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let baseline = 34.0 + (tr as f32 + 1.0) * ch;
                 let threshold = crate::sequence::lsystem_threshold(params, tr);
                 for i in 0..n {
-                    // The generator decided this step before the pattern was rotated, so the
-                    // metrical weight belongs to the step the slot came from.
-                    let g = (i + n - shift) % n;
+                    // The generator decided this step before the pattern was rotated or
+                    // mirrored, so the metrical weight belongs to the step the slot came from.
+                    let g = src_index(params, p, i, n);
                     let chance = crate::sequence::lsystem_step_chance(threshold, p.lsym[i], tr, g);
                     let x = 13.0 + (i as f32 + 0.5) * cw;
                     let top = baseline - chance * (ch - 4.0);
@@ -461,12 +465,13 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let py = by - y * hgt;
                 if s == 0 { mv(&mut v.edges, px, py); } else { ln(&mut v.edges, px, py); }
             }
-            // Dots on the parabola: each pair (x[n], x[n+1]) is one iteration, and the wrap from
-            // the last step back to the first is not an iteration, so it is skipped. Connecting
-            // them drew chords that do not exist in the map.
-            for i in 0..n.saturating_sub(1) {
-                let x = bx + p.orbit[i] * w;
-                let y = by - p.orbit[i + 1] * hgt;
+            // Dots on the parabola: every orbit sample is an (x, r·x·(1−x)) iteration. Reading the
+            // successor from the next display slot broke at the rotation seam and under mirror,
+            // where display order is no longer generator order.
+            for i in 0..n {
+                let xv = p.orbit[i];
+                let x = bx + xv * w;
+                let y = by - (r * xv as f64 * (1.0 - xv as f64)) as f32 * hgt;
                 let hit = aggregate_hit(p, i);
                 v.nodes.push(Node { x, y, r: if hit { 4.8 } else { 2.4 }, on: true, cur: play == Some(i), label: String::new() });
             }
@@ -528,7 +533,6 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             // the full sieve the lane reads, rotated into display slots like the hits. Evaluated
             // per cell rather than through the 64-bit mask, so 1024-step patterns stay exact.
             let cls = crate::sequence::sieve_classes(params);
-            let shift = p.rotation % n;
             for (row, &(m, r)) in cls.iter().enumerate() {
                 let y = 34.0 + row as f32 * 26.0;
                 mv(&mut v.edges, 12.0, y); ln(&mut v.edges, 198.0, y);
@@ -549,7 +553,9 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             mv(&mut v.edges, 12.0, y); ln(&mut v.edges, 198.0, y);
             let cw = 184.0 / n as f32;
             for i in 0..n {
-                let member = crate::sequence::sieve_member(params, (i + n - shift) % n);
+                // Undo both rotation and mirror: the mask is drawn in generator coordinates while
+                // the hits are in display coordinates.
+                let member = crate::sequence::sieve_member(params, src_index(params, p, i, n));
                 let hit = aggregate_hit(p, i);
                 v.nodes.push(Node {
                     x: 13.0 + (i as f32 + 0.5) * cw,
@@ -650,88 +656,166 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::Hilbert => {
-            // 2-D space-filling curve grid; sample positions from the curve index.
-            let order = (params.pulses.max(1)).min(6) as u32;
+            // The curve shown is the generator's own: order from Pulses, quarter turns from
+            // Phase, and the same sampling/lane mapping. The path is rotated too, otherwise the
+            // sampled points would leave the drawn curve.
+            let order = params.pulses.clamp(1, 5) as u32;
             let grid = 1usize << order;
-            let total = (grid * grid).max(1);
-            // grid lines
+            let turns = crate::sequence::hilbert_turns(params.phase);
+            let cell = (P - 20.0) / grid as f32;
             for k in 0..=grid {
-                let q = 10.0 + k as f32 * (P - 20.0) / grid as f32;
+                let q = 10.0 + k as f32 * cell;
                 line(&mut v.edges, (q, 10.0), (q, P - 10.0));
-                line(&mut v.edges, (10.0, P - q + 10.0 - 10.0 + 10.0), (P - 10.0, P - q + 10.0 - 10.0 + 10.0));
-            }
-            // curve path
-            fn hilbert_xy(index: usize, n: usize) -> (usize, usize) {
-                let mut x = 0usize; let mut y = 0usize; let mut t = index; let mut s = 1usize;
-                while s < n {
-                    let rx = (t >> 1) & 1;
-                    let ry = (t ^ rx) & 1;
-                    if ry == 0 {
-                        if rx == 1 { x = s - 1 - x; y = s - 1 - y; }
-                        let tmp = x; x = y; y = tmp;
-                    }
-                    x += rx * s; y += ry * s; t >>= 2; s <<= 1;
-                }
-                (x, y)
+                line(&mut v.edges, (10.0, q), (P - 10.0, q));
             }
             let mut prev: Option<(f32, f32)> = None;
-            for d in 0..total.min(n * 4).min(total) {
-                let (gx, gy) = hilbert_xy(d, grid);
-                let px = 10.0 + gx as f32 * (P - 20.0) / (grid.max(1) - 1).max(1) as f32;
-                let py = P - 10.0 - gy as f32 * (P - 20.0) / (grid.max(1) - 1).max(1) as f32;
+            for d in 0..grid * grid {
+                let (gx, gy) = crate::sequence::hilbert_rotate(order, d, turns);
+                let px = 10.0 + (gx as f32 + 0.5) * cell;
+                let py = P - 10.0 - (gy as f32 + 0.5) * cell;
                 if let Some(q) = prev { mv(&mut v.lines, q.0, q.1); ln(&mut v.lines, px, py); }
                 prev = Some((px, py));
             }
-            // sampled points
             for i in 0..n {
-                let x = 10.0 + p.orbit[i] * (P - 20.0);
-                let y = P - 10.0 - p.theta[i] * (P - 20.0);
-                v.nodes.push(Node { x, y, r: if p.hit[0][i] { 3.8 } else { 1.5 }, on: p.hit[0][i], cur: play == Some(i), label: String::new() });
+                let x = 10.0 + (p.orbit[i] * (grid.max(1) - 1) as f32 + 0.5) * cell;
+                let y = P - 10.0 - (p.theta[i] * (grid.max(1) - 1) as f32 + 0.5) * cell;
+                let lanes = (0..TRACKS).filter(|&tr| p.hit[tr][i]).count();
+                if lanes > 0 {
+                    v.nodes.push(Node {
+                        x, y, r: 2.4 + lanes.min(TRACKS) as f32 * 0.3,
+                        on: true, cur: play == Some(i), label: String::new(),
+                    });
+                }
             }
             if let Some(i) = play {
-                mv(&mut v.hand, C, C); ln(&mut v.hand, 10.0 + p.orbit[i] * (P - 20.0), P - 10.0 - p.theta[i] * (P - 20.0));
+                let x = 10.0 + (p.orbit[i] * (grid.max(1) - 1) as f32 + 0.5) * cell;
+                let y = P - 10.0 - (p.theta[i] * (grid.max(1) - 1) as f32 + 0.5) * cell;
+                mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
             }
         }
         Mode::Ulam => {
-            // Square spiral: map step i to spiral coords using standard algorithm.
-            let mut x = 0i32; let mut y = 0i32;
-            let mut dx = 1i32; let mut dy = 0i32;
-            let mut steps_left = 1i32; let mut turn_count = 0i32;
-            let mut positions: Vec<(i32, i32)> = Vec::with_capacity(n);
-            for _ in 0..n {
-                positions.push((x, y));
-                x += dx; y += dy;
-                steps_left -= 1;
-                if steps_left == 0 {
-                    // turn
-                    let (ndx, ndy) = (-dy, dx);
-                    dx = ndx; dy = ndy;
-                    turn_count += 1;
-                    if turn_count % 2 == 0 { steps_left = turn_count / 2 + 1; } else { steps_left = (turn_count + 1) / 2; }
-                }
-            }
-            // normalize
-            let (mut minx, mut maxx, mut miny, mut maxy) = (0i32, 0i32, 0i32, 0i32);
-            for (px, py) in &positions { minx = minx.min(*px); maxx = maxx.max(*px); miny = miny.min(*py); maxy = maxy.max(*py); }
-            let rngx = (maxx - minx).max(1) as f32;
-            let rngy = (maxy - miny).max(1) as f32;
+            // The generator publishes the spiral coordinates it actually used. The old panel
+            // reconstructed a different spiral from the step index, so the picture and the
+            // primes could disagree.
             mv(&mut v.edges, 2.0, 2.0); ln(&mut v.edges, P - 2.0, 2.0); ln(&mut v.edges, P - 2.0, P - 2.0); ln(&mut v.edges, 2.0, P - 2.0); ln(&mut v.edges, 2.0, 2.0);
+            let at = |i: usize| (3.0 + p.orbit[i] * (P - 6.0), P - 3.0 - p.theta[i] * (P - 6.0));
             let mut prev: Option<(f32, f32)> = None;
             for i in 0..n {
-                let (px, py) = positions[i];
-                let sx = 2.0 + (px - minx) as f32 / rngx * (P - 4.0);
-                let sy = P - 2.0 - (py - miny) as f32 / rngy * (P - 4.0);
-                if let Some(q) = prev { mv(&mut v.lines, q.0, q.1); ln(&mut v.lines, sx, sy); }
-                prev = Some((sx, sy));
-                if p.hit[0][i] {
-                    v.nodes.push(Node { x: sx, y: sy, r: 4.0, on: true, cur: play == Some(i), label: String::new() });
+                let q = at(i);
+                if let Some(last) = prev { mv(&mut v.lines, last.0, last.1); ln(&mut v.lines, q.0, q.1); }
+                prev = Some(q);
+                let lanes = (0..TRACKS).filter(|&tr| p.hit[tr][i]).count();
+                if lanes > 0 {
+                    v.nodes.push(Node {
+                        x: q.0, y: q.1,
+                        r: 2.6 + lanes.min(TRACKS) as f32 * 0.35,
+                        on: true, cur: play == Some(i), label: String::new(),
+                    });
                 }
             }
             if let Some(i) = play {
-                let (px, py) = positions[i];
-                let sx = 2.0 + (px - minx) as f32 / rngx * (P - 4.0);
-                let sy = P - 2.0 - (py - miny) as f32 / rngy * (P - 4.0);
-                mv(&mut v.hand, C, C); ln(&mut v.hand, sx, sy);
+                let q = at(i);
+                mv(&mut v.hand, C, C); ln(&mut v.hand, q.0, q.1);
+            }
+        }
+        Mode::ThueMorse | Mode::RudinShapiro => {
+            // The word the generator read, plus one band per lane with its selected onsets.
+            let cw = 184.0 / n as f32;
+            for i in 0..n {
+                let x = 13.0 + (i as f32 + 0.5) * cw;
+                let one = p.lsym[i] == 1;
+                v.nodes.push(Node { x, y: if one { 12.0 } else { 22.0 }, r: if one { 2.4 } else { 1.6 }, on: one, cur: false, label: String::new() });
+            }
+            let ch = 152.0 / TRACKS as f32;
+            for tr in 0..TRACKS {
+                let y = 36.0 + (tr as f32 + 1.0) * ch;
+                mv(&mut v.edges, 11.0, y); ln(&mut v.edges, 199.0, y);
+                for i in 0..n {
+                    if !p.hit[tr][i] { continue; }
+                    v.nodes.push(Node {
+                        x: 13.0 + (i as f32 + 0.5) * cw,
+                        y,
+                        r: 3.2,
+                        on: true,
+                        cur: play == Some(i),
+                        label: String::new(),
+                    });
+                }
+            }
+            if let Some(i) = play {
+                let x = 13.0 + (i as f32 + 0.5) * cw;
+                mv(&mut v.hand, x, 8.0); ln(&mut v.hand, x, 194.0);
+            }
+        }
+        Mode::Brownian | Mode::LevyFlight => {
+            // Lane 0's published walk and the step sizes that ranked its onsets.
+            mv(&mut v.edges, 12.0, 120.0); ln(&mut v.edges, 198.0, 120.0);
+            for i in 0..n {
+                let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
+                let y = 14.0 + (1.0 - p.orbit[i]) * 100.0;
+                if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
+            }
+            let peak = (0..n).fold(0.0f32, |m, i| m.max(p.theta[i])).max(1e-6);
+            for i in 0..n {
+                let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
+                let h = p.theta[i] / peak * 54.0;
+                if h > 0.5 { mv(&mut v.lines, x, 196.0); ln(&mut v.lines, x, 196.0 - h); }
+                if aggregate_hit(p, i) {
+                    v.nodes.push(Node {
+                        x,
+                        y: 14.0 + (1.0 - p.orbit[i]) * 100.0,
+                        r: 3.4,
+                        on: true,
+                        cur: play == Some(i),
+                        label: String::new(),
+                    });
+                }
+            }
+            if let Some(i) = play {
+                let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
+                mv(&mut v.hand, x, 8.0); ln(&mut v.hand, x, 198.0);
+            }
+        }
+        Mode::TentMap => {
+            // Return map y = mu min(x, 1-x), with the orbit samples on the curve.
+            let (bx, by, w, hgt) = (18.0, 147.0, 174.0, 125.0);
+            mv(&mut v.edges, bx, by); ln(&mut v.edges, bx + w, by);
+            mv(&mut v.edges, bx, by); ln(&mut v.edges, bx, 22.0);
+            let mu = crate::sequence::tent_mu(params.density);
+            for s in 0..=48 {
+                let x = s as f32 / 48.0;
+                let value = (mu * (x as f64).min(1.0 - x as f64)) as f32;
+                let px = bx + x * w;
+                let py = by - value * hgt;
+                if s == 0 { mv(&mut v.edges, px, py); } else { ln(&mut v.edges, px, py); }
+            }
+            for i in 0..n {
+                let x = bx + p.orbit[i] * w;
+                let y = by - (mu * (p.orbit[i] as f64).min(1.0 - p.orbit[i] as f64)) as f32 * hgt;
+                let hit = aggregate_hit(p, i);
+                v.nodes.push(Node { x, y, r: if hit { 4.2 } else { 2.0 }, on: true, cur: play == Some(i), label: String::new() });
+            }
+            for i in 0..n {
+                let ox = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
+                let oy = 185.0 - p.u[i] * 32.0;
+                if i == 0 { mv(&mut v.lines, ox, oy); } else { ln(&mut v.lines, ox, oy); }
+            }
+        }
+        Mode::HenonMap => {
+            // The attractor as the generator published it: (x, y) from orbit/theta.
+            let at = |i: usize| (8.0 + p.orbit[i] * (P - 16.0), P - 8.0 - p.theta[i] * (P - 16.0));
+            let mut prev: Option<(f32, f32)> = None;
+            for i in 0..n {
+                let q = at(i);
+                if let Some(last) = prev { mv(&mut v.lines, last.0, last.1); ln(&mut v.lines, q.0, q.1); }
+                prev = Some(q);
+                if aggregate_hit(p, i) {
+                    v.nodes.push(Node { x: q.0, y: q.1, r: 3.4, on: true, cur: play == Some(i), label: String::new() });
+                }
+            }
+            if let Some(i) = play {
+                let q = at(i);
+                mv(&mut v.hand, C, C); ln(&mut v.hand, q.0, q.1);
             }
         }
         Mode::Bernoulli => {
@@ -977,6 +1061,102 @@ mod tests {
     }
 
     #[test]
+    fn word_panels_draw_the_published_word_and_lane_onsets() {
+        for kind in [Mode::ThueMorse, Mode::RudinShapiro] {
+            let g = GenParams { kind, steps: 32, pulses: 12, density: 0.8, ..GenParams::default() };
+            let pat = generate(&g);
+            let view = build(&g, &pat, -1);
+            let word: Vec<&Node> = view.nodes.iter().filter(|n| n.y == 12.0 || n.y == 22.0).collect();
+            assert_eq!(word.len(), 32, "{kind:?}: one word cell per step");
+            for (i, node) in word.iter().enumerate() {
+                assert_eq!(node.on, pat.lsym[i] == 1, "{kind:?} word step {i}");
+            }
+            let hit_nodes = view.nodes.iter().filter(|n| n.y > 30.0).count();
+            let hits: usize = (0..TRACKS).map(|tr| pat.hit[tr][..32].iter().filter(|&&h| h).count()).sum();
+            assert_eq!(hit_nodes, hits, "{kind:?}: one marker per selected onset");
+        }
+    }
+
+    #[test]
+    fn walk_panels_plot_the_published_orbit() {
+        for kind in [Mode::Brownian, Mode::LevyFlight] {
+            let g = GenParams { kind, steps: 32, pulses: 12, density: 0.8, ..GenParams::default() };
+            let pat = generate(&g);
+            let view = build(&g, &pat, -1);
+            for node in view.nodes.iter().filter(|n| n.y < 120.0) {
+                let covered = (0..32).any(|i| {
+                    let x = 12.0 + (i as f32 + 0.5) / 32.0 * 186.0;
+                    let y = 14.0 + (1.0 - pat.orbit[i]) * 100.0;
+                    (node.x - x).abs() < 1e-4 && (node.y - y).abs() < 1e-4
+                });
+                assert!(covered, "{kind:?}: node ({}, {}) is not on the published orbit", node.x, node.y);
+            }
+        }
+    }
+
+    #[test]
+    fn tent_panel_dots_sit_on_the_return_map() {
+        let g = GenParams { kind: Mode::TentMap, steps: 32, pulses: 12, density: 0.65, ..GenParams::default() };
+        let pat = generate(&g);
+        let view = build(&g, &pat, -1);
+        let (bx, by, w, hgt) = (18.0, 147.0, 174.0, 125.0);
+        let mu = crate::sequence::tent_mu(0.65);
+        assert!(!view.nodes.is_empty());
+        for node in &view.nodes {
+            let x = (node.x - bx) / w;
+            let want = by - (mu * (x as f64).min(1.0 - x as f64)) as f32 * hgt;
+            assert!((node.y - want).abs() < 0.5, "dot off the tent map: {} vs {want}", node.y);
+        }
+    }
+
+    #[test]
+    fn henon_panel_uses_the_published_pair() {
+        let g = GenParams { kind: Mode::HenonMap, steps: 32, pulses: 12, density: 0.65, ..GenParams::default() };
+        let pat = generate(&g);
+        let view = build(&g, &pat, -1);
+        for node in &view.nodes {
+            let covered = (0..32).any(|i| {
+                let x = 8.0 + pat.orbit[i] * (P - 16.0);
+                let y = P - 8.0 - pat.theta[i] * (P - 16.0);
+                (node.x - x).abs() < 1e-4 && (node.y - y).abs() < 1e-4
+            });
+            assert!(covered, "Henon node ({}, {}) is not a published attractor point", node.x, node.y);
+        }
+    }
+
+    #[test]
+    fn src_index_undoes_rotation_and_mirror() {
+        let n = 17usize;
+        for (rotate, mirror) in [(0usize, false), (5, false), (0, true), (5, true)] {
+            for kind in Mode::all() {
+                let p = GenParams { kind, steps: n, pulses: 7, density: 0.82, probability: 1.0, rotate, mirror, ..GenParams::default() };
+                let pat = generate(&p);
+                let base = generate(&GenParams { rotate: 0, mirror: false, ..p });
+                for i in 0..n {
+                    let src = src_index(&p, &pat, i, n);
+                    assert_eq!(pat.hit[0][i], base.hit[0][src], "{kind:?} rotate={rotate} mirror={mirror} slot {i}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sieve_panel_follows_mirror_as_well_as_rotation() {
+        for (rotate, mirror) in [(0usize, false), (3, false), (0, true), (5, true)] {
+            let g = GenParams { kind: Mode::Sieve, steps: 16, pulses: 2, density: 1.0, rotate, mirror, ..GenParams::default() };
+            let pat = generate(&g);
+            let view = build(&g, &pat, -1);
+            let strip: Vec<&Node> = view.nodes.iter().filter(|n| (n.y - 150.0).abs() < 0.01).collect();
+            assert_eq!(strip.len(), 16);
+            for (i, node) in strip.iter().enumerate() {
+                let src = src_index(&g, &pat, i, 16);
+                let bit = crate::sequence::sieve_member(&g, src);
+                assert_eq!(node.on, bit, "rotate={rotate} mirror={mirror} step {i}");
+            }
+        }
+    }
+
+    #[test]
     fn sieve_panel_draws_the_generator_mask() {
         let g = GenParams { kind: Mode::Sieve, steps: 16, pulses: 2, density: 0.8, ..GenParams::default() };
         let pat = generate(&g);
@@ -1101,7 +1281,7 @@ mod tests {
         let view = build(&g, &pat, -1);
         let r = crate::sequence::logistic_r(density) as f32;
         let (bx, by, w, hgt) = (18.0, 147.0, 174.0, 125.0);
-        assert_eq!(view.nodes.len(), steps - 1, "the wrap pair is not an iteration");
+        assert_eq!(view.nodes.len(), steps, "every orbit sample is one iteration");
         for (i, n) in view.nodes.iter().enumerate() {
             let x = (n.x - bx) / w;
             assert!((0.0..=1.0).contains(&x), "dot {i} outside the domain");
@@ -1157,10 +1337,10 @@ mod tests {
         let view = build(&g, &generate(&g), 0);
         let row_y = |row: usize| 18.0 + (row as f32 + 0.5) * (172.0 / CA_ROWS as f32);
         let marked: Vec<f32> = view.nodes.iter().filter(|n| n.cur).map(|n| n.y).collect();
-        assert!(marked.iter().any(|y| (*y - row_y(selected_row(&g, 0))).abs() < 0.6), "lane 0 row missing: {marked:?}");
+        assert!(marked.iter().any(|y| (*y - row_y(cellular_row(&g, 0))).abs() < 0.6), "lane 0 row missing: {marked:?}");
         // The lane offset puts later lanes on different rows, so one marker cannot serve all and
         // the panel has to mark each lane's own generation.
-        assert_ne!(selected_row(&g, 0), selected_row(&g, 1));
-        assert!(marked.iter().any(|y| (*y - row_y(selected_row(&g, 1))).abs() < 0.6), "lane 1 row missing: {marked:?}");
+        assert_ne!(cellular_row(&g, 0), cellular_row(&g, 1));
+        assert!(marked.iter().any(|y| (*y - row_y(cellular_row(&g, 1))).abs() < 0.6), "lane 1 row missing: {marked:?}");
     }
 }

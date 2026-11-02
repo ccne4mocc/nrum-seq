@@ -1,5 +1,15 @@
 use super::{enabled_threshold, set_hit, GenParams, Pattern, Rng, CA_ROWS, TRACKS};
 
+/// Generation a lane reads. Exported so the panel marks the same rows the hits came from instead
+/// of restating the formula.
+pub(crate) fn selected_row(p: &GenParams, tr: usize) -> usize {
+    if p.steps <= 1 {
+        0
+    } else {
+        (p.pulses + (p.phase * CA_ROWS as f32).round() as usize + tr * 2) % CA_ROWS
+    }
+}
+
 /// Elementary 1D cellular automaton on a ring; `ca_rule` is the Wolfram rule number.
 /// The selected generation is `pulses % CA_ROWS`; phase offsets the selected row per lane.
 pub(super) fn generate(p: &GenParams) -> Pattern {
@@ -25,12 +35,8 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     }
     for tr in 0..TRACKS {
         // With one step the ring wraps onto itself and generations 1..CA_ROWS collapse,
-        // leaving only row 0 usable. Clamp so a one-step pattern reads the live row.
-        let selected = if p.steps == 1 {
-            0
-        } else {
-            (p.pulses + (p.phase * CA_ROWS as f32).round() as usize + tr * 2) % CA_ROWS
-        };
+        // leaving only row 0 usable. `selected_row` clamps to it.
+        let selected = selected_row(p, tr);
         let threshold = enabled_threshold(p, tr);
         let mut local = Rng::new(p.seed, p.variation, 0xCA80_0000 + tr as u64);
         for i in 0..p.steps {

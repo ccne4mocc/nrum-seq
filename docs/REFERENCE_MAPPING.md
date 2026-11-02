@@ -12,7 +12,7 @@ The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`G
 | Golomb Ruler | Optimal Golomb ruler marks | Pitch/step strip only (`view_kind = 6`) | Replaced by **Crystallographic** — periodic motif with symmetry-lattice view |
 | Logistic Map | Top-N / thresholded logistic orbit | Pitch/step strip only (`view_kind = 6`) | **Logistic Map** — logistic orbit diagram, plus lane trigger matrix |
 | Eulerian Walk | Hierholzer circuit on balanced directed graph, vertex 0 = rest | Directed graph nodes/edges and moving path | **Eulerian Walk** — balanced drum-state graph, rest and eight lane vertices |
-| Arnold Circle Map | Circle-map phase iteration | Phasor plot | Replaced by **Oscillator / Phase** — waveform, phase and threshold |
+| Arnold Circle Map | Circle-map phase iteration | Phasor plot | **Arnold Circle Map** — a real wrap-triggered map on eight lanes, with a phasor plot |
 | Mozart Dice | Mozart dice-table variation | Step velocity bars, with dice roll tags | Replaced by **Golden Ratio / Phyllotaxis** — golden-angle spiral |
 | Tonnetz Walk | P/L/R path through triad lattice | Hexagonal triad mesh | Replaced by **Markov Walk** — transition graph over rest/drum states |
 | Rule 30 | Rule 30 on a ring; pulses selects generation | Concentric CA rings (`view_kind = 5`) | **Cellular Automaton** — 1D CA space-time grid, selected row drives lane hits |
@@ -21,7 +21,7 @@ These replacements prioritize relevant drum sequencing methods. The new names an
 
 ## New mode → view index
 
-The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hardcoded mode indices in the UI's `shows-param`/`pulse-label` functions must match:
+The `Mode` enum in `src/modes.rs`, `Mode::GROUPS` (the one display order used by the dropdown and the header wheel) and the hardcoded mode indices in the UI's `shows-param`/`pulse-label` functions must match. Mode names are pushed from Rust, so there is no second list in Slint:
 
 | Index | Mode | Visualization |
 |---:|---|---|
@@ -44,8 +44,28 @@ The `Mode` enum in `src/modes.rs`, the mode order in `ui/app.slint` and the hard
 | 16 | Pebble Box | Animated pebble box; eight lane pebbles at their recorded per-step positions |
 | 17 | Xenakis Sieve | Residue-class lattice rows plus the generator's per-step membership and its onsets |
 | 18 | Kuramoto Lanes | Eight phase pointers, their trails and the mean phase vector on one circle |
+| 19 | Euclidean-Swing | Euclidean necklaces with off-beat accents |
+| 20 | Bernoulli | Per-step coin flips, one lane per row |
+| 21 | African Bell | Rotated 12-step bell figure per lane |
+| 22 | Phase Canon | Shifted pulse-train copies |
+| 23 | Reaction-Diffusion | Activator curve and threshold |
+| 24 | Lorenz Attractor | Butterfly path and current orbit |
+| 25 | Cantor Set | Surviving Cantor intervals and onsets |
+| 26 | Fibonacci / Sturmian | Golden-slope staircase with onsets; lane 0 is the exact word at density 1 |
+| 27 | Genetic Mutation | Mutated base pattern per lane |
+| 28 | Arnold Circle Map | Phasor trajectory; Ω from Pulses, K from Density, onsets are phase wraps |
+| 29 | Sturmian Word | Phase-controlled Sturmian slope |
+| 30 | Hilbert Curve | Nelody sampling `i·total/n`; Pulses = order, Phase = quarter turns, Seed shifts the lane mapping; density thins curve cells |
+| 31 | Ulam Spiral Primes | Real square spiral from phase/variation; prime cells mapped by diagonal; Pulses sets target onsets |
+| 32 | Vuza Canon | Modulus rows; `ca_rule` picks N |
+| 33 | Thue-Morse | Lane-0 A010060 word strip plus eight lane onset bands |
+| 34 | Rudin-Shapiro | Lane-0 A020985 word strip plus eight lane onset bands |
+| 35 | Brownian Walk | Lane-0 reflected walk trace and step-size stems |
+| 36 | Levy Flight | Lane-0 folded walk trace and jump-size stems |
+| 37 | Tent Map | Return map `y = mu·min(x,1−x)` plus orbit dots |
+| 38 | Henon Map | Attractor path from the published `orbit`/`theta` |
 
-Indices 8–18 all draw their own panel. There is no shared step-lattice fallback: a mode whose
+Indices 8–38 all draw their own panel. There is no shared step-lattice fallback: a mode whose
 structure is not a grid shows that structure instead. Each panel reads the generator's own
 formula or published state through an exported helper; if a panel's constants cannot be traced
 to a `Pattern` field or a generator helper, the panel is drawing a decoration, not the algorithm.
@@ -81,12 +101,23 @@ the generator's own use of `GenParams` is the behavioural source of truth.
 | Pebble Box | Shaker impulses, Impact sensitivity, Seed, Gravity tilt, Substeps, Gravity |
 | Sieve | Sieve terms (0–2), Sieve density, Seed, Residue shift, Sieve moduli, Symmetry |
 | Kuramoto | Target onsets, Onset density, Seed, Detune spread, Coupling |
+| Fibonacci | Density (golden slope), Seed, phase; `pulses` hidden |
+| Arnold | Rotation Ω (Pulses), Coupling K (Density), Seed, Start phase |
+| Hilbert | Order (Pulses 1–5), Density, Seed, Rotation (Phase) |
+| Ulam | Target onsets, Density, Spiral start; Seed hidden |
+| Thue-Morse | Target onsets, Onset density, Window offset; Seed hidden |
+| Rudin-Shapiro | Target onsets, Onset density, Window offset; Seed hidden |
+| Brownian | Target onsets, Step sigma, Seed, Start position |
+| Levy Flight | Target onsets, Tail alpha, Seed, Start position |
+| Tent Map | Target onsets, Slope (mu), Seed, Initial x |
+| Henon Map | Target onsets, Map (a), Seed, Start offset |
 
 Mode-scoped reuse is deliberate: `ca_rule` is the cellular rule, Pebble Box's gravity and the
 Sieve moduli; `symmetry` selects Crystallographic cells and Sieve residues; `osc_rate` is
-oscillator cycles, Pebble Box substeps or Kuramoto coupling. Seed stays
-visible in every mode because the shared accent humanizer reads it even where the hit pattern
-does not. A control that the selected mode never reads is hidden, not left inert. `ca_rule` maps
+oscillator cycles, Pebble Box substeps or Kuramoto coupling. Seed is hidden where the generator
+never reads it (Oscillator, Well-Formed, Ulam, Thue–Morse, Rudin–Shapiro); the shared accent
+humanizer still reads it, so it keeps affecting velocities but not the generated line. A control
+that the selected mode never reads is hidden, not left inert. `ca_rule` maps
 to gravity as `pebble::gravity()` (`0.01 + ca_rule/255 × 2.15` box-heights per step²).
 
 

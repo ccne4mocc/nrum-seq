@@ -6,7 +6,7 @@
 //! how many members survive. Each lane reads the same sieve shifted around the ring, which is
 //! what makes the kit interlock instead of stacking.
 
-use super::{set_hit, top_k, GenParams, Pattern, DENSITY_PROFILE, MAX_STEPS, TRACKS};
+use super::{select_spread, set_hit, GenParams, Pattern, DENSITY_PROFILE, MAX_STEPS, TRACKS};
 
 /// Residue-class moduli, small primes so 64 steps hold several periods of each.
 pub(crate) const MODULI: [usize; 6] = [2, 3, 5, 7, 11, 13];
@@ -58,35 +58,30 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
 
     for tr in 0..TRACKS {
         let shift = lane_shift(n, tr);
-        let mut score = [0.0f32; MAX_STEPS];
+        let mut primary = [false; MAX_STEPS];
         let mut members = 0usize;
         for i in 0..n {
             let idx = (i + shift) % n;
-            if !is_member(idx, &cls, terms) { continue; }
-            members += 1;
-            let depth = (0..terms).filter(|&k| class_contains(idx, cls[k])).count();
-            // Small deterministic lane jitter breaks ties between equally deep members, so a
-            // partial-density lane drops different members than its neighbour instead of every
-            // lane keeping the same first-k columns.
-            let jitter = super::Rng::new(
-                p.seed, p.variation, 0x51E7_0000 + (tr * MAX_STEPS + i) as u64,
-            ).unit() * 0.15;
-            score[i] = 1.0 + 0.25 * depth as f32 + jitter;
+            if is_member(idx, &cls, terms) {
+                primary[i] = true;
+                members += 1;
+            }
         }
-        // A short pattern can miss a sparse sieve entirely. Fall back to the step grid, phased
-        // per lane, so a one-step pattern still sounds and the lanes still differ.
+        // A short pattern can miss a sparse sieve entirely. `select_spread` then marks the
+        // non-members evenly, so a one-step pattern still sounds and the lanes still differ.
         let candidates = if members > 0 { members } else { n };
-        if members == 0 {
-            for i in 0..n { score[i] = 1.0 - ((i + shift) % n) as f32 / n as f32; }
-        }
         let wanted = (candidates as f32 * d * (0.35 + DENSITY_PROFILE[tr])).round() as usize;
         let wanted = wanted.min(candidates);
         if wanted == 0 { continue; }
 
-        // In-place top-k selection: exact count, no allocation on the audio path.
-        top_k(&score, n, wanted, &mut out.hit[tr]);
+        // Spread the kept members evenly instead of ranking them by an arbitrary jitter, which
+        // clustered the surviving onsets at the start of the loop.
+        select_spread(&primary, n, wanted, &mut out.hit[tr]);
         for i in 0..n {
-            if out.hit[tr][i] { set_hit(&mut out, tr, i, true, (0.55 + 0.15 * score[i]).min(1.0)); }
+            if !out.hit[tr][i] { continue; }
+            let idx = (i + shift) % n;
+            let depth = (0..terms).filter(|&k| is_member(idx, &cls, terms) && class_contains(idx, cls[k])).count();
+            set_hit(&mut out, tr, i, true, (0.55 + 0.15 * (1.0 + 0.25 * depth as f32)).min(1.0));
         }
     }
     out

@@ -38,6 +38,17 @@ Each step receives a metrical weight, a lane-dependent offset, and seeded jitter
   phase bank is published per step in `Pattern.phases`, and the panel draws the eight pointers,
   their trails and the order-parameter vector.
 
+## Added in the Nelody migration
+
+The 29-mode Nelody review supplied tested implementations for six additional rhythmic families,
+adapted here to eight lanes: **Thue–Morse** (A010060 word, Nørgård infinity-series accents),
+**Rudin–Shapiro** (A020985 word), **Brownian** (Irwin-Hall Gaussian increments, folded walk),
+**Lévy flight** (Pareto steps with a real heavy tail), **Tent map** (attractor start plus
+transient) and **Hénon map** (basin-safe start, escape guard). The same migration corrected
+Arnold to fire on actual phase wraps, made Fibonacci use the golden slope, made Ulam a real
+spiral-prime map, made the Hilbert order follow the loop length, and made the L-system expand far
+enough for 1024-step patterns.
+
 ## Further candidates for sequencing (not implemented)
 
 Shortlist, filtered by what a fixed 1024-step capacity (64 by default), allocation-free, deterministic snapshot can
@@ -45,18 +56,15 @@ actually express. "Cost" is per generated pattern, worst case at the active ceil
 
 | Candidate | Math | Musical use | Cost / risk |
 |---|---|---|---|
-| Arnold circle map | `θₙ₊₁ = θₙ + Ω + (K/2π)sin(2πθₙ)` | Mode-locked rational ratios from an irrational drive (devil's staircase) | O(steps), one state; exact ratio emerges but only for some (Ω,K) |
 | de Bruijn sequence | `B(k,n)`: every n-symbol word exactly once | Maximal non-repeating canons over a small alphabet | Ring buffer of n states, O(1) amortised |
-| Thue–Morse / paperfolding | Automatic (morphic) sequences with self-similarity | Self-similar canons and accents; complements between lanes | O(steps) bit tricks |
+| Paperfolding word | Regular paperfolding sequence | Another automatic sequence with a different self-similar contour | O(steps) bit tricks |
 | Vuza canons | Factor `Zₙ = A ⊕ B` into supplementary sets | Aperiodic rhythmic canons that never repeat a translation | Needs a precomputed factorisation table; larger implementation |
 
-The next best fit is the **Arnold circle map**. This restores the reference project's dropped
-circle-map mode with a real mechanism: `Ω` from `phase`, coupling `K` from `density`, and a
-per-lane detune from `seed`. Near a rational `Ω` the map locks (`p/q`), so the panel can show
-the locked ratio while the rhythm changes in steps of that ratio. It is the cheapest
-remaining chaos-family addition and shares the existing fixed-step discipline.
+The **Arnold circle map** is now implemented with a real mechanism: `Ω` from `phase`, coupling
+`K` from `density`, and a per-lane phase offset. Near a rational `Ω` the map locks (`p/q`), so
+the panel can show the locked ratio while the rhythm changes in steps of that ratio.
 
-The canons (de Bruijn, Thue–Morse, Vuza) are attractive but lower priority: they produce
+The canons (de Bruijn, Vuza) are attractive but lower priority: they produce
 striking non-repetition, yet their parameter surfaces are small and they need either a table or
 a longer word buffer before they sound different from the existing L-System and Phase Shift
 modes.

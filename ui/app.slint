@@ -323,15 +323,7 @@ export component AppWindow inherits Window {
     preferred-width: root.base-width; preferred-height: root.base-height;
     background: @linear-gradient(135deg, Theme.bg1 0%, Theme.bg2 50%, Theme.bg3 100%);
     in property <int> mode: 0;
-    // The mode list is taller than its viewport, and the wheel now changes the mode instead
-    // of scrolling it, so the list has to follow the selection. 32px per row (28px + 4px
-    // spacing), 300px viewport plus the list's own padding, so the cap follows the mode count.
-    // A Flickable/ScrollView viewport moves up by going NEGATIVE; the previous positive value
-    // was clamped to 0, so modes 8-15 could be selected but never scrolled into view.
-    in-out property <length> mode-scroll-y: 0px;
-    changed mode => {
-        root.mode-scroll-y = -Math.max(0px, Math.min(mode * 32px - 116px, root.mode-names.length * 32px - 332px));
-    }
+    in property <string> version;
     in property <float> steps: 16;
     in property <float> max-steps: 1024;
     in property <bool> round-steps: true;
@@ -430,6 +422,8 @@ export component AppWindow inherits Window {
     in property <string> view-hand: "M0 0";
     in property <string> mode-math: "";
     callback set-mode(int);
+    /// Move the mode selection one notch in the grouped display order.
+    callback step-mode(int);
     callback set-rate(int);
     callback set-osc-wave(int);
     callback set-theme(int);
@@ -450,11 +444,11 @@ export component AppWindow inherits Window {
     // what they mean in that mode. `GenParams` still carries every field; this is presentation.
     pure function shows-param(mode: int, key: int) -> bool {
         // pulses: hidden for modes that never read p.pulses
-        if (key == 1) { return !(mode == 19 || mode == 20 || mode == 21 || mode == 23 || mode == 24 || mode == 25 || mode == 26 || mode == 27 || mode == 28 || mode == 29 || mode == 31 || mode == 32); }
-        // seed: well-formed is seed-independent
-        if (key == 4) { return mode != 11; }
+        if (key == 1) { return !(mode == 20 || mode == 21 || mode == 23 || mode == 24 || mode == 25 || mode == 26 || mode == 27 || mode == 29 || mode == 32); }
+        // seed: hidden where the generator never reads it (the shared accent humanizer still does).
+        if (key == 4) { return !(mode == 4 || mode == 11 || mode == 31 || mode == 33 || mode == 34); }
         // phase: only modes that consume p.phase
-        if (key == 5) { return mode == 2 || mode == 3 || mode == 4 || mode == 6 || mode == 8 || mode == 13 || mode == 16 || mode == 17 || mode == 18 || mode == 28 || mode == 29 || mode == 31; }
+        if (key == 5) { return mode == 2 || mode == 3 || mode == 4 || mode == 6 || mode == 8 || mode == 13 || mode == 16 || mode == 17 || mode == 18 || mode == 28 || mode == 29 || mode == 30 || mode == 31 || (mode >= 33 && mode <= 38); }
         // osc_rate: oscillator, pebble, kuramoto
         if (key == 6) { return mode == 4 || mode == 16 || mode == 18; }
         // ca_rule: cellular, pebble, sieve, vuza
@@ -469,6 +463,7 @@ export component AppWindow inherits Window {
         if (mode == 1) { return 3; } // Eulerian degree is 1 + pulses mod 4
         if (mode == 3) { return 15; } // cellular generation
         if (mode == 17) { return 2; } // 0 = silent, 1-2 = union terms
+        if (mode == 30) { return 5; } // Hilbert order
         return root.cells;
     }
     pure function pulse-label(mode: int) -> string {
@@ -485,6 +480,10 @@ export component AppWindow inherits Window {
         if (mode == 16) { return "Shaker impulses"; }
         if (mode == 17) { return "Sieve terms"; }
         if (mode == 18) { return "Target onsets"; }
+        if (mode == 28) { return "Rotation (Omega)"; }
+        if (mode == 30) { return "Order"; }
+        if (mode == 31) { return "Target onsets"; }
+        if (mode >= 33 && mode <= 38) { return "Target onsets"; }
         return "Pulses";
     }
     pure function density-label(mode: int) -> string {
@@ -492,6 +491,12 @@ export component AppWindow inherits Window {
         if (mode == 16) { return "Impact sensitivity"; }
         if (mode == 17) { return "Sieve density"; }
         if (mode == 18) { return "Onset density"; }
+        if (mode == 28) { return "Coupling K"; }
+        if (mode == 33 || mode == 34) { return "Onset density"; }
+        if (mode == 35) { return "Step sigma"; }
+        if (mode == 36) { return "Tail alpha"; }
+        if (mode == 37) { return "Slope (mu)"; }
+        if (mode == 38) { return "Map (a)"; }
         return "Density";
     }
     pure function phase-label(mode: int) -> string {
@@ -503,6 +508,14 @@ export component AppWindow inherits Window {
         if (mode == 16) { return "Gravity tilt"; }
         if (mode == 17) { return "Residue shift"; }
         if (mode == 18) { return "Detune spread"; }
+        if (mode == 28) { return "Start phase"; }
+        if (mode == 29) { return "Word slope"; }
+        if (mode == 30) { return "Rotation"; }
+        if (mode == 31) { return "Spiral start"; }
+        if (mode == 33 || mode == 34) { return "Window offset"; }
+        if (mode == 35 || mode == 36) { return "Start position"; }
+        if (mode == 37) { return "Initial x"; }
+        if (mode == 38) { return "Start offset"; }
         return "Osc phase";
     }
     pure function osc-label(mode: int) -> string {
@@ -518,7 +531,7 @@ export component AppWindow inherits Window {
     pure function regen-label(mode: int) -> string {
         return "Regenerate after (lengths, 0=off)";
     }
-    property <[string]> mode-names: ["Euclidean", "Eulerian", "Phyllotaxis", "Cellular", "Oscillator", "Crystal", "Logistic", "Markov", "Raised-Cos Threshold", "Slowcat Rhythm", "Toussaint Distance", "Well-Formed Rhythm", "L-System Grammar", "Phase Shift / Reich", "Polyrhythm Stack", "Weighted Syncopation", "Pebble Box", "Xenakis Sieve", "Kuramoto Lanes", "Euclidean-Swing", "Bernoulli", "African Bell", "Phase Canon", "Reaction-Diffusion", "Lorenz", "Cantor", "Fibonacci", "Genetic", "Arnold Circle Map", "Sturmian Word", "Hilbert Curve", "Ulam Spiral Primes", "Vuza Canon"];
+    in property <[string]> mode-names;
     property <[string]> mode-help: [
         "Places pulses as evenly as possible around the step ring with Bjorklund spacing. Each lane scales the pulse count by its density profile and anchors its word on a different phase, so the kit interleaves instead of stacking.",
         "Builds a balanced directed graph whose vertices are rest plus the eight drum lanes, then walks every edge once with Hierholzer's algorithm. The Euler circuit becomes the step sequence; density gates which visited lanes actually sound.",
@@ -532,7 +545,7 @@ export component AppWindow inherits Window {
         "Builds each lane from a short motif whose length depends on the lane and pulse count, then concatenates phrases over slow subdivisions. Shifts and phrase rules keep the lanes out of phase.",
         "Selects onsets where integer boundary crossings occur in a maximally even pulse train. The seed rotates the circular origin and modular distance shapes the accents.",
         "Generates a Christoffel/Bresenham word with exactly k onsets whose inter-onset gaps differ by at most one. Each lane gets its own phase origin, so the same word interlocks across the kit.",
-        "Rewrites a two-symbol alphabet in parallel for up to twelve generations, then reads the symbols as lane and accent roles; the panel shows the actual A/B word per step. Seed and variation choose one of four rule families.",
+        "Rewrites a two-symbol alphabet in parallel for up to sixteen generations, then reads the symbols as lane and accent roles; the panel shows the actual A/B word per step. Seed and variation choose one of four rule families.",
         "Repeats one maximally even pulse train on every lane, each copy circularly offset by a fixed span plus user and seed phase. The result is Reich-style phasing over a shared pattern length.",
         "Gives each lane a fixed integer ratio (1:1, 3:2, 2:1, 5:2, 4:3, 2:3, 5:4, 3:4) over the same pattern duration. Pulse count and density scale the number of onsets per ratio.",
         "Scores every step by metric weight, a lane-dependent shifted weight, and deterministic jitter. The highest-scoring steps become onsets, biasing the result toward offbeats and late subdivisions.",
@@ -548,11 +561,17 @@ export component AppWindow inherits Window {
         "Samples the Cantor set at the lane's iteration depth and turns its gaps into rests. The result is a self-similar rhythm with holes at every scale, gated by density and probability.",
         "Generates a Sturmian (Fibonacci-type) word from an irrational slope and fires where floor((i+1)α) changes. The word is maximally even and avoids long runs at any density.",
         "Evolves a base pattern by random mutation and keeps changes with probability p. Density controls mutation rate; the pattern drifts while preserving its original shape.",
-        "Arnold circle map: a point walks around a circle; each step it moves by Ω plus a wiggle. When Ω is a simple fraction the walk locks into a repeating pattern. Onsets happen when the walk wraps around.",
+        "Arnold circle map: a point walks around a circle; each step it moves by Ω plus a wiggle. Pulses set the rotation number Ω, density sets the coupling K (high density means weak coupling), and phase/seed set the start. Onsets happen when the walk wraps around.",
         "Sturmian word: a maximally even rhythm built from an irrational slope. Onsets fire where floor((i+1)α) changes; no long gaps or clusters.",
-        "Hilbert curve: a line that fills a square grid. Onsets land on the curve's corners; phase rotates the curve by quarter turns.",
+        "Hilbert curve: a line that fills a square grid. Pulses select the order, phase rotates it by quarter turns, and seed shifts the curve-to-lane mapping (x+2y+i). Density thins each lane's cells evenly along the curve.",
         "Ulam spiral: write numbers in a spiral; onsets land on prime numbers. Density thins the prime hits.",
-        "Vuza canon: two complementary sets tile the whole cycle with no overlaps or gaps. Recommended N (Hájos groups): 72, 108, 120, 144, 168."
+        "Vuza canon: two complementary sets tile the whole cycle with no overlaps or gaps. Recommended N (Hájos groups): 72, 108, 120, 144, 168.",
+        "Thue-Morse: the parity of the 1-bits in each step index (A010060). Each lane reads a shifted window of the same self-similar word; density keeps a spread subset of the 1s, and the infinity series colours the accents.",
+        "Rudin-Shapiro: the parity of overlapping 11-pairs in the step index (A020985). Each lane reads a shifted window; density keeps a spread subset of the 1s, with a seven-slot accent contour.",
+        "Brownian walk: eight reflected random walks with Gaussian steps. Density sets the step size, phase sets the start position, and each lane fires on its largest steps; the panel shows lane 0's path and step sizes.",
+        "Levy flight: a heavy-tailed walk built from Pareto steps. Density sets the tail index (more density means heavier jumps); each lane fires on its largest jumps and the panel shows the walk and step sizes.",
+        "Tent map: x' = mu·min(x,1−x), started on the attractor after a transient. Density sets the slope, phase the initial x, and each lane fires on its highest normalized samples; the panel draws the return map.",
+        "Henon map: the classic two-dimensional attractor, started near the origin with a transient and an escape guard. Density sets a, each lane fires on its largest x-moves, and the panel draws the attractor path."
     ];
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 1000) / 1000}", step: root.round-steps ? 1 : 0.01 },
@@ -601,10 +620,10 @@ export component AppWindow inherits Window {
             Text { text: "nDrum"; color: Theme.text; font-family: "FantasqueSansM Nerd Font Mono"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
             Text { visible: root.track-name != ""; text: "· \{root.track-name}"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide; }
             Rectangle { horizontal-stretch: 1; }
-            Text { text: "CLOCK"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; }
-            // Clock-rate picker: half width, centered list.
+            Text { text: "CLOCK RATE"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; }
+            // Clock-rate picker: sized like Nelody's rate field.
             Rectangle {
-                width: 48px; height: 24px; border-radius: 4px; background: clock-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
+                width: 70px; height: 25px; border-radius: 4px; background: clock-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
                 Text { x: 0px; width: parent.width; height: parent.height; text: root.rate < root.rate-names.length ? root.rate-names[root.rate] : ""; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                 clock-field-touch := TouchArea {
                     clicked => {
@@ -649,8 +668,7 @@ export component AppWindow inherits Window {
                         }
                         scroll-event(e) => {
                             if (e.delta-y != 0px) {
-                                let len = root.mode-names.length;
-                                root.set-mode((root.mode + (e.delta-y > 0px ? 1 : -1)).clamp(0, len - 1));
+                                root.step-mode(e.delta-y > 0px ? 1 : -1);
                                 accept
                             } else {
                                 reject
@@ -658,11 +676,14 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                Text { text: root.mode-help[root.mode]; color: Theme.text; font-size: 13px; wrap: word-wrap; }
-                // Live formula with the current snapshot substituted; pushed by Rust from the
-                // same helpers the generator calls, so it cannot drift from what is playing.
-                Text { text: root.mode-math; color: Theme.text-muted; font-size: 11px; wrap: word-wrap; }
-                Rectangle { height: 5px; }
+                VerticalLayout {
+                    spacing: 0px;
+                    Text { text: root.mode-help[root.mode]; color: Theme.text; font-size: 13px; wrap: word-wrap; }
+                    // Live formula with the current snapshot substituted; pushed by Rust from the
+                    // same helpers the generator calls, so it cannot drift from what is playing.
+                    Text { text: root.mode-math; color: Theme.text-muted; font-size: 11px; wrap: word-wrap; }
+                }
+                Rectangle { height: 2px; }
                 HorizontalLayout { spacing: 5px;
                     OptSlider { opt: root.opts[0]; changed(v) => { root.set-opt(0, v); } }
                     if root.shows-param(root.mode, 1): OptSlider { opt: root.opts[1]; changed(v) => { root.set-opt(1, v); } }
@@ -887,6 +908,7 @@ export component AppWindow inherits Window {
             TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-support; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
             TextInput { read-only: true; text: root.credit-email; color: Theme.text-muted; font-size: 9px; height: 22px; vertical-alignment: center; }
+            Text { text: "v" + root.version; color: Theme.text-muted; font-size: 9px; horizontal-alignment: right; }
         }
     }
     }

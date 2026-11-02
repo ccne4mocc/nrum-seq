@@ -251,7 +251,7 @@ impl Default for DrumParams {
             osc_wave: EnumParam::new("Oscillator Wave", OscWave::Sine),
             ca_rule: IntParam::new("Cellular Automaton Rule", 30, IntRange::Linear { min: 0, max: 255 }),
             symmetry: IntParam::new("Crystallographic Symmetry", 4, IntRange::Linear { min: 1, max: 8 }),
-            theme: EnumParam::new("Theme", Theme::Sketchbook),
+            theme: EnumParam::new("Theme", Theme::Neon),
             rate: EnumParam::new("Rate", Rate::Sixteenth),
             gate: FloatParam::new("Gate", 0.12, FloatRange::Linear { min: 0.02, max: 1.0 }),
             swing: FloatParam::new("Swing", 0.0, FloatRange::Linear { min: 0.0, max: 0.5 }),
@@ -713,14 +713,27 @@ mod tests {
             (16, Mode::PebbleBox, "substeps and gravity"),
             (17, Mode::Sieve, "moduli and residue labels"),
             (18, Mode::Kuramoto, "coupling label"),
+            (33, Mode::ThueMorse, "word strip"),
+            (34, Mode::RudinShapiro, "word strip"),
+            (35, Mode::Brownian, "walk trace"),
+            (36, Mode::LevyFlight, "walk trace"),
+            (37, Mode::TentMap, "return map"),
+            (38, Mode::HenonMap, "attractor path"),
         ] {
             assert_eq!(Mode::from_index(index), mode, "mode {index} is {ui_meaning} in the UI");
         }
-        // The UI's mode list must have one entry per mode.
+        // The UI reads names from the enum rather than carrying a second list that can drift.
         let ui = include_str!("../ui/app.slint");
-        let names = ui.split("mode-names: [").nth(1).expect("no mode-name list in the UI");
-        let count = names.split(']').next().unwrap().matches('"').count() / 2;
-        assert_eq!(count, Mode::all().count(), "the UI lists {count} modes");
+        assert!(ui.contains("in property <[string]> mode-names;"), "the UI must receive its mode names from Rust");
+        assert_eq!(crate::modes::GROUPS.iter().map(|(_, m)| m.len()).sum::<usize>(), Mode::all().count(),
+            "the grouped display list must cover every mode");
+        // The help text is still a Slint literal, so keep its entry count aligned with the enum.
+        let help = ui.split("mode-help: [").nth(1).expect("no mode-help list in the UI");
+        let help_count = help.lines()
+            .take_while(|line| !line.trim_start().starts_with("];"))
+            .filter(|line| line.trim_start().starts_with('"'))
+            .count();
+        assert_eq!(help_count, Mode::all().count(), "the UI describes {help_count} modes");
     }
 
 
@@ -780,6 +793,12 @@ mod tests {
         assert_ne!(palettes[0][0], palettes[1][0]);
         assert_ne!(palettes[1][0], palettes[2][0]);
         assert_ne!(palettes[2][0], palettes[3][0]);
+    }
+
+    #[test]
+    fn neon_is_the_fresh_default_theme() {
+        assert_eq!(DrumParams::default().theme.value(), Theme::Neon);
+        assert_eq!(<NDrum as Plugin>::VERSION, "1.1.0");
     }
 
     #[test]

@@ -14,7 +14,9 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     let family = ((p.seed.clamp(0.0, 0.999_999) * 4.0) as usize + p.variation as usize) % 4;
 
     // Parallel rewrites. Every production is finite and the maximum symbol buffer is fixed.
-    for _ in 0..12 {
+    // Fibonacci growth needs 16 passes to reach 1024 symbols; 12 stopped at 377, so a longer
+    // loop repeated the word (`symbols[i % len]`) instead of extending it.
+    for _ in 0..16 {
         if len >= p.steps { break; }
         let mut next = [A; CAP];
         let mut next_len = 0usize;
@@ -113,6 +115,33 @@ mod tests {
         // Pulses above the pattern length are clamped, so the window cannot exceed 1.
         let clamped = lane_threshold(&GenParams { steps: 4, pulses: 64, density: 1.0, ..GenParams::default() }, 0);
         assert!(clamped <= 1.0);
+    }
+
+    #[test]
+    fn long_patterns_use_the_expanded_word_not_a_repeat_of_the_short_one() {
+        // Independent reference: the same four production families with an unbounded Vec.
+        fn reference(family: usize, n: usize) -> Vec<u8> {
+            let rule = |sym: u8| -> Vec<u8> {
+                match (sym, family) {
+                    (0, 0) => vec![0, 1], (0, 1) => vec![0, 0, 1], (0, 2) => vec![1, 0], (0, _) => vec![0, 1, 0],
+                    (_, 0) => vec![0], (_, 1) => vec![1, 0], (_, 2) => vec![0, 1], (_, _) => vec![0],
+                }
+            };
+            let mut w = vec![A];
+            while w.len() < n { w = w.iter().flat_map(|&c| rule(c)).collect(); }
+            w
+        }
+        for family in 0..4usize {
+            let p = GenParams {
+                kind: Mode::LSystem, steps: 1024, length: 1024.0, pulses: 1024, density: 1.0,
+                seed: family as f32 * 0.25 + 0.01, variation: 0, ..GenParams::default()
+            };
+            let out = generate(&p);
+            let want = reference(family, 1024);
+            assert!((0..1024).all(|i| out.lsym[i] == want[i]), "family {family}: word differs from the reference rewrite");
+            // A 377-symbol word would repeat before 1024; the expanded word must not.
+            assert!(out.lsym[..1024].windows(377).any(|w| w != &out.lsym[..377]), "family {family}: word still repeats early");
+        }
     }
 
     #[test]

@@ -7,14 +7,14 @@ nDrum grew out of many other interests and projects. `_AlgoNemLody`, its direct 
 ## Features
 
 - Eight MIDI lanes on channel 10, with GM-style default notes (Kick 36, Snare 38, Closed Hat 42, Open Hat 46, Clap 39, Rim 37, Low Tom 45, Percussion 50).
-- 33 deterministic generator modes, each with a mode-specific visualization and mode-specific parameters.
+- 39 deterministic generator modes, each with a mode-specific visualization and mode-specific parameters.
 - Fixed-size 1–1024 step pattern; Settings sets a ceiling (64–1024, default 64) and applies immediately.
 - Fixed-size audio scheduler with no allocation or locking; generation runs on the editor thread and snapshots parameters.
 - Real-time safe audio path: no file I/O, allocations, locks, or unbounded loops inside `Plugin::process()`.
 - Lane-independent hit generation; each lane has its own density profile, phase origin, and enable/note/velocity host parameter.
 - Automatic regeneration and per-length randomization with a scope mask (Mode / Length / Rhythm / Tone / Feel).
 - One-loop MIDI export to a timestamped SMF in a user-chosen folder.
-- Four colour themes: Sketch (light), Neon, Lava, Forest.
+- Four colour themes: Neon (default), Sketch (light), Lava, Forest.
 - Technical logging toggle; when enabled, mode and parameter snapshots are appended to `~/nDrum.log` (`%USERPROFILE%\nDrum.log` on Windows).
 
 ## Modes
@@ -28,10 +28,10 @@ Modes are grouped rather than listed exhaustively. Full derivation and view geom
 - Markov Walk / Bernoulli / Genetic Mutation / Toussaint Distance.
 
 **Physics, chaos, reaction systems, fractals**
-- Logistic Map / Lorenz Attractor / Reaction-Diffusion / Cantor Set / Pebble Box / Kuramoto Lanes.
+- Logistic Map / Lorenz Attractor / Reaction-Diffusion / Cantor Set / Pebble Box / Kuramoto Lanes / Brownian Walk / Levy Flight / Tent Map / Henon Map.
 
 **Mathematical and formal patterns**
-- Phyllotaxis (golden ratio) / Cellular Automaton / Oscillator Phase / Crystallographic / Xenakis Sieve / Fibonacci / Sturmian Word / Eulerian Walk / African Bell / Raised-Cos Threshold / L-System Grammar.
+- Phyllotaxis (golden ratio) / Cellular Automaton / Oscillator Phase / Crystallographic / Xenakis Sieve / Fibonacci / Sturmian Word / Eulerian Walk / African Bell / Raised-Cos Threshold / L-System Grammar / Arnold Circle Map / Hilbert Curve / Ulam Spiral Primes / Vuza Canon / Thue-Morse / Rudin-Shapiro.
 
 Many modes draw a panel tied specifically to their algorithm: pulse rings, the CA spacetime, a phyllotaxis rosette, a Lorenz attractor body, phase pointers, or a walking pebble box.
 
@@ -86,7 +86,7 @@ There is no CI in this repository regardless of what older revisions said. Artif
 ```text
 src/
   lib.rs              nice-plug parameters, transport scheduler, CLAP/VST3 exports
-  modes.rs            the 28 generation modes and their host id/name metadata
+  modes.rs            the 39 generation modes, grouped display order and host id/name metadata
   editor.rs           Slint adapter and host parameter callbacks
   globals.rs          cross-component shared state (settings, runtime locks)
   help.rs             mode math text shown in the editor

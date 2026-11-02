@@ -38,11 +38,8 @@ pub(crate) fn math(p: &GenParams) -> String {
             format!("n={n}: 1/φ rotation (222.49° = mirrored golden angle 137.51°), threshold T={threshold:.3}; beat(i)=frac(i·0.618034+{:.3}+{:.3}+lane·0.137), hit when beat<T; second rule 1/φ³ (84.99°) adds the inner band below 0.18·T", p.seed, p.phase)
         }
         Mode::Cellular => {
-            let row = if n == 1 {
-                0
-            } else {
-                (pulses + (p.phase * CA_ROWS as f32).round() as usize) % CA_ROWS
-            };
+            let clamped = GenParams { pulses: pulses.min(CA_ROWS - 1), steps: n, ..*p };
+            let row = crate::sequence::cellular_row(&clamped, 0);
             let gate = 0.45 + d * w0 * 0.55;
             format!("n={n}: row=(pulses+round(phase·16)+2·lane) mod 16 → lane 0 reads row {row}; cell=rule {} bit; gate={gate:.2}", p.ca_rule)
         }
@@ -62,10 +59,10 @@ pub(crate) fn math(p: &GenParams) -> String {
         }
         Mode::Logistic => {
             let r = crate::sequence::logistic_r(d);
-            let x0 = (0.13 + p.seed as f64 * 0.73 + p.phase as f64 * 0.11).clamp(0.001, 0.999);
+            let x0 = crate::sequence::logistic_x0(p);
             let threshold = ((p.pulses as f32 / n as f32) * (0.3 + 0.7 * d) * (0.5 + w0))
                 .clamp(0.03, 0.97);
-            format!("n={n}: x[n+1]=r·x[n]·(1−x[n]), r=3.5+0.5·{d:.2}={r:.3}, x0={x0:.3}; lane 0 cutoff=1−{threshold:.3}={:.3}, strict local peaks", 1.0 - threshold)
+            format!("n={n}: x[n+1]=r·x[n]·(1−x[n]), r=3.5+0.5·{d:.2}={r:.3}, x0={x0:.3} (variation-aware); lane 0 cutoff=1−{threshold:.3}={:.3}, strict local peaks", 1.0 - threshold)
         }
         Mode::Markov => {
             let chance = (d * (0.25 + p.pulses as f32 / n as f32 * 1.5)).clamp(0.0, 1.0);
@@ -96,7 +93,7 @@ pub(crate) fn math(p: &GenParams) -> String {
             let family = ((p.seed.clamp(0.0, 0.999_999) * 4.0) as usize + p.variation as usize) % 4;
             let threshold = (pulses as f32 / n as f32 * (0.35 + 0.65 * d) * (0.45 + w0))
                 .clamp(0.0, 1.0);
-            format!("n={n}: family=(floor({:.3}·4)+{}) mod 4={family}; ≤12 parallel rewrites publish an A/B word (rotation-aware); lane 0 chance={threshold:.2}·grammar·metrical", p.seed, p.variation)
+            format!("n={n}: family=(floor({:.3}·4)+{}) mod 4={family}; ≤16 parallel rewrites publish an A/B word (rotation-aware); lane 0 chance={threshold:.2}·grammar·metrical", p.seed, p.variation)
         }
         Mode::PhaseShift => {
             let k = ((p.pulses as f32 * d).round() as usize).min(n);
@@ -148,13 +145,30 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::ReactionDiffusion => format!("n={n}: activator a(i)=sin(2π·i/n·(1+0.1·lane)+0.7·lane); hit when a≥1−d ({:.2}) and Bernoulli(p={:.2})", 1.0 - d, p.probability),
         Mode::Lorenz => format!("n={n}: Lorenz σ=10, ρ=28, β=8/3, dt=0.01×10 per step; lane hits on z local peaks; probability={:.2}, density={d:.2}", p.probability),
         Mode::Cantor => format!("n={n}: Cantor set membership at depth 2+lane; hit when x∈Cantor and Bernoulli(d·p={:.2}×{:.2})", d, p.probability),
-        Mode::Fibonacci => format!("n={n}: Sturmian word α=d·(0.5+0.05·lane)={:.3}; hit where floor((i+1)α) changes; probability={:.2}", d * 0.5, p.probability),
+        Mode::Fibonacci => {
+            let a = crate::sequence::fibonacci_alpha(d);
+            format!("n={n}: golden Sturmian slope α=d·1/φ={a:.3} (lane 0), lanes detuned; hit where floor((i+1)α) changes; gaps 1–2")
+        }
         Mode::Genetic => format!("n={n}: base pattern mutated with rate 1−d ({:.2}); acceptance probability p={:.2}", 1.0 - d, p.probability),
-        Mode::Arnold => format!("n={n}: Arnold circle map θ_{{n+1}}=θ_n+Ω+(K/2π)sin(2πθ_n); Ω={:.2}, K={:.2}; onsets on phase wraps", p.phase, p.density),
-        Mode::Sturmian => format!("n={n}: Sturmian word slope α={:.3}; hit where floor((i+1)α) changes; probability={:.2}", 0.3 + 0.4 * p.phase, p.probability),
-        Mode::Hilbert => format!("n={n}: Hilbert curve order {}; density={d:.2}, probability={:.2}", p.pulses, p.probability),
-        Mode::Ulam => format!("n={n}: Ulam spiral; onset where position index is prime; density={d:.2}, probability={:.2}", p.probability),
+        Mode::Arnold => {
+            let k = crate::sequence::arnold_coupling(d);
+            let omega = p.pulses.min(n).max(1) as f32 / n as f32;
+            format!("n={n}: Arnold circle map θ'=θ+Ω−(K/2π)sin(2πθ); Ω=pulses/n={omega:.3}, K=(1−density)·1.4={k:.2}; start=seed+phase; onsets on wraps")
+        }
+        Mode::Sturmian => format!("n={n}: Sturmian word slope α={:.3}; hit where floor((i+1)α) changes; density={d:.2}, probability={:.2}", 0.3 + 0.4 * p.phase, p.probability),
+        Mode::Hilbert => {
+            let order = p.pulses.clamp(1, 5) as u32;
+            let turn = crate::sequence::hilbert_turns(p.phase);
+            format!("n={n}: Hilbert order {order} ({} cells), sampled at i·total/n, {turn} quarter turn(s); lane=(x+2y+i+seed) mod 8; density={d:.2} thins each lane", 1usize << (2 * order))
+        }
+        Mode::Ulam => format!("n={n}: Ulam spiral from integer {}; prime cells, lane=(x−y) mod 8; density={d:.2}", 1 + (p.phase * 64.0).round() as usize + 5 * (p.variation as usize % 1024)),
         Mode::Vuza => format!("n={n}: Vuza canon modulus {}; probability={:.2} — Recommended N (Hájos groups): 72, 108, 120, 144, 168", p.ca_rule, p.probability),
+        Mode::ThueMorse => format!("n={n}: t(i)=popcount(i) mod 2 (A010060), window +{}; onsets on 1s spread to the lane target; infinity-series accents", (p.phase * 16.0).round() as usize + (p.variation as usize % 1024)),
+        Mode::RudinShapiro => format!("n={n}: parity of overlapping 11-pairs (A020985), window +{}; onsets on 1s spread to the lane target", (p.phase * 16.0).round() as usize + (p.variation as usize % 1024)),
+        Mode::Brownian => format!("n={n}: Gaussian step σ={:.3}, start=frac(0.5+phase+lane/8); largest |step| per lane become onsets", crate::sequence::brownian_sigma(d)),
+        Mode::LevyFlight => format!("n={n}: Pareto α={:.2}, min step {:.3}, folded walk; largest jumps per lane become onsets", crate::sequence::levy_alpha(d), crate::sequence::levy_step_min(d)),
+        Mode::TentMap => format!("n={n}: tent x'={:.3}·min(x,1−x), 32-step transient; highest normalized samples per lane become onsets", crate::sequence::tent_mu(d)),
+        Mode::HenonMap => format!("n={n}: Hénon a={:.3}, b=0.3, start near the origin, 64-step transient; largest |Δx| per lane become onsets", crate::sequence::henon_a(d)),
     };
     if fractional {
         format!("{line}; loop length={length:.4} steps (grid cells={n}, no rounding)")

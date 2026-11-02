@@ -1,0 +1,39 @@
+# Changelog
+
+## 1.1.0 — Nelody migration
+
+### Added
+
+- Six drum-adapted modes appended to the enum: Thue–Morse, Rudin–Shapiro, Brownian Walk,
+  Levy Flight, Tent Map and Henon Map (indices 33–38).
+- `select_spread` structural thinning, exact `fold01` reflection and lane onset-count helper.
+- `view::src_index`, the inverse of the shared rotation/mirror transform.
+
+### Fixed
+
+- Rotation and mirror now reorder `theta` and `u` as well as every other per-step array.
+  Arnold, Hilbert, Ulam, Bernoulli and Reaction-Diffusion panels no longer drift after Generate,
+  Rotate or Mirror.
+- Mode header wheel steps the grouped display order; the dropdown and wheel share one list.
+- L-system expands far enough for 1024-step loops instead of repeating a 377-symbol word.
+- Fibonacci uses the golden slope; density 1 lane 0 is the exact Fibonacci word.
+- Logistic includes `variation` in its initial condition and the panel plots `(x, r·x·(1−x))`.
+- Arnold fires on phase wraps instead of an unrelated random draw.
+- Ulam walks a real square spiral from `phase`/`variation`, primes the cells and publishes the
+  coordinates its panel draws.
+- Hilbert now follows Nelody's sampling: `pulses` selects the order, `phase` rotates by quarter
+  turns, `seed` shifts the lane mapping, and the panel draws the same rotated curve.
+- Arnold now matches Nelody's parameter mapping: `pulses` is the rotation number Ω, `density`
+  is the coupling K `(1−density)·1.4`, and `phase`/`seed` set the start.
+- The seed control is hidden in modes whose generator never reads it (Oscillator, Well-Formed,
+  Ulam, Thue–Morse, Rudin–Shapiro); it still affects the shared accent humanizer.
+- Sieve thins its members evenly instead of ranking them by jitter.
+- Cellular and Hilbert panels read the generator's own row/curve helpers.
+- Neon is the fresh default theme; version 1.1.0 is shown in Settings.
+- The header clock picker is labelled `CLOCK RATE` and matches Nelody's field width.
+
+### Behaviour changes
+
+- Arnold, Ulam, Fibonacci, Hilbert and L-system patterns will sound different. Existing presets
+  keep their host parameter values and mode indices; no migration is required.
+- Mode names are pushed from Rust, so the UI no longer carries a second name list.

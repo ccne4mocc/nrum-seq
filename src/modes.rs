@@ -1,4 +1,4 @@
-//! The 28 generation modes, in one list.
+//! The 39 generation modes, in one list.
 //!
 //! `Mode` is the host-visible enum: the stable `id` values are what a saved project stores and
 //! the `name` values are what the host shows. The generators and the panels match on the same
@@ -43,13 +43,90 @@ pub enum Mode {
     #[id = "hilbert"] #[name = "Hilbert Curve"] Hilbert,
     #[id = "ulam"] #[name = "Ulam Spiral Primes"] Ulam,
     #[id = "vuza"] #[name = "Vuza Canon"] Vuza,
+    #[id = "thue_morse"] #[name = "Thue-Morse"] ThueMorse,
+    #[id = "rudin_shapiro"] #[name = "Rudin-Shapiro"] RudinShapiro,
+    #[id = "brownian"] #[name = "Brownian Walk"] Brownian,
+    #[id = "levy_flight"] #[name = "Levy Flight"] LevyFlight,
+    #[id = "tent_map"] #[name = "Tent Map"] TentMap,
+    #[id = "henon_map"] #[name = "Henon Map"] HenonMap,
 }
 
+/// The mode list as it is drawn: one grouped order shared by the dropdown and the mode wheel.
+/// Keep host indices alone — this only changes presentation. Adding a mode means appending it to
+/// the enum and to exactly one group here.
+pub const GROUPS: &[(&str, &[Mode])] = &[
+    ("RHYTHMIC", &[
+        Mode::Euclidean, Mode::EuclideanSwing, Mode::PhaseShift, Mode::Polyrhythm,
+        Mode::WellFormed, Mode::Slowcat, Mode::Syncopation, Mode::RaisedCosine,
+    ]),
+    ("STOCHASTIC", &[Mode::Markov, Mode::Bernoulli, Mode::Genetic, Mode::ToussaintDistance]),
+    ("PHYSICS / FRACTALS", &[
+        Mode::Logistic, Mode::Lorenz, Mode::ReactionDiffusion, Mode::Cantor, Mode::PebbleBox,
+        Mode::Kuramoto, Mode::Brownian, Mode::LevyFlight, Mode::TentMap, Mode::HenonMap,
+    ]),
+    ("MATHEMATICAL / FORMAL", &[
+        Mode::Phyllotaxis, Mode::Cellular, Mode::Oscillator, Mode::Crystallographic, Mode::Sieve,
+        Mode::Fibonacci, Mode::LSystem, Mode::Eulerian, Mode::AfricanBell, Mode::PhaseCanon,
+        Mode::Arnold, Mode::Sturmian, Mode::Hilbert, Mode::Ulam, Mode::Vuza, Mode::ThueMorse,
+        Mode::RudinShapiro,
+    ]),
+];
+
 impl Mode {
+    /// Every mode in the order the list is drawn. The header wheel must step this order, not the
+    /// raw host index, or one notch from Euclidean lands on Eulerian (a different group far away
+    /// in the visible list).
+    pub fn display_order() -> Vec<Mode> {
+        GROUPS.iter().flat_map(|(_, modes)| modes.iter().copied()).collect()
+    }
+
+    /// Next mode `delta` notches along [`Mode::display_order`], clamped at both ends.
+    pub fn step_in_display_order(self, delta: i32) -> Mode {
+        let order = Mode::display_order();
+        let pos = order.iter().position(|m| *m == self).unwrap_or(0) as i32;
+        order[(pos + delta).clamp(0, order.len() as i32 - 1) as usize]
+    }
+
     /// Every mode, for tests that sweep all of them. Production dispatch matches on the variant,
     /// so this stays compiled out of the audio path.
     #[cfg(test)]
     pub fn all() -> impl Iterator<Item = Mode> {
         (0..<Mode as Enum>::variants().len()).map(Mode::from_index)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_order_covers_every_mode_exactly_once() {
+        let order = Mode::display_order();
+        assert_eq!(order.len(), <Mode as Enum>::variants().len());
+        for kind in Mode::all() {
+            assert_eq!(order.iter().filter(|&&m| m == kind).count(), 1, "{kind:?} missing or duplicated");
+        }
+    }
+
+    #[test]
+    fn the_wheel_walks_the_displayed_order_and_clamps() {
+        let order = Mode::display_order();
+        let mut at = order[0];
+        let mut walked = vec![at];
+        for _ in 1..order.len() {
+            let next = at.step_in_display_order(1);
+            assert_ne!(next, at);
+            assert_eq!(next.step_in_display_order(-1), at);
+            walked.push(next);
+            at = next;
+        }
+        assert_eq!(walked, order);
+        assert_eq!(at.step_in_display_order(1), at, "clamps at the end");
+        assert_eq!(order[0].step_in_display_order(-1), order[0], "clamps at the start");
+        // Every group boundary is crossed exactly once while walking the list.
+        let changes = order.windows(2).filter(|w| {
+            !GROUPS.iter().any(|(_, g)| g.contains(&w[0]) && g.contains(&w[1]))
+        }).count();
+        assert_eq!(changes, GROUPS.len() - 1);
     }
 }
