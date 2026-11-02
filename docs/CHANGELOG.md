@@ -9,6 +9,8 @@
 - Drag/drop modulation links, a read-only matrix with per-row delete, depth bands and animated
   modulation bars on linked parameters, and a below-control hover summary.
 - New `Gate` control in the feel row so it is user-editable and modulation-targetable.
+- Floating LFO drag badge, waveform-shape picker for both oscillator and LFO slots, active
+  styling for the bipolar/unipolar chip, and a timed LFO status line.
 
 ## 1.1.0 — Nelody migration
 

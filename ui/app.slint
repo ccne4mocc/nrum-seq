@@ -442,9 +442,11 @@ component LfoChip inherits Rectangle {
     in property <length> text-size: 9px;
     callback clicked();
     height: 28px; border-radius: 4px;
-    background: ta.has-hover ? Theme.control-hover : Theme.control;
+    background: root.active
+        ? @linear-gradient(90deg, Theme.c1 0%, Theme.c2 100%)
+        : (ta.has-hover ? Theme.control-hover : Theme.control);
     border-width: 1px; border-color: Theme.border;
-    Text { width: parent.width; height: parent.height; text: root.label; color: root.active ? Theme.c1 : Theme.text; font-size: root.text-size; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+    Text { width: parent.width; height: parent.height; text: root.label; color: root.active ? Theme.on-accent : Theme.text; font-size: root.text-size; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
     ta := TouchArea { clicked => { root.clicked(); } }
 }
 
@@ -1008,6 +1010,11 @@ export component AppWindow inherits Window {
             running: root.regen-pulse;
             triggered => { root.regen-pulse = false; }
         }
+        Timer {
+            interval: 4s;
+            running: root.mod-status != "";
+            triggered => { root.mod-status = ""; }
+        }
         Rectangle {
             visible: root.regen-pulse;
             width: parent.width; height: parent.height;
@@ -1106,17 +1113,16 @@ export component AppWindow inherits Window {
                 }
                 if root.shows-param(root.mode, 11): HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[11]; mod-target: 13; changed(v) => { root.set-opt(11, v); } } }
                 if root.mode == 4: HorizontalLayout {
-                    Rectangle {
-                        width: 200px; height: 24px; border-radius: 4px; background: wave-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
-                        Text { x: 6px; width: parent.width - 28px; height: parent.height; text: root.osc-wave < root.wave-names.length ? root.wave-names[root.osc-wave] : ""; color: Theme.text; font-size: 9px; vertical-alignment: center; overflow: elide; }
-                        Text { x: parent.width - 16px; width: 12px; height: parent.height; text: "▾"; color: Theme.text-muted; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
-                        wave-field-touch := TouchArea {
-                            clicked => {
-                                root.wave-menu-open = !root.wave-menu-open;
-                                root.wave-menu-target = 0;
-                                if (root.wave-menu-open) { root.wave-menu-x = wave-field-touch.absolute-position.x; root.wave-menu-y = wave-field-touch.absolute-position.y + wave-field-touch.height + 2px; }
-                                root.clock-menu-open = false;
-                            }
+                    WavePicker {
+                        width: 200px; height: 28px;
+                        paths: root.wave-paths; names: root.wave-names; current: root.osc-wave;
+                        selected(i) => { root.set-osc-wave(i); }
+                        opened(x, y) => {
+                            root.wave-menu-open = true;
+                            root.wave-menu-target = 0;
+                            root.wave-menu-x = x;
+                            root.wave-menu-y = y + 2px;
+                            root.clock-menu-open = false;
                         }
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -1320,6 +1326,15 @@ export component AppWindow inherits Window {
         }
     }
 
+    // Floating LFO number follows the pointer while a modulation point is dragged.
+    if ModDrag.lfo > 0: Rectangle {
+        x: ModDrag.x - 11px; y: ModDrag.y - 11px; width: 22px; height: 22px;
+        border-radius: 11px;
+        background: ModDrag.lfo == 1 ? Theme.c1 : (ModDrag.lfo == 2 ? Theme.c2 : (ModDrag.lfo == 3 ? Theme.c3 : Theme.hi));
+        border-width: 2px; border-color: Theme.on-accent;
+        Text { text: "\{ModDrag.lfo}"; color: Theme.on-accent; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+    }
+
     // Grouped mode dropdown (Nelody-style), anchored to the mode header.
     if root.mode-menu-open: Rectangle {
         x: 0px; y: 0px; width: root.base-width; height: root.base-height;
@@ -1433,19 +1448,44 @@ export component AppWindow inherits Window {
         current: root.rate;
         selected(i) => { root.set-rate(i); root.clock-menu-open = false; }
     }
-    // Waveform dropdown overlay (oscillator mode).
-    if root.wave-menu-open: DropdownList {
+    // Waveform picker overlay: shows the actual sampled shape, not just its name.
+    if root.wave-menu-open: Rectangle {
         x: root.wave-menu-x; y: root.wave-menu-y;
-        width: 160px; height: 260px;
-        options: root.wave-names;
-        current: root.wave-menu-target == 0 ? root.osc-wave : (root.wave-menu-target == 1 ? root.lfo1-wave : (root.wave-menu-target == 2 ? root.lfo2-wave : (root.wave-menu-target == 3 ? root.lfo3-wave : root.lfo4-wave)));
-        selected(i) => {
-            if (root.wave-menu-target == 0) { root.set-osc-wave(i); }
-            if (root.wave-menu-target == 1) { root.set-lfo-wave(1, i); }
-            if (root.wave-menu-target == 2) { root.set-lfo-wave(2, i); }
-            if (root.wave-menu-target == 3) { root.set-lfo-wave(3, i); }
-            if (root.wave-menu-target == 4) { root.set-lfo-wave(4, i); }
-            root.wave-menu-open = false;
+        width: root.wave-menu-target == 0 ? 190px : 160px;
+        height: root.wave-paths.length * 26px + 8px;
+        border-radius: 4px; background: Theme.surface;
+        border-width: 1px; border-color: Theme.border;
+        drop-shadow-blur: 12px; drop-shadow-color: #00000055; drop-shadow-offset-y: 3px;
+        VerticalLayout {
+            padding: 4px; spacing: 2px;
+            for i in root.wave-paths.length: Rectangle {
+                height: 24px; border-radius: 3px;
+                background: (root.wave-menu-target == 0 && i == root.osc-wave)
+                    || (root.wave-menu-target == 1 && i == root.lfo1-wave)
+                    || (root.wave-menu-target == 2 && i == root.lfo2-wave)
+                    || (root.wave-menu-target == 3 && i == root.lfo3-wave)
+                    || (root.wave-menu-target == 4 && i == root.lfo4-wave)
+                    ? Theme.c1.with-alpha(0.18) : (row-touch.has-hover ? Theme.control-hover : Theme.control);
+                Path {
+                    x: 6px; y: 4px;
+                    width: root.wave-menu-target == 0 ? 54px : parent.width - 12px;
+                    height: parent.height - 8px;
+                    viewbox-x: 0; viewbox-y: 0; viewbox-width: 100; viewbox-height: 40;
+                    commands: root.wave-paths[i];
+                    fill: transparent; stroke: Theme.c1; stroke-width: 1.2px;
+                }
+                Text { visible: root.wave-menu-target == 0; x: 68px; width: parent.width - 74px; height: parent.height; text: i < root.wave-names.length ? root.wave-names[i] : ""; color: Theme.text; font-size: 10px; vertical-alignment: center; overflow: elide; }
+                row-touch := TouchArea {
+                    clicked => {
+                        if (root.wave-menu-target == 0) { root.set-osc-wave(i); }
+                        if (root.wave-menu-target == 1) { root.set-lfo-wave(1, i); }
+                        if (root.wave-menu-target == 2) { root.set-lfo-wave(2, i); }
+                        if (root.wave-menu-target == 3) { root.set-lfo-wave(3, i); }
+                        if (root.wave-menu-target == 4) { root.set-lfo-wave(4, i); }
+                        root.wave-menu-open = false;
+                    }
+                }
+            }
         }
     }
     // Randomize-scope popup.
