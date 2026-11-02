@@ -1200,7 +1200,7 @@ mod tests {
     #[test]
     fn neon_is_the_fresh_default_theme() {
         assert_eq!(DrumParams::default().theme.value(), Theme::Neon);
-        assert_eq!(<NDrum as Plugin>::VERSION, "1.1.0");
+        assert_eq!(<NDrum as Plugin>::VERSION, "1.2.0");
     }
 
     #[test]

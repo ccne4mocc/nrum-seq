@@ -21,7 +21,7 @@ These replacements prioritize relevant drum sequencing methods. The new names an
 
 ## New mode → view index
 
-The `Mode` enum in `src/modes.rs`, `Mode::GROUPS` (the one display order used by the dropdown and the header wheel) and the hardcoded mode indices in the UI's `shows-param`/`pulse-label` functions must match. Mode names are pushed from Rust, so there is no second list in Slint:
+The `Mode` enum in `src/modes.rs`, `Mode::GROUPS` (the one display order used by the dropdown and the header wheel) and the hardcoded mode indices in the UI's `shows-param`/`pulse-label` functions must match. Mode names are pushed from Rust, so there is no second list in Slint. Group labels and order are shared with Nelody and must stay identical: Rhythm, Stochastic, Chaos / Physics, Fractal, Cellular, Geometric, Number Theory, Music Theory, Acid (nDrum omits the empty Acid group):
 
 | Index | Mode | Visualization |
 |---:|---|---|

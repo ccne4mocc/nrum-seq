@@ -54,28 +54,40 @@ pub enum Mode {
 /// The mode list as it is drawn: one grouped order shared by the dropdown and the mode wheel.
 /// Keep host indices alone — this only changes presentation. Adding a mode means appending it to
 /// the enum and to exactly one group here.
+///
+/// Labels and order are shared with Nelody's `ModeGroup`. Keep them identical in both projects:
+/// Rhythm, Stochastic, Chaos / Physics, Fractal, Cellular, Geometric, Number Theory,
+/// Music Theory, Acid. nDrum has no acid modes, so that group is omitted rather than rendered
+/// empty. Within a group the host order is preserved.
 pub const GROUPS: &[(&str, &[Mode])] = &[
-    ("RHYTHMIC", &[
-        Mode::Euclidean, Mode::EuclideanSwing, Mode::PhaseShift, Mode::Polyrhythm,
-        Mode::WellFormed, Mode::Slowcat, Mode::Syncopation, Mode::RaisedCosine,
+    ("Rhythm", &[
+        Mode::Euclidean, Mode::Oscillator, Mode::RaisedCosine, Mode::Slowcat,
+        Mode::ToussaintDistance, Mode::WellFormed, Mode::LSystem, Mode::PhaseShift,
+        Mode::Polyrhythm, Mode::Syncopation, Mode::EuclideanSwing,
     ]),
-    ("STOCHASTIC", &[Mode::Markov, Mode::Bernoulli, Mode::Genetic, Mode::ToussaintDistance]),
-    ("PHYSICS / FRACTALS", &[
-        Mode::Logistic, Mode::Lorenz, Mode::ReactionDiffusion, Mode::Cantor, Mode::PebbleBox,
-        Mode::Kuramoto, Mode::Brownian, Mode::LevyFlight, Mode::TentMap, Mode::HenonMap,
+    ("Stochastic", &[
+        Mode::Markov, Mode::Bernoulli, Mode::Genetic, Mode::Brownian, Mode::LevyFlight,
     ]),
-    ("MATHEMATICAL / FORMAL", &[
-        Mode::Phyllotaxis, Mode::Cellular, Mode::Oscillator, Mode::Crystallographic, Mode::Sieve,
-        Mode::Fibonacci, Mode::LSystem, Mode::Eulerian, Mode::AfricanBell, Mode::PhaseCanon,
-        Mode::Arnold, Mode::Sturmian, Mode::Hilbert, Mode::Ulam, Mode::Vuza, Mode::ThueMorse,
+    ("Chaos / Physics", &[
+        Mode::Logistic, Mode::PebbleBox, Mode::Kuramoto, Mode::ReactionDiffusion, Mode::Lorenz,
+        Mode::Arnold, Mode::TentMap, Mode::HenonMap,
+    ]),
+    ("Fractal", &[Mode::Cantor]),
+    ("Cellular", &[Mode::Cellular]),
+    ("Geometric", &[
+        Mode::Eulerian, Mode::Phyllotaxis, Mode::Crystallographic, Mode::Hilbert, Mode::Ulam,
+    ]),
+    ("Number Theory", &[
+        Mode::Sieve, Mode::Fibonacci, Mode::Sturmian, Mode::Vuza, Mode::ThueMorse,
         Mode::RudinShapiro,
     ]),
+    ("Music Theory", &[Mode::AfricanBell, Mode::PhaseCanon]),
 ];
 
 impl Mode {
     /// Every mode in the order the list is drawn. The header wheel must step this order, not the
-    /// raw host index, or one notch from Euclidean lands on Eulerian (a different group far away
-    /// in the visible list).
+    /// raw host index, or one notch from a mode lands on a different group far away in the
+    /// visible list.
     pub fn display_order() -> Vec<Mode> {
         GROUPS.iter().flat_map(|(_, modes)| modes.iter().copied()).collect()
     }
@@ -98,6 +110,26 @@ impl Mode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn group_labels_follow_the_shared_taxonomy() {
+        let labels: Vec<&str> = GROUPS.iter().map(|(label, _)| *label).collect();
+        assert_eq!(
+            labels,
+            [
+                "Rhythm",
+                "Stochastic",
+                "Chaos / Physics",
+                "Fractal",
+                "Cellular",
+                "Geometric",
+                "Number Theory",
+                "Music Theory",
+            ],
+            "keep this order and these labels identical to Nelody's ModeGroup::ALL; \
+             nDrum omits only the empty Acid group"
+        );
+    }
 
     #[test]
     fn display_order_covers_every_mode_exactly_once() {

@@ -2,6 +2,10 @@
 
 This sequencer intentionally offers different *families* of rhythmic behavior rather than treating every mode as a variation on even pulse spacing. MIT OpenCourseWare's course on algorithmic and generative music treats distributions and stochastic processes, serialism/phasing, permutations/chaos, Markov chains, cellular automata, genetic algorithms, and L-systems as distinct compositional approaches ([lecture index](https://ocw.mit.edu/courses/21m-380-music-and-technology-algorithmic-and-generative-music-spring-2010/pages/lecture-notes/)). The following four additions were selected to bring grammar-based, phase-based, ratio-based, and metric-weighted ideas into the current fixed-size MIDI pattern engine.
 
+For the fractal, geometric / sacred-geometry and cellular candidates, see
+[`RESEARCH_FRACTAL_GEOMETRIC_CELLULAR.md`](RESEARCH_FRACTAL_GEOMETRIC_CELLULAR.md). That document
+is research and proofreading material; none of those modes are implemented yet.
+
 ## Newly implemented
 
 ### L-System Grammar

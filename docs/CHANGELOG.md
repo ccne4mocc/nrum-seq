@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — LFO subsystem
+## 1.2.0 — LFO subsystem
 
 ### Added
 
@@ -11,6 +11,15 @@
 - New `Gate` control in the feel row so it is user-editable and modulation-targetable.
 - Floating LFO drag badge, waveform-shape picker for both oscillator and LFO slots, active
   styling for the bipolar/unipolar chip, and a timed LFO status line.
+- Shared mode-group taxonomy with Nelody: Rhythm, Stochastic, Chaos / Physics, Fractal,
+  Cellular, Geometric, Number Theory, Music Theory and Acid (Acid is omitted here).
+
+### Changed
+
+- Credit / Contact rows are flush, with no inter-row spacing.
+- Mode entries in the mode picker are 11px (up 2px).
+- LFO drag points are 30×28, matching the bipolar/unipolar chip.
+- Version is 1.2.0.
 
 ## 1.1.0 — Nelody migration
 
