@@ -2,9 +2,13 @@
 use crate::globals;
 use crate::keys;
 use crate::midi_export;
+use crate::modulation::{format_target_value, target_in_mask, LfoClock, LFO_COUNT, LFO_MAX_HZ};
 use crate::sequence::{generate, GenParams, Pattern, Rng, MAX_STEPS, MIN_MAX_STEPS, TRACKS};
 use crate::view::{self, View};
-use crate::{cell_count_for, scope, DrumParams, Mode, OscWave, Rate, Shared, Theme as PluginTheme};
+use crate::{
+    cell_count_for, scope, DrumParams, LfoPolarity, LfoRateMode, ModTarget, Mode, OscWave, Rate,
+    Shared, Theme as PluginTheme,
+};
 use nice_plug::prelude::*;
 use slint::platform::WindowEvent;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
@@ -16,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 slint::include_modules!();
 const WIDTH: u32 = 860;
-const HEIGHT: u32 = 660;
+const HEIGHT: u32 = 760;
 
 /// Append one technical line to `nDrum.log` in the user's home directory. Called from the GUI
 /// update thread only; the audio path never touches the file system.
@@ -138,8 +142,34 @@ fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
         11 => set(c, &p.symmetry, (value.round() as i32).clamp(1, 8)),
         12 => set(c, &p.randomize_after_lengths, (value.round() as i32).clamp(0, 256)),
         13 => set(c, &p.swing, value.clamp(0.0, 0.5)),
+        15 => set(c, &p.gate, value.clamp(0.02, 1.0)),
         _ => {},
     }
+}
+
+fn lfo_enabled_param(p: &DrumParams, slot: i32) -> &BoolParam {
+    match slot { 1 => &p.lfo1_enabled, 2 => &p.lfo2_enabled, 3 => &p.lfo3_enabled, _ => &p.lfo4_enabled }
+}
+fn lfo_wave_param(p: &DrumParams, slot: i32) -> &EnumParam<OscWave> {
+    match slot { 1 => &p.lfo1_wave, 2 => &p.lfo2_wave, 3 => &p.lfo3_wave, _ => &p.lfo4_wave }
+}
+fn lfo_rate_mode_param(p: &DrumParams, slot: i32) -> &EnumParam<LfoRateMode> {
+    match slot { 1 => &p.lfo1_rate_mode, 2 => &p.lfo2_rate_mode, 3 => &p.lfo3_rate_mode, _ => &p.lfo4_rate_mode }
+}
+fn lfo_freq_param(p: &DrumParams, slot: i32) -> &FloatParam {
+    match slot { 1 => &p.lfo1_freq, 2 => &p.lfo2_freq, 3 => &p.lfo3_freq, _ => &p.lfo4_freq }
+}
+fn lfo_beat_param(p: &DrumParams, slot: i32) -> &FloatParam {
+    match slot { 1 => &p.lfo1_rate, 2 => &p.lfo2_rate, 3 => &p.lfo3_rate, _ => &p.lfo4_rate }
+}
+fn lfo_depth_param(p: &DrumParams, slot: i32) -> &FloatParam {
+    match slot { 1 => &p.lfo1_depth, 2 => &p.lfo2_depth, 3 => &p.lfo3_depth, _ => &p.lfo4_depth }
+}
+fn lfo_phase_param(p: &DrumParams, slot: i32) -> &FloatParam {
+    match slot { 1 => &p.lfo1_phase, 2 => &p.lfo2_phase, 3 => &p.lfo3_phase, _ => &p.lfo4_phase }
+}
+fn lfo_polarity_param(p: &DrumParams, slot: i32) -> &EnumParam<LfoPolarity> {
+    match slot { 1 => &p.lfo1_polarity, 2 => &p.lfo2_polarity, 3 => &p.lfo3_polarity, _ => &p.lfo4_polarity }
 }
 
 /// One mode-selection path for the grouped list and the mode-header wheel.
@@ -217,7 +247,131 @@ fn velocity_key(p: &DrumParams) -> [u32; TRACKS] {
 }
 fn rgb(c: [u8; 3]) -> slint::Color { slint::Color::from_rgb_u8(c[0], c[1], c[2]) }
 
+/// One modulation drop target's window-space rectangle, reported by the Slint controls.
+#[derive(Clone, Copy)]
+struct ModRect {
+    target: i32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    seq: u32,
+}
+
+/// Newest visible control under the pointer. Registration order resolves overlapping controls
+/// after a mode change reflows the parameter column.
+fn mod_target_at(rects: &[ModRect], x: f32, y: f32) -> Option<i32> {
+    rects
+        .iter()
+        .filter(|rect| x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h)
+        .max_by_key(|rect| rect.seq)
+        .map(|rect| rect.target)
+}
+
+fn lfo_source_label(p: &DrumParams, slot: usize) -> String {
+    let spec = p.lfo_spec(slot);
+    if !spec.enabled {
+        return format!("LFO {} · off", slot + 1);
+    }
+    let wave = <OscWave as Enum>::variants()[spec.wave.to_index()];
+    let speed = match spec.rate_mode {
+        LfoRateMode::Hz => crate::format_hz(spec.freq_hz),
+        LfoRateMode::Beats => format!("{:.2} beats", spec.rate_beats),
+    };
+    let polarity = match spec.polarity { LfoPolarity::Bipolar => "±", LfoPolarity::Unipolar => "+" };
+    format!("LFO {} · {wave} · {speed} · {polarity}", slot + 1)
+}
+
+fn matrix_rows(p: &DrumParams, clock: LfoClock) -> Vec<ModRow> {
+    let signals = p.lfo_signals(clock);
+    let mut rows = Vec::new();
+    for slot in 0..LFO_COUNT {
+        let mask = p.lfo_link_mask(slot);
+        if mask == 0 { continue; }
+        let source = lfo_source_label(p, slot);
+        for target in ModTarget::ALL {
+            if !target_in_mask(mask, target) { continue; }
+            let base = p.target_value(target, &[0.0; LFO_COUNT]);
+            let value = p.target_value(target, &signals);
+            rows.push(ModRow {
+                lfo: slot as i32 + 1,
+                target_id: target.index() as i32,
+                source: SharedString::from(source.as_str()),
+                target: SharedString::from(target.label()),
+                base: SharedString::from(format_target_value(target, base)),
+                value: SharedString::from(format_target_value(target, value)),
+                delta: SharedString::from(format!("{:+.2}", value - base)),
+            });
+        }
+    }
+    rows
+}
+
+/// Per-target overlay data: base/effective values, depth bands and the hover summary.
+fn target_views(p: &DrumParams, clock: LfoClock) -> Vec<ModTargetView> {
+    let signals = p.lfo_signals(clock);
+    ModTarget::ALL
+        .iter()
+        .map(|target| {
+            let target = *target;
+            let base = p.target_value(target, &[0.0; LFO_COUNT]);
+            let value = p.target_value(target, &signals);
+            let (min, max) = p.target_range(target);
+            let span = (max - min).max(1e-9);
+            let base01 = ((base - min) / span).clamp(0.0, 1.0);
+            let value01 = ((value - min) / span).clamp(0.0, 1.0);
+            let mut parts = Vec::new();
+            let mut depth_up = 0.0f32;
+            let mut depth_down = 0.0f32;
+            for slot in 0..LFO_COUNT {
+                if !target_in_mask(p.lfo_link_mask(slot), target) { continue; }
+                let spec = p.lfo_spec(slot);
+                if !spec.enabled {
+                    parts.push(format!("LFO{} off", slot + 1));
+                    continue;
+                }
+                let depth = spec.depth.clamp(0.0, 1.0) * 0.5;
+                depth_up += depth;
+                if spec.polarity == LfoPolarity::Bipolar { depth_down += depth; }
+                let speed = match spec.rate_mode {
+                    LfoRateMode::Hz if spec.freq_hz >= 10.0 => format!("{:.0}Hz", spec.freq_hz),
+                    LfoRateMode::Hz if spec.freq_hz >= 1.0 => format!("{:.1}Hz", spec.freq_hz),
+                    LfoRateMode::Hz => format!("{:.2}Hz", spec.freq_hz),
+                    LfoRateMode::Beats => format!("{:.1}b", spec.rate_beats),
+                };
+                let percent = signals[slot] * 50.0;
+                parts.push(format!(
+                    "LFO{} {speed} {}{:.0}%",
+                    slot + 1,
+                    if percent >= 0.0 { "+" } else { "" },
+                    percent
+                ));
+            }
+            ModTargetView {
+                target: target.index() as i32,
+                linked: !parts.is_empty(),
+                base,
+                value,
+                min,
+                max,
+                base01,
+                value01,
+                depth_up: depth_up.min(1.0),
+                depth_down: depth_down.min(1.0),
+                lfo_text: SharedString::from(parts.join(" · ")),
+                count: parts.len() as i32,
+            }
+        })
+        .collect()
+}
+
+fn lfo_dot_y(p: &DrumParams, slot: usize, phase: f32) -> f32 {
+    let wave = p.lfo_spec(slot).wave;
+    4.0 + (1.0 - crate::sequence::oscillator_value(wave.to_index(), phase)) * 32.0
+}
+
 static RANDOMIZE_NONCE: AtomicU32 = AtomicU32::new(1);
+static MOD_REG_SEQ: AtomicU32 = AtomicU32::new(1);
 
 /// True when the RANDOMIZE scope allows this group bit.
 fn scope_enabled(p: &DrumParams, bit: i32) -> bool { p.randomize_scope.value() & bit != 0 }
@@ -377,6 +531,8 @@ impl Editor for SlintEditor {
         ));
         let setup_midi_dir = midi_dir.clone();
         let update_midi_dir = midi_dir.clone();
+        let mod_rects = Arc::new(Mutex::new(Vec::<ModRect>::new()));
+        let setup_mod_rects = mod_rects.clone();
         // Keep the host factor in the atomic even when the host never calls
         // `set_scale_factor`: the close path reads it, and an unset value used to drop it.
         if scale > 0.0 && self.scale.load(Relaxed) == 0 { self.scale.store(scale.to_bits(), Relaxed); }
@@ -421,6 +577,77 @@ impl Editor for SlintEditor {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_set_osc_wave(move |v| {
                     set(&c, &p.osc_wave, OscWave::from_index(v.clamp(0, OscWave::variants().len() as i32 - 1) as usize));
+                });
+            }
+            {
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_set_lfo_enabled(move |slot, enabled| {
+                    set(&c, lfo_enabled_param(&p, slot), enabled);
+                });
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_set_lfo_wave(move |slot, v| {
+                    let wave = OscWave::from_index(v.clamp(0, OscWave::variants().len() as i32 - 1) as usize);
+                    set(&c, lfo_wave_param(&p, slot), wave);
+                });
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_set_lfo_rate_mode(move |slot, v| {
+                    let mode = LfoRateMode::from_index(v.clamp(0, 1) as usize);
+                    set(&c, lfo_rate_mode_param(&p, slot), mode);
+                });
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_set_lfo_speed(move |slot, value| {
+                    match lfo_rate_mode_param(&p, slot).value() {
+                        LfoRateMode::Hz => set(&c, lfo_freq_param(&p, slot), value.clamp(0.01, LFO_MAX_HZ)),
+                        LfoRateMode::Beats => set(&c, lfo_beat_param(&p, slot), value.clamp(0.25, 16.0)),
+                    }
+                });
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_set_lfo_depth(move |slot, value| set(&c, lfo_depth_param(&p, slot), value.clamp(0.0, 1.0)));
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_set_lfo_phase(move |slot, value| set(&c, lfo_phase_param(&p, slot), value.clamp(0.0, 1.0)));
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_set_lfo_polarity(move |slot, v| {
+                    let polarity = LfoPolarity::from_index(v.clamp(0, 1) as usize);
+                    set(&c, lfo_polarity_param(&p, slot), polarity);
+                });
+            }
+            {
+                let rects = setup_mod_rects.clone();
+                ui.global::<ModRegistry>().on_register(move |target, visible, x, y, w, h| {
+                    if target < 0 { return; }
+                    let mut rects = rects.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    rects.retain(|rect| rect.target != target);
+                    if visible {
+                        rects.push(ModRect { target, x, y, w, h, seq: MOD_REG_SEQ.fetch_add(1, Relaxed) });
+                    }
+                });
+            }
+            {
+                let (rects, p, weak) = (setup_mod_rects.clone(), setup_params.clone(), ui.as_weak());
+                ui.global::<ModDrag>().on_dropped(move |lfo, x, y| {
+                    let target = { let rects = rects.lock().unwrap_or_else(|poisoned| poisoned.into_inner()); mod_target_at(&rects, x, y) };
+                    let Some(target) = target.and_then(|i| ModTarget::from_index(i.max(0) as usize)) else { return; };
+                    let slot = lfo.round().clamp(1.0, 4.0) as usize;
+                    let linked = target_in_mask(p.lfo_link_mask(slot - 1), target);
+                    p.set_lfo_link(slot - 1, target, !linked);
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_mod_status(SharedString::from(format!(
+                            "LFO {slot} → {} {}",
+                            target.label(),
+                            if linked { "unlinked" } else { "linked" }
+                        )));
+                    }
+                });
+            }
+            {
+                let (p, weak) = (setup_params.clone(), ui.as_weak());
+                ui.on_delete_mod(move |lfo, target_index| {
+                    let slot = lfo.clamp(1, 4) as usize;
+                    let Some(target) = ModTarget::from_index(target_index.max(0) as usize) else { return; };
+                    p.set_lfo_link(slot - 1, target, false);
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_mod_status(SharedString::from(format!("LFO {slot} → {} removed", target.label())));
+                    }
                 });
             }
             {
@@ -520,6 +747,11 @@ impl Editor for SlintEditor {
             ui.set_wave_names(ModelRc::new(VecModel::from(
                 OscWave::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
+            ui.set_wave_paths(ModelRc::new(VecModel::from(
+                view::wave_icon_paths().into_iter().map(SharedString::from).collect::<Vec<_>>(),
+            )));
+            ui.set_mod_rows(ModelRc::new(VecModel::from(Vec::<ModRow>::new())));
+            ui.set_mod_status(SharedString::new());
             ui.set_rate_names(ModelRc::new(VecModel::from(
                 Rate::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
@@ -631,6 +863,7 @@ impl Editor for SlintEditor {
             ui.set_density(p.density.value());
             ui.set_probability(p.probability.value());
             ui.set_velocity(p.velocity.value());
+            ui.set_gate(p.gate.value());
             ui.set_regenerate_every(p.regenerate_every.value() as f32);
             ui.set_randomize_after_lengths(p.randomize_after_lengths.value() as f32);
             ui.set_swing(p.swing.value());
@@ -649,12 +882,92 @@ impl Editor for SlintEditor {
             ui.set_ca_rule(p.ca_rule.value() as f32);
             ui.set_symmetry(p.symmetry.value() as f32);
             ui.set_rate(p.rate.value() as i32);
+            let live_clock = update_shared.lfo_clock();
+            let views = target_views(p, live_clock);
+            let mod_model = ui.global::<ModView>().get_targets();
+            if mod_model.row_count() == views.len() {
+                for (i, view) in views.iter().enumerate() {
+                    if mod_model.row_data(i).as_ref() != Some(view) {
+                        mod_model.set_row_data(i, view.clone());
+                    }
+                }
+            } else {
+                ui.global::<ModView>().set_targets(ModelRc::new(VecModel::from(views)));
+            }
+            ui.set_lfo_running(update_shared.lfo_running.load(Relaxed));
+            for slot in 0..LFO_COUNT {
+                let phase = f32::from_bits(update_shared.lfo_phase[slot].load(Relaxed));
+                let dot_y = lfo_dot_y(p, slot, phase);
+                match slot {
+                    0 => {
+                        ui.set_lfo1_enabled(p.lfo1_enabled.value());
+                        ui.set_lfo1_wave(p.lfo1_wave.value().to_index() as i32);
+                        ui.set_lfo1_rate_mode(p.lfo1_rate_mode.value().to_index() as i32);
+                        ui.set_lfo1_freq(p.lfo1_freq.value());
+                        ui.set_lfo1_rate(p.lfo1_rate.value());
+                        ui.set_lfo1_depth(p.lfo1_depth.value());
+                        ui.set_lfo1_phase(p.lfo1_phase.value());
+                        ui.set_lfo1_polarity(p.lfo1_polarity.value().to_index() as i32);
+                        ui.set_lfo1_anim_phase(phase);
+                        ui.set_lfo1_dot_y(dot_y);
+                    }
+                    1 => {
+                        ui.set_lfo2_enabled(p.lfo2_enabled.value());
+                        ui.set_lfo2_wave(p.lfo2_wave.value().to_index() as i32);
+                        ui.set_lfo2_rate_mode(p.lfo2_rate_mode.value().to_index() as i32);
+                        ui.set_lfo2_freq(p.lfo2_freq.value());
+                        ui.set_lfo2_rate(p.lfo2_rate.value());
+                        ui.set_lfo2_depth(p.lfo2_depth.value());
+                        ui.set_lfo2_phase(p.lfo2_phase.value());
+                        ui.set_lfo2_polarity(p.lfo2_polarity.value().to_index() as i32);
+                        ui.set_lfo2_anim_phase(phase);
+                        ui.set_lfo2_dot_y(dot_y);
+                    }
+                    2 => {
+                        ui.set_lfo3_enabled(p.lfo3_enabled.value());
+                        ui.set_lfo3_wave(p.lfo3_wave.value().to_index() as i32);
+                        ui.set_lfo3_rate_mode(p.lfo3_rate_mode.value().to_index() as i32);
+                        ui.set_lfo3_freq(p.lfo3_freq.value());
+                        ui.set_lfo3_rate(p.lfo3_rate.value());
+                        ui.set_lfo3_depth(p.lfo3_depth.value());
+                        ui.set_lfo3_phase(p.lfo3_phase.value());
+                        ui.set_lfo3_polarity(p.lfo3_polarity.value().to_index() as i32);
+                        ui.set_lfo3_anim_phase(phase);
+                        ui.set_lfo3_dot_y(dot_y);
+                    }
+                    _ => {
+                        ui.set_lfo4_enabled(p.lfo4_enabled.value());
+                        ui.set_lfo4_wave(p.lfo4_wave.value().to_index() as i32);
+                        ui.set_lfo4_rate_mode(p.lfo4_rate_mode.value().to_index() as i32);
+                        ui.set_lfo4_freq(p.lfo4_freq.value());
+                        ui.set_lfo4_rate(p.lfo4_rate.value());
+                        ui.set_lfo4_depth(p.lfo4_depth.value());
+                        ui.set_lfo4_phase(p.lfo4_phase.value());
+                        ui.set_lfo4_polarity(p.lfo4_polarity.value().to_index() as i32);
+                        ui.set_lfo4_anim_phase(phase);
+                        ui.set_lfo4_dot_y(dot_y);
+                    }
+                }
+            }
+            if ui.get_matrix_open() {
+                let rows = matrix_rows(p, live_clock);
+                let model = ui.get_mod_rows();
+                if model.row_count() == rows.len() {
+                    for (i, row) in rows.iter().enumerate() {
+                        if model.row_data(i).as_ref() != Some(row) {
+                            model.set_row_data(i, row.clone());
+                        }
+                    }
+                } else {
+                    ui.set_mod_rows(ModelRc::new(VecModel::from(rows)));
+                }
+            }
             ui.set_free_run(p.free_run.value());
             ui.set_invert_on(p.invert.value());
             ui.set_mirror_on(p.mirror.value());
             ui.set_logging_on(p.logging.value());
             ui.set_generate_on(p.generate.value());
-            let gen_key = p.gen_params();
+            let gen_key = p.gen_params_at(update_shared.pattern_clock());
             let cur = update_shared.current_step.load(Relaxed);
             ui.set_current_step(cur);
             let mask = enabled_mask(p);
@@ -753,5 +1066,50 @@ mod tests {
     fn track_mask_covers_eight_lanes() {
         let p = DrumParams::default();
         assert_eq!(enabled_mask(&p) & 0b0000_0111, 0b0000_0111);
+    }
+
+    #[test]
+    fn modulation_hit_test_prefers_the_newest_overlapping_control() {
+        let rects = [
+            ModRect { target: 0, x: 0.0, y: 0.0, w: 100.0, h: 20.0, seq: 1 },
+            ModRect { target: 3, x: 0.0, y: 0.0, w: 100.0, h: 20.0, seq: 2 },
+        ];
+        assert_eq!(mod_target_at(&rects, 50.0, 10.0), Some(3));
+        assert_eq!(mod_target_at(&rects, 150.0, 10.0), None);
+    }
+
+    #[test]
+    fn matrix_rows_follow_links_and_show_modulated_values() {
+        let p = DrumParams {
+            lfo1_links: std::sync::atomic::AtomicU64::new(crate::modulation::target_bit(ModTarget::Steps)),
+            lfo1_wave: EnumParam::new("LFO 1 Wave", OscWave::Sine),
+            lfo1_rate_mode: EnumParam::new("LFO 1 Rate Mode", LfoRateMode::Hz),
+            lfo1_freq: FloatParam::new("LFO 1 Frequency", 0.5, FloatRange::Skewed { min: 0.01, max: LFO_MAX_HZ, factor: 0.25 }),
+            lfo1_depth: FloatParam::new("LFO 1 Depth", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            ..DrumParams::default()
+        };
+        let rows = matrix_rows(&p, LfoClock { beat: 0.5, seconds: 0.5 });
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].target.as_str(), "Steps");
+        assert_eq!(rows[0].target_id, ModTarget::Steps.index() as i32);
+        assert_ne!(rows[0].value.as_str(), rows[0].base.as_str());
+    }
+
+    #[test]
+    fn target_views_expose_base_and_modulated_positions() {
+        let p = DrumParams {
+            lfo1_links: std::sync::atomic::AtomicU64::new(crate::modulation::target_bit(ModTarget::Steps)),
+            lfo1_wave: EnumParam::new("LFO 1 Wave", OscWave::Sine),
+            lfo1_rate_mode: EnumParam::new("LFO 1 Rate Mode", LfoRateMode::Hz),
+            lfo1_freq: FloatParam::new("LFO 1 Frequency", 0.5, FloatRange::Skewed { min: 0.01, max: LFO_MAX_HZ, factor: 0.25 }),
+            lfo1_depth: FloatParam::new("LFO 1 Depth", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            ..DrumParams::default()
+        };
+        let views = target_views(&p, LfoClock { beat: 0.5, seconds: 0.5 });
+        let steps = &views[ModTarget::Steps.index()];
+        assert!(steps.linked);
+        assert!(steps.value01 > steps.base01);
+        assert!(steps.lfo_text.as_str().contains("LFO1"));
+        assert!(!views[ModTarget::Density.index()].linked);
     }
 }

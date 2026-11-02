@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — LFO subsystem
+
+### Added
+
+- Four runtime LFOs with Hz (0.01–10) or beat-synced speed, waveform, depth, phase,
+  bipolar/unipolar polarity and per-LFO enable.
+- Drag/drop modulation links, a read-only matrix with per-row delete, depth bands and animated
+  modulation bars on linked parameters, and a below-control hover summary.
+- New `Gate` control in the feel row so it is user-editable and modulation-targetable.
+
 ## 1.1.0 — Nelody migration
 
 ### Added

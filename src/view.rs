@@ -1,5 +1,8 @@
 //! Pure GUI geometry. Keep this free of Slint and plug-in types so every view can be tested.
-use crate::sequence::{cellular_row, GenParams, Pattern, MAX_STEPS, TRACKS, CA_ROWS};
+use crate::sequence::{
+    cellular_row, oscillator_value, oscillator_wave_count, GenParams, Pattern, MAX_STEPS, TRACKS,
+    CA_ROWS,
+};
 use crate::modes::Mode;
 use std::f32::consts::TAU;
 use std::fmt::Write;
@@ -26,6 +29,24 @@ fn polar(r: f32, turns: f32) -> (f32, f32) {
 fn mv(s: &mut String, x: f32, y: f32) { let _ = write!(s, "M{:.1} {:.1} ", x, y); }
 fn ln(s: &mut String, x: f32, y: f32) { let _ = write!(s, "L{:.1} {:.1} ", x, y); }
 fn line(s: &mut String, a: (f32, f32), b: (f32, f32)) { mv(s, a.0, a.1); ln(s, b.0, b.1); }
+
+/// Thumbnail paths for the oscillator/LFO picker, one per waveform in `OscWave` order. The icon
+/// viewbox is 100x40 and every path samples the generator's own `oscillator_value`, so a picker
+/// cannot advertise a shape the generator does not play.
+pub fn wave_icon_paths() -> Vec<String> {
+    (0..oscillator_wave_count)
+        .map(|wave| {
+            let mut s = String::new();
+            for k in 0..=64 {
+                let phase = k as f32 / 64.0;
+                let x = 2.0 + phase * 96.0;
+                let y = 4.0 + (1.0 - oscillator_value(wave, phase)) * 32.0;
+                if k == 0 { mv(&mut s, x, y) } else { ln(&mut s, x, y) }
+            }
+            s
+        })
+        .collect()
+}
 fn circle(s: &mut String, cx: f32, cy: f32, r: f32) {
     let _ = write!(s, "M{:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} ", cx + r, cy, cx - r, cy, cx + r, cy);
 }

@@ -23,7 +23,52 @@ export struct ModeEntry { group: string, index: int, header: bool }
 export struct ModeRow { header: bool, group: string, left: int, right: int, has-right: bool }
 export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float }
 export struct TrackRow { index: int, name: string, enabled: bool, cells: [StepCell] }
-export struct Opt { label: string, min: float, max: float, value: float, text: string, step: float }
+export struct Opt { label: string, min: float, max: float, value: float, text: string, step: float, number: string, scale: float }
+export struct ModRow { lfo: int, target-id: int, source: string, target: string, base: string, value: string, delta: string }
+export struct ModTargetView {
+    target: int,
+    linked: bool,
+    base: float,
+    value: float,
+    min: float,
+    max: float,
+    base01: float,
+    value01: float,
+    depth-up: float,
+    depth-down: float,
+    lfo-text: string,
+    count: int,
+}
+
+export global ModDrag {
+    in-out property <int> lfo: 0;
+    in-out property <length> x: 0px;
+    in-out property <length> y: 0px;
+    callback dropped(float, length, length);
+}
+
+export global ModRegistry {
+    callback register(int, bool, length, length, length, length);
+}
+
+export global ModHover {
+    in-out property <int> target: -1;
+    in-out property <length> x: 0px;
+    in-out property <length> y: 0px;
+}
+
+export global ModView {
+    in property <[ModTargetView]> targets;
+    public pure function view(index: int) -> ModTargetView {
+        if (index >= 0 && index < targets.length) {
+            return targets[index];
+        }
+        return {
+            target: -1, linked: false, base: 0, value: 0, min: 0, max: 1,
+            base01: 0, value01: 0, depth-up: 0, depth-down: 0, lfo-text: "", count: 0
+        };
+    }
+}
 
 component Selector inherits Rectangle {
     in property <[string]> options;
@@ -77,16 +122,56 @@ component ScopeChip inherits Rectangle {
 
 component OptSlider inherits Rectangle {
     in property <Opt> opt;
+    in property <int> mod-target: -1;
     callback changed(float);
     height: 25px;
     border-radius: 4px; background: Theme.control; clip: true;
     property <bool> edit-open: false;
     property <string> draft: "";
+    out property <bool> editing: root.edit-open;
+    property <bool> mod-registered: false;
+    property <ModTargetView> modview: ModView.view(root.mod-target);
+    property <bool> mod-hover: root.mod-target >= 0 && ModDrag.lfo > 0
+        && ModDrag.x >= root.absolute-position.x && ModDrag.x <= root.absolute-position.x + root.width
+        && ModDrag.y >= root.absolute-position.y && ModDrag.y <= root.absolute-position.y + root.height;
+    property <bool> hovered: ta.has-hover;
+    property <float> mod-base01: Math.clamp((root.modview.base - root.opt.min) / Math.max(root.opt.max - root.opt.min, 0.0001), 0, 1);
+    property <float> mod-value01: Math.clamp((root.modview.value - root.opt.min) / Math.max(root.opt.max - root.opt.min, 0.0001), 0, 1);
+    property <float> mod-up01: Math.min(1, root.modview.depth-up * (root.modview.max - root.modview.min) / Math.max(root.opt.max - root.opt.min, 0.0001));
+    property <float> mod-down01: Math.min(1, root.modview.depth-down * (root.modview.max - root.modview.min) / Math.max(root.opt.max - root.opt.min, 0.0001));
+    property <float> mod-band-low: Math.max(0, root.mod-base01 - root.mod-down01);
+    property <float> mod-band-high: Math.min(1, root.mod-base01 + root.mod-up01);
+    function report-mod() {
+        if (root.mod-target >= 0) {
+            ModRegistry.register(root.mod-target, root.visible, root.absolute-position.x, root.absolute-position.y, root.width, root.height);
+        }
+    }
     Rectangle {
         x: 0px; y: 0px; height: parent.height;
         width: parent.width * Math.clamp((root.opt.value - root.opt.min) / (root.opt.max - root.opt.min), 0, 1);
         background: @linear-gradient(90deg, Theme.c1 0%, Theme.c2 52%, Theme.c3 100%);
         opacity: 0.3;
+    }
+    if root.modview.linked: Rectangle {
+        x: parent.width * root.mod-band-low;
+        y: parent.height - 5px;
+        width: parent.width * Math.max(0, root.mod-band-high - root.mod-band-low);
+        height: 4px;
+        background: Theme.c3;
+        opacity: 0.20;
+    }
+    if root.modview.linked: Rectangle {
+        x: parent.width * Math.min(root.mod-base01, root.mod-value01);
+        y: parent.height - 4px;
+        width: parent.width * Math.abs(root.mod-value01 - root.mod-base01);
+        height: 3px;
+        background: Theme.c3;
+        opacity: 0.95;
+    }
+    if root.modview.linked: Rectangle {
+        x: Math.max(0px, Math.min(parent.width - 2px, parent.width * root.mod-value01 - 1px));
+        y: parent.height - 5px; width: 2px; height: 5px;
+        background: Theme.hi;
     }
     Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.opt.label; color: Theme.text; font-size: 11px; vertical-alignment: center; }
     Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.opt.text; color: Theme.text; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
@@ -98,7 +183,7 @@ component OptSlider inherits Rectangle {
         }
         double-clicked => {
             if (!root.edit-open) {
-                root.draft = root.opt.text;
+                root.draft = root.opt.number;
                 root.edit-open = true;
             }
         }
@@ -124,7 +209,7 @@ component OptSlider inherits Rectangle {
             edited => { root.draft = self.text; }
             accepted => {
                 if (root.draft.is-float()) {
-                    root.changed(Math.clamp(root.draft.to-float(), root.opt.min, root.opt.max));
+                    root.changed(Math.clamp(root.draft.to-float() * root.opt.scale, root.opt.min, root.opt.max));
                 }
                 root.edit-open = false;
             }
@@ -133,6 +218,35 @@ component OptSlider inherits Rectangle {
                 return reject;
             }
         }
+    }
+    if root.mod-hover: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        border-radius: 4px; border-width: 2px; border-color: Theme.c2;
+        background: transparent;
+    }
+    Timer {
+        interval: 30ms;
+        running: root.mod-target >= 0 && !root.mod-registered;
+        triggered => { root.mod-registered = true; root.report-mod(); }
+    }
+    Timer {
+        interval: 250ms;
+        running: root.mod-target >= 0;
+        triggered => { root.report-mod(); }
+    }
+    Timer {
+        interval: 40ms;
+        running: root.hovered && root.mod-target >= 0 && !root.edit-open;
+        triggered => {
+            ModHover.target = root.mod-target;
+            ModHover.x = root.absolute-position.x;
+            ModHover.y = root.absolute-position.y + root.height;
+        }
+    }
+    Timer {
+        interval: 40ms;
+        running: !root.hovered && ModHover.target == root.mod-target;
+        triggered => { ModHover.target = -1; }
     }
 }
 // Slint's SpinBox is <int>-only, so this carries fractional values such as 16.5 steps.
@@ -144,7 +258,25 @@ component NumBox inherits Rectangle {
     in property <float> maximum: 100;
     in property <float> step: 1;
     in property <int> decimals: 0;
+    in property <int> mod-target: -1;
     callback changed(float);
+    property <bool> mod-registered: false;
+    property <ModTargetView> modview: ModView.view(root.mod-target);
+    property <bool> mod-hover: root.mod-target >= 0 && ModDrag.lfo > 0
+        && ModDrag.x >= root.absolute-position.x && ModDrag.x <= root.absolute-position.x + root.width
+        && ModDrag.y >= root.absolute-position.y && ModDrag.y <= root.absolute-position.y + root.height;
+    property <bool> hovered: wheel.has-hover;
+    property <float> mod-base01: Math.clamp((root.modview.base - root.minimum) / Math.max(root.maximum - root.minimum, 0.0001), 0, 1);
+    property <float> mod-value01: Math.clamp((root.modview.value - root.minimum) / Math.max(root.maximum - root.minimum, 0.0001), 0, 1);
+    property <float> mod-up01: Math.min(1, root.modview.depth-up * (root.modview.max - root.modview.min) / Math.max(root.maximum - root.minimum, 0.0001));
+    property <float> mod-down01: Math.min(1, root.modview.depth-down * (root.modview.max - root.modview.min) / Math.max(root.maximum - root.minimum, 0.0001));
+    property <float> mod-band-low: Math.max(0, root.mod-base01 - root.mod-down01);
+    property <float> mod-band-high: Math.min(1, root.mod-base01 + root.mod-up01);
+    function report-mod() {
+        if (root.mod-target >= 0) {
+            ModRegistry.register(root.mod-target, root.visible, root.absolute-position.x, root.absolute-position.y, root.width, root.height);
+        }
+    }
 
     height: 26px;
     border-radius: 4px;
@@ -169,6 +301,21 @@ component NumBox inherits Rectangle {
         x: 6px; width: parent.width - 12px;
         text: root.label;
         color: Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide;
+    }
+    if root.modview.linked: Rectangle {
+        x: 1px + (parent.width - 35px) * root.mod-band-low;
+        y: parent.height - 4px;
+        width: (parent.width - 35px) * Math.max(0, root.mod-band-high - root.mod-band-low);
+        height: 3px;
+        background: Theme.c3;
+        opacity: 0.20;
+    }
+    if root.modview.linked: Rectangle {
+        x: 1px + (parent.width - 35px) * Math.min(root.mod-base01, root.mod-value01);
+        y: parent.height - 3px;
+        width: (parent.width - 35px) * Math.abs(root.mod-value01 - root.mod-base01);
+        height: 2px;
+        background: Theme.c3;
     }
     down := Rectangle {
         x: parent.width - 34px; y: 1px; width: 16px; height: parent.height - 2px;
@@ -213,6 +360,198 @@ component NumBox inherits Rectangle {
             if (event.text == Key.DownArrow) { root.nudge(-1); return accept; }
             return reject;
         }
+    }
+    if root.mod-hover: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        border-radius: 4px; border-width: 2px; border-color: Theme.c2;
+        background: transparent;
+    }
+    Timer {
+        interval: 30ms;
+        running: root.mod-target >= 0 && !root.mod-registered;
+        triggered => { root.mod-registered = true; root.report-mod(); }
+    }
+    Timer {
+        interval: 250ms;
+        running: root.mod-target >= 0;
+        triggered => { root.report-mod(); }
+    }
+    Timer {
+        interval: 40ms;
+        running: root.hovered && root.mod-target >= 0 && !input.has-focus;
+        triggered => {
+            ModHover.target = root.mod-target;
+            ModHover.x = root.absolute-position.x;
+            ModHover.y = root.absolute-position.y + root.height;
+        }
+    }
+    Timer {
+        interval: 40ms;
+        running: !root.hovered && ModHover.target == root.mod-target;
+        triggered => { ModHover.target = -1; }
+    }
+}
+
+// Collapsed waveform picker with a live LFO phase dot.
+component WavePicker inherits Rectangle {
+    in property <[string]> paths;
+    in property <[string]> names;
+    in property <int> current;
+    in property <float> anim-phase: 0;
+    in property <float> dot-y: 20;
+    in property <bool> show-dot: false;
+    in property <bool> running: false;
+    callback selected(int);
+    callback opened(length, length);
+    height: 28px; border-radius: 4px;
+    background: ta.has-hover ? Theme.control-hover : Theme.control;
+    border-width: 1px; border-color: Theme.border;
+    Text { x: 8px; width: Math.max(parent.width - 96px, 0px); height: parent.height; text: root.current < root.names.length ? root.names[root.current] : ""; color: Theme.text; font-size: 10px; vertical-alignment: center; overflow: elide; }
+    Path {
+        x: Math.max(parent.width - 76px, 6px); y: 4px;
+        width: Math.min(50px, parent.width - 28px); height: parent.height - 8px;
+        viewbox-x: 0; viewbox-y: 0; viewbox-width: 100; viewbox-height: 40;
+        commands: root.current < root.paths.length ? root.paths[root.current] : "";
+        fill: transparent; stroke: Theme.c1; stroke-width: 1.2px;
+    }
+    if root.show-dot: Rectangle {
+        x: Math.max(parent.width - 76px, 6px) + (2.0 + root.anim-phase * 96.0) / 100.0 * Math.min(50px, parent.width - 28px) - 2px;
+        y: 4px + (root.dot-y / 40.0) * (parent.height - 8px) - 2px;
+        width: 4px; height: 4px; border-radius: 2px;
+        background: Theme.hi;
+        opacity: root.running ? 0.9 : 0.25;
+    }
+    Text { x: parent.width - 22px; width: 16px; height: parent.height; text: "▾"; color: Theme.text-muted; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+    ta := TouchArea {
+        clicked => { root.opened(root.absolute-position.x, root.absolute-position.y + root.height); }
+        scroll-event(e) => {
+            if (e.delta-y != 0px) {
+                root.selected(Math.max(0, Math.min(root.current + (e.delta-y > 0px ? 1 : -1), root.paths.length - 1)));
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+}
+
+// Small state button used by the LFO rack.
+component LfoChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    in property <length> text-size: 9px;
+    callback clicked();
+    height: 28px; border-radius: 4px;
+    background: ta.has-hover ? Theme.control-hover : Theme.control;
+    border-width: 1px; border-color: Theme.border;
+    Text { width: parent.width; height: parent.height; text: root.label; color: root.active ? Theme.c1 : Theme.text; font-size: root.text-size; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// One LFO in the 2x2 rack.
+component LfoCell inherits Rectangle {
+    in property <int> index: 1;
+    in property <bool> enabled: true;
+    in property <int> wave: 0;
+    in property <int> rate-mode: 0;
+    in property <float> freq: 0.5;
+    in property <float> beats: 4;
+    in property <float> depth: 0;
+    in property <float> phase: 0;
+    in property <int> polarity: 0;
+    in property <float> anim-phase: 0;
+    in property <float> dot-y: 20;
+    in property <bool> running: true;
+    in property <[string]> wave-paths;
+    in property <[string]> wave-names;
+    callback wave-selected(int);
+    callback wave-opened(length, length);
+    callback enabled-toggled();
+    callback rate-mode-toggled();
+    callback speed-changed(float);
+    callback depth-changed(float);
+    callback phase-changed(float);
+    callback polarity-toggled();
+    out property <bool> editing: speed-slider.editing || depth-slider.editing || phase-slider.editing;
+
+    property <color> accent: root.index == 1 ? Theme.c1 : (root.index == 2 ? Theme.c2 : (root.index == 3 ? Theme.c3 : Theme.hi));
+    function format-hz(v: float) -> string {
+        if (v >= 10) { return "\{Math.round(v * 10) / 10} Hz"; }
+        return "\{Math.round(v * 100) / 100} Hz";
+    }
+    height: 28px;
+    HorizontalLayout {
+        spacing: 4px;
+        Rectangle {
+            width: 16px; height: 28px; background: transparent;
+            Rectangle {
+                y: 6px; width: 16px; height: 16px; border-radius: 3px;
+                background: root.accent;
+                Text { text: "\{root.index}"; color: Theme.on-accent; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                handle-touch := TouchArea {
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                            ModDrag.lfo = root.index;
+                            ModDrag.x = handle-touch.absolute-position.x + handle-touch.mouse-x;
+                            ModDrag.y = handle-touch.absolute-position.y + handle-touch.mouse-y;
+                        } else if (e.kind == PointerEventKind.move && ModDrag.lfo == root.index) {
+                            ModDrag.x = handle-touch.absolute-position.x + handle-touch.mouse-x;
+                            ModDrag.y = handle-touch.absolute-position.y + handle-touch.mouse-y;
+                        } else if (e.kind == PointerEventKind.up && ModDrag.lfo == root.index) {
+                            ModDrag.dropped(root.index, ModDrag.x, ModDrag.y);
+                            ModDrag.lfo = 0;
+                        } else if (e.kind == PointerEventKind.cancel) {
+                            ModDrag.lfo = 0;
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle {
+            width: 34px; height: 28px; background: transparent;
+            Text {
+                width: parent.width; height: parent.height;
+                text: "LFO \{root.index}";
+                color: root.enabled ? root.accent : Theme.text-muted;
+                opacity: root.enabled ? 1.0 : 0.65;
+                font-size: 9px; font-weight: 700;
+                vertical-alignment: center; overflow: elide;
+            }
+            TouchArea { clicked => { root.enabled-toggled(); } }
+        }
+        WavePicker {
+            width: 76px; height: 28px;
+            paths: root.wave-paths; names: root.wave-names; current: root.wave;
+            anim-phase: root.anim-phase; dot-y: root.dot-y; show-dot: true; running: root.running;
+            selected(i) => { root.wave-selected(i); }
+            opened(x, y) => { root.wave-opened(x, y); }
+        }
+        LfoChip { width: 28px; label: root.rate-mode == 0 ? "Hz" : "BT"; active: false; clicked => { root.rate-mode-toggled(); } }
+        speed-slider := OptSlider {
+            width: 84px; height: 25px;
+            opt: {
+                label: "Rate",
+                min: root.rate-mode == 0 ? 0.01 : 0.25,
+                max: root.rate-mode == 0 ? 10 : 16,
+                value: root.rate-mode == 0 ? root.freq : root.beats,
+                text: root.rate-mode == 0 ? root.format-hz(root.freq) : "\{Math.round(root.beats * 100) / 100}",
+                step: root.rate-mode == 0 ? 0.01 : 0.25,
+                number: root.rate-mode == 0 ? "\{Math.round(root.freq * 100) / 100}" : "\{Math.round(root.beats * 100) / 100}",
+                scale: 1
+            };
+            changed(v) => { root.speed-changed(v); }
+        }
+        depth-slider := OptSlider {
+            width: 58px; height: 25px;
+            opt: { label: "Dep", min: 0, max: 1, value: root.depth, text: "\{Math.round(root.depth * 100)}%", step: 0.01, number: "\{Math.round(root.depth * 100)}", scale: 0.01 };
+            changed(v) => { root.depth-changed(v); }
+        }
+        phase-slider := OptSlider {
+            width: 52px; height: 25px;
+            opt: { label: "Phs", min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", step: 0.01, number: "\{Math.round(root.phase * 360)}", scale: 1.0 / 360.0 };
+            changed(v) => { root.phase-changed(v); }
+        }
+        LfoChip { width: 30px; label: root.polarity == 0 ? "±" : "+"; text-size: 11px; active: root.polarity == 0; clicked => { root.polarity-toggled(); } }
     }
 }
 
@@ -319,7 +658,7 @@ export component AppWindow inherits Window {
     // Fixed layout size: the window never resizes (a live resize glitched the GL surface),
     // so the host cannot be fought over it.
     in property <length> base-width: 860px;
-    in property <length> base-height: 660px;
+    in property <length> base-height: 760px;
     preferred-width: root.base-width; preferred-height: root.base-height;
     background: @linear-gradient(135deg, Theme.bg1 0%, Theme.bg2 50%, Theme.bg3 100%);
     in property <int> mode: 0;
@@ -356,6 +695,7 @@ export component AppWindow inherits Window {
     in property <float> density: 0.65;
     in property <float> probability: 1.0;
     in property <float> velocity: 1.0;
+    in property <float> gate: 0.12;
     in property <float> regenerate-every: 0;
     in property <float> randomize-after-lengths: 0;
     in property <float> swing: 0;
@@ -368,6 +708,56 @@ export component AppWindow inherits Window {
     in property <[string]> rate-names;
     in property <int> osc-wave: 0;
     in property <[string]> wave-names;
+    in property <[string]> wave-paths;
+    // Four runtime LFOs.
+    in property <bool> lfo1-enabled: true;
+    in property <int> lfo1-wave: 0;
+    in property <int> lfo1-rate-mode: 0;
+    in property <float> lfo1-freq: 0.5;
+    in property <float> lfo1-rate: 4.0;
+    in property <float> lfo1-depth: 0.0;
+    in property <float> lfo1-phase: 0.0;
+    in property <int> lfo1-polarity: 0;
+    in property <float> lfo1-anim-phase: 0.0;
+    in property <float> lfo1-dot-y: 20.0;
+    in property <bool> lfo2-enabled: true;
+    in property <int> lfo2-wave: 1;
+    in property <int> lfo2-rate-mode: 0;
+    in property <float> lfo2-freq: 0.25;
+    in property <float> lfo2-rate: 8.0;
+    in property <float> lfo2-depth: 0.0;
+    in property <float> lfo2-phase: 0.0;
+    in property <int> lfo2-polarity: 0;
+    in property <float> lfo2-anim-phase: 0.0;
+    in property <float> lfo2-dot-y: 20.0;
+    in property <bool> lfo3-enabled: true;
+    in property <int> lfo3-wave: 2;
+    in property <int> lfo3-rate-mode: 0;
+    in property <float> lfo3-freq: 1.0;
+    in property <float> lfo3-rate: 2.0;
+    in property <float> lfo3-depth: 0.0;
+    in property <float> lfo3-phase: 0.0;
+    in property <int> lfo3-polarity: 0;
+    in property <float> lfo3-anim-phase: 0.0;
+    in property <float> lfo3-dot-y: 20.0;
+    in property <bool> lfo4-enabled: true;
+    in property <int> lfo4-wave: 3;
+    in property <int> lfo4-rate-mode: 0;
+    in property <float> lfo4-freq: 2.0;
+    in property <float> lfo4-rate: 1.0;
+    in property <float> lfo4-depth: 0.0;
+    in property <float> lfo4-phase: 0.0;
+    in property <int> lfo4-polarity: 0;
+    in property <float> lfo4-anim-phase: 0.0;
+    in property <float> lfo4-dot-y: 20.0;
+    in property <bool> lfo-running: false;
+    in-out property <bool> matrix-open: false;
+    in-out property <length> matrix-y: root.base-height;
+    changed matrix-open => {
+        root.matrix-y = root.matrix-open ? root.base-height - 300px : root.base-height;
+    }
+    in property <[ModRow]> mod-rows;
+    in-out property <string> mod-status: "";
     in property <bool> scope-mode: true;
     in property <bool> scope-length: true;
     in property <bool> scope-rhythm: true;
@@ -386,7 +776,7 @@ export component AppWindow inherits Window {
     // DAW track hosting this instance; empty when the host does not report one.
     in property <string> track-name: "";
     // Any text field with keyboard focus. Rust reads this each frame (see `keys.rs`).
-    out property <bool> text-focused: midi-input.has-focus || max-steps-box.editing;
+    out property <bool> text-focused: midi-input.has-focus || max-steps-box.editing || lfo1-cell.editing || lfo2-cell.editing || lfo3-cell.editing || lfo4-cell.editing;
     in-out property <string> export-status: "";
     in property <int> theme-index: 0;
     in-out property <bool> mode-menu-open: false;
@@ -398,6 +788,8 @@ export component AppWindow inherits Window {
     in-out property <length> clock-menu-x: 0px;
     in-out property <length> clock-menu-y: 0px;
     in-out property <bool> wave-menu-open: false;
+    // 0 = oscillator picker, 1..4 = LFO slot.
+    in-out property <int> wave-menu-target: 0;
     in-out property <length> wave-menu-x: 0px;
     in-out property <length> wave-menu-y: 0px;
     in-out property <bool> scope-menu-open: false;
@@ -426,6 +818,14 @@ export component AppWindow inherits Window {
     callback step-mode(int);
     callback set-rate(int);
     callback set-osc-wave(int);
+    callback set-lfo-enabled(int, bool);
+    callback set-lfo-wave(int, int);
+    callback set-lfo-rate-mode(int, int);
+    callback set-lfo-speed(int, float);
+    callback set-lfo-depth(int, float);
+    callback set-lfo-phase(int, float);
+    callback set-lfo-polarity(int, int);
+    callback delete-mod(int, int);
     callback set-theme(int);
     callback set-opt(int, float);
     callback toggle-round-steps();
@@ -574,20 +974,21 @@ export component AppWindow inherits Window {
         "Henon map: the classic two-dimensional attractor, started near the origin with a transient and an escape guard. Density sets a, each lane fires on its largest x-moves, and the panel draws the attractor path."
     ];
     property <[Opt]> opts: [
-        { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 1000) / 1000}", step: root.round-steps ? 1 : 0.01 },
-        { label: root.pulse-label(root.mode), min: 0, max: root.pulses-max(root.mode), value: Math.min(root.pulses, root.pulses-max(root.mode)), text: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", step: 1 },
-        { label: "Rotate", min: 0, max: Math.max(root.cells - 1, 0), value: Math.min(root.rotate, Math.max(root.cells - 1, 0)), text: "\{Math.round(Math.min(root.rotate, Math.max(root.cells - 1, 0)))}", step: 1 },
-        { label: root.density-label(root.mode), min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", step: 0.01 },
-        { label: "Seed", min: 0, max: 1, value: root.seed, text: "\{Math.round(root.seed * 1000) / 1000}", step: 0.001 },
-        { label: root.phase-label(root.mode), min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", step: 0.01 },
-        { label: root.osc-label(root.mode), min: root.mode == 16 ? 1 : 0.125, max: root.mode == 16 ? 16 : 8, value: root.mode == 16 ? Math.max(root.osc-rate, 1) : root.osc-rate, text: root.mode == 16 ? "\{Math.round(Math.max(root.osc-rate, 1))}" : "\{Math.round(root.osc-rate * 100) / 100}", step: root.mode == 16 ? 1 : 0.125 },
-        { label: root.ca-label(root.mode), min: 0, max: 255, value: root.ca-rule, text: root.mode == 16 ? "\{Math.round(root.ca-rule / 255 * 100)}%" : "\{Math.round(root.ca-rule)}", step: 1 },
-        { label: "Probability", min: 0, max: 1, value: root.probability, text: "\{Math.round(root.probability * 100)}%", step: 0.01 },
-        { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", step: 0.01 },
-        { label: root.regen-label(root.mode), min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", step: 1 },
-        { label: "Symmetry", min: 1, max: 8, value: root.symmetry, text: "\{Math.round(root.symmetry)}", step: 1 },
-        { label: "Randomize after lengths", min: 0, max: 256, value: root.randomize-after-lengths, text: "\{Math.round(root.randomize-after-lengths)}", step: 1 },
-        { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", step: 0.01 }
+        { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 1000) / 1000}", step: root.round-steps ? 1 : 0.01, number: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 1000) / 1000}", scale: 1 },
+        { label: root.pulse-label(root.mode), min: 0, max: root.pulses-max(root.mode), value: Math.min(root.pulses, root.pulses-max(root.mode)), text: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", step: 1, number: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", scale: 1 },
+        { label: "Rotate", min: 0, max: Math.max(root.cells - 1, 0), value: Math.min(root.rotate, Math.max(root.cells - 1, 0)), text: "\{Math.round(Math.min(root.rotate, Math.max(root.cells - 1, 0)))}", step: 1, number: "\{Math.round(Math.min(root.rotate, Math.max(root.cells - 1, 0)))}", scale: 1 },
+        { label: root.density-label(root.mode), min: 0, max: 1, value: root.density, text: "\{Math.round(root.density * 100)}%", step: 0.01, number: "\{Math.round(root.density * 100)}", scale: 0.01 },
+        { label: "Seed", min: 0, max: 1, value: root.seed, text: "\{Math.round(root.seed * 1000) / 1000}", step: 0.001, number: "\{Math.round(root.seed * 1000) / 1000}", scale: 1 },
+        { label: root.phase-label(root.mode), min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", step: 0.01, number: "\{Math.round(root.phase * 360)}", scale: 1.0 / 360.0 },
+        { label: root.osc-label(root.mode), min: root.mode == 16 ? 1 : 0.125, max: root.mode == 16 ? 16 : 8, value: root.mode == 16 ? Math.max(root.osc-rate, 1) : root.osc-rate, text: root.mode == 16 ? "\{Math.round(Math.max(root.osc-rate, 1))}" : "\{Math.round(root.osc-rate * 100) / 100}", step: root.mode == 16 ? 1 : 0.125, number: root.mode == 16 ? "\{Math.round(Math.max(root.osc-rate, 1))}" : "\{Math.round(root.osc-rate * 100) / 100}", scale: 1 },
+        { label: root.ca-label(root.mode), min: 0, max: 255, value: root.ca-rule, text: root.mode == 16 ? "\{Math.round(root.ca-rule / 255 * 100)}%" : "\{Math.round(root.ca-rule)}", step: 1, number: root.mode == 16 ? "\{Math.round(root.ca-rule / 255 * 100)}" : "\{Math.round(root.ca-rule)}", scale: root.mode == 16 ? 2.55 : 1 },
+        { label: "Probability", min: 0, max: 1, value: root.probability, text: "\{Math.round(root.probability * 100)}%", step: 0.01, number: "\{Math.round(root.probability * 100)}", scale: 0.01 },
+        { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", step: 0.01, number: "\{Math.round(root.velocity * 100)}", scale: 0.01 },
+        { label: root.regen-label(root.mode), min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", step: 1, number: "\{Math.round(root.regenerate-every)}", scale: 1 },
+        { label: "Symmetry", min: 1, max: 8, value: root.symmetry, text: "\{Math.round(root.symmetry)}", step: 1, number: "\{Math.round(root.symmetry)}", scale: 1 },
+        { label: "Randomize after lengths", min: 0, max: 256, value: root.randomize-after-lengths, text: "\{Math.round(root.randomize-after-lengths)}", step: 1, number: "\{Math.round(root.randomize-after-lengths)}", scale: 1 },
+        { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", step: 0.01, number: "\{Math.round(root.swing * 300)}", scale: 1.0 / 300.0 },
+        { label: "Gate", min: 0.02, max: 1, value: root.gate, text: "\{Math.round(root.gate * 100)}%", step: 0.01, number: "\{Math.round(root.gate * 100)}", scale: 0.01 }
     ];
 
     // Everything lives inside one fixed 860x760 coordinate space. The window never resizes;
@@ -685,26 +1086,25 @@ export component AppWindow inherits Window {
                 }
                 Rectangle { height: 2px; }
                 HorizontalLayout { spacing: 5px;
-                    OptSlider { opt: root.opts[0]; changed(v) => { root.set-opt(0, v); } }
-                    if root.shows-param(root.mode, 1): OptSlider { opt: root.opts[1]; changed(v) => { root.set-opt(1, v); } }
-                    OptSlider { opt: root.opts[2]; changed(v) => { root.set-opt(2, v); } }
-                    OptSlider { opt: root.opts[3]; changed(v) => { root.set-opt(3, v); } }
+                    OptSlider { opt: root.opts[0]; mod-target: 0; changed(v) => { root.set-opt(0, v); } }
+                    if root.shows-param(root.mode, 1): OptSlider { opt: root.opts[1]; mod-target: 1; changed(v) => { root.set-opt(1, v); } }
+                    OptSlider { opt: root.opts[2]; mod-target: 2; changed(v) => { root.set-opt(2, v); } }
+                    OptSlider { opt: root.opts[3]; mod-target: 3; changed(v) => { root.set-opt(3, v); } }
                 }
                 HorizontalLayout {
                     spacing: 5px;
-                    OptSlider { opt: root.opts[4]; changed(v) => { root.set-opt(4, v); } }
-                    if root.shows-param(root.mode, 5): OptSlider { opt: root.opts[5]; changed(v) => { root.set-opt(5, v); } }
-                    if root.shows-param(root.mode, 6): OptSlider { opt: root.opts[6]; changed(v) => { root.set-opt(6, v); } }
-                    if root.shows-param(root.mode, 7): OptSlider { opt: root.opts[7]; changed(v) => { root.set-opt(7, v); } }
+                    OptSlider { opt: root.opts[4]; mod-target: 4; changed(v) => { root.set-opt(4, v); } }
+                    if root.shows-param(root.mode, 5): OptSlider { opt: root.opts[5]; mod-target: 5; changed(v) => { root.set-opt(5, v); } }
+                    if root.shows-param(root.mode, 6): OptSlider { opt: root.opts[6]; mod-target: 6; changed(v) => { root.set-opt(6, v); } }
+                    if root.shows-param(root.mode, 7): OptSlider { opt: root.opts[7]; mod-target: 7; changed(v) => { root.set-opt(7, v); } }
                 }
                 HorizontalLayout { spacing: 5px;
-                    OptSlider { horizontal-stretch: 1; opt: root.opts[8]; changed(v) => { root.set-opt(8, v); } }
-                    VerticalLayout { width: 230px; spacing: 5px;
-                        OptSlider { opt: root.opts[9]; changed(v) => { root.set-opt(9, v); } }
-                        OptSlider { opt: root.opts[13]; changed(v) => { root.set-opt(13, v); } }
-                    }
+                    OptSlider { horizontal-stretch: 1; opt: root.opts[8]; mod-target: 8; changed(v) => { root.set-opt(8, v); } }
+                    OptSlider { width: 100px; opt: root.opts[9]; mod-target: 11; changed(v) => { root.set-opt(9, v); } }
+                    OptSlider { width: 100px; opt: root.opts[13]; mod-target: 9; changed(v) => { root.set-opt(13, v); } }
+                    OptSlider { width: 82px; opt: root.opts[14]; mod-target: 10; changed(v) => { root.set-opt(15, v); } }
                 }
-                if root.shows-param(root.mode, 11): HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[11]; changed(v) => { root.set-opt(11, v); } } }
+                if root.shows-param(root.mode, 11): HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[11]; mod-target: 13; changed(v) => { root.set-opt(11, v); } } }
                 if root.mode == 4: HorizontalLayout {
                     Rectangle {
                         width: 200px; height: 24px; border-radius: 4px; background: wave-field-touch.has-hover ? Theme.control-hover : Theme.control; border-width: 1px; border-color: Theme.border;
@@ -713,6 +1113,7 @@ export component AppWindow inherits Window {
                         wave-field-touch := TouchArea {
                             clicked => {
                                 root.wave-menu-open = !root.wave-menu-open;
+                                root.wave-menu-target = 0;
                                 if (root.wave-menu-open) { root.wave-menu-x = wave-field-touch.absolute-position.x; root.wave-menu-y = wave-field-touch.absolute-position.y + wave-field-touch.height + 2px; }
                                 root.clock-menu-open = false;
                             }
@@ -784,11 +1185,114 @@ export component AppWindow inherits Window {
                 }
             }
         }
+        // Four runtime LFOs in a 2x2 rack; the colored point is the drag handle.
+        Rectangle {
+            height: 88px; border-radius: 4px;
+            background: Theme.surface; border-width: 1px; border-color: Theme.border;
+            VerticalLayout {
+                padding: 5px; spacing: 3px;
+                HorizontalLayout {
+                    height: 16px; spacing: 5px;
+                    Text { text: "LFO MODULATION"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.mod-status != "" ? root.mod-status : "drag a colored point onto a parameter · click a name to disable";
+                        color: root.mod-status != "" ? Theme.c2 : Theme.text-muted;
+                        font-size: 8px; horizontal-alignment: right; vertical-alignment: center; overflow: elide;
+                    }
+                    Rectangle {
+                        width: 58px; height: 15px; border-radius: 3px;
+                        background: root.matrix-open ? Theme.c2.with-alpha(0.55) : (matrix-touch.has-hover ? Theme.control-hover : Theme.control);
+                        Text { text: "MATRIX ▤"; color: root.matrix-open ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
+                        matrix-touch := TouchArea {
+                            clicked => {
+                                root.matrix-open = !root.matrix-open;
+                                root.mode-menu-open = false;
+                                root.clock-menu-open = false;
+                                root.wave-menu-open = false;
+                                root.scope-menu-open = false;
+                                root.settings-open = false;
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    height: 28px; spacing: 5px;
+                    lfo1-cell := LfoCell {
+                        horizontal-stretch: 1;
+                        index: 1; enabled: root.lfo1-enabled; wave: root.lfo1-wave; rate-mode: root.lfo1-rate-mode;
+                        freq: root.lfo1-freq; beats: root.lfo1-rate; depth: root.lfo1-depth;
+                        phase: root.lfo1-phase; polarity: root.lfo1-polarity;
+                        anim-phase: root.lfo1-anim-phase; dot-y: root.lfo1-dot-y; running: root.lfo-running;
+                        wave-paths: root.wave-paths; wave-names: root.wave-names;
+                        wave-selected(i) => { root.set-lfo-wave(1, i); }
+                        wave-opened(x, y) => { root.wave-menu-open = true; root.wave-menu-target = 1; root.wave-menu-x = x; root.wave-menu-y = y - (root.wave-paths.length * 26px + 36px); }
+                        enabled-toggled => { root.set-lfo-enabled(1, !root.lfo1-enabled); }
+                        rate-mode-toggled => { root.set-lfo-rate-mode(1, root.lfo1-rate-mode == 0 ? 1 : 0); }
+                        speed-changed(v) => { root.set-lfo-speed(1, v); }
+                        depth-changed(v) => { root.set-lfo-depth(1, v); }
+                        phase-changed(v) => { root.set-lfo-phase(1, v); }
+                        polarity-toggled => { root.set-lfo-polarity(1, root.lfo1-polarity == 0 ? 1 : 0); }
+                    }
+                    lfo2-cell := LfoCell {
+                        horizontal-stretch: 1;
+                        index: 2; enabled: root.lfo2-enabled; wave: root.lfo2-wave; rate-mode: root.lfo2-rate-mode;
+                        freq: root.lfo2-freq; beats: root.lfo2-rate; depth: root.lfo2-depth;
+                        phase: root.lfo2-phase; polarity: root.lfo2-polarity;
+                        anim-phase: root.lfo2-anim-phase; dot-y: root.lfo2-dot-y; running: root.lfo-running;
+                        wave-paths: root.wave-paths; wave-names: root.wave-names;
+                        wave-selected(i) => { root.set-lfo-wave(2, i); }
+                        wave-opened(x, y) => { root.wave-menu-open = true; root.wave-menu-target = 2; root.wave-menu-x = x; root.wave-menu-y = y - (root.wave-paths.length * 26px + 36px); }
+                        enabled-toggled => { root.set-lfo-enabled(2, !root.lfo2-enabled); }
+                        rate-mode-toggled => { root.set-lfo-rate-mode(2, root.lfo2-rate-mode == 0 ? 1 : 0); }
+                        speed-changed(v) => { root.set-lfo-speed(2, v); }
+                        depth-changed(v) => { root.set-lfo-depth(2, v); }
+                        phase-changed(v) => { root.set-lfo-phase(2, v); }
+                        polarity-toggled => { root.set-lfo-polarity(2, root.lfo2-polarity == 0 ? 1 : 0); }
+                    }
+                }
+                HorizontalLayout {
+                    height: 28px; spacing: 5px;
+                    lfo3-cell := LfoCell {
+                        horizontal-stretch: 1;
+                        index: 3; enabled: root.lfo3-enabled; wave: root.lfo3-wave; rate-mode: root.lfo3-rate-mode;
+                        freq: root.lfo3-freq; beats: root.lfo3-rate; depth: root.lfo3-depth;
+                        phase: root.lfo3-phase; polarity: root.lfo3-polarity;
+                        anim-phase: root.lfo3-anim-phase; dot-y: root.lfo3-dot-y; running: root.lfo-running;
+                        wave-paths: root.wave-paths; wave-names: root.wave-names;
+                        wave-selected(i) => { root.set-lfo-wave(3, i); }
+                        wave-opened(x, y) => { root.wave-menu-open = true; root.wave-menu-target = 3; root.wave-menu-x = x; root.wave-menu-y = y - (root.wave-paths.length * 26px + 36px); }
+                        enabled-toggled => { root.set-lfo-enabled(3, !root.lfo3-enabled); }
+                        rate-mode-toggled => { root.set-lfo-rate-mode(3, root.lfo3-rate-mode == 0 ? 1 : 0); }
+                        speed-changed(v) => { root.set-lfo-speed(3, v); }
+                        depth-changed(v) => { root.set-lfo-depth(3, v); }
+                        phase-changed(v) => { root.set-lfo-phase(3, v); }
+                        polarity-toggled => { root.set-lfo-polarity(3, root.lfo3-polarity == 0 ? 1 : 0); }
+                    }
+                    lfo4-cell := LfoCell {
+                        horizontal-stretch: 1;
+                        index: 4; enabled: root.lfo4-enabled; wave: root.lfo4-wave; rate-mode: root.lfo4-rate-mode;
+                        freq: root.lfo4-freq; beats: root.lfo4-rate; depth: root.lfo4-depth;
+                        phase: root.lfo4-phase; polarity: root.lfo4-polarity;
+                        anim-phase: root.lfo4-anim-phase; dot-y: root.lfo4-dot-y; running: root.lfo-running;
+                        wave-paths: root.wave-paths; wave-names: root.wave-names;
+                        wave-selected(i) => { root.set-lfo-wave(4, i); }
+                        wave-opened(x, y) => { root.wave-menu-open = true; root.wave-menu-target = 4; root.wave-menu-x = x; root.wave-menu-y = y - (root.wave-paths.length * 26px + 36px); }
+                        enabled-toggled => { root.set-lfo-enabled(4, !root.lfo4-enabled); }
+                        rate-mode-toggled => { root.set-lfo-rate-mode(4, root.lfo4-rate-mode == 0 ? 1 : 0); }
+                        speed-changed(v) => { root.set-lfo-speed(4, v); }
+                        depth-changed(v) => { root.set-lfo-depth(4, v); }
+                        phase-changed(v) => { root.set-lfo-phase(4, v); }
+                        polarity-toggled => { root.set-lfo-polarity(4, root.lfo4-polarity == 0 ? 1 : 0); }
+                    }
+                }
+            }
+        }
         HorizontalLayout {
             height: 27px; spacing: 5px;
             HorizontalLayout {
                 spacing: 0px;
-                OptSlider { width: 205px; opt: root.opts[12]; changed(v) => { root.set-opt(12, v); } }
+                OptSlider { width: 205px; opt: root.opts[12]; mod-target: 14; changed(v) => { root.set-opt(12, v); } }
                 scope-gear := Rectangle {
                     width: 25px; height: 25px; border-radius: 4px;
                     background: root.scope-menu-open ? Theme.c2.with-alpha(0.5) : (scope-touch.has-hover ? Theme.control-hover : Theme.control);
@@ -804,7 +1308,7 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            OptSlider { width: 230px; opt: root.opts[10]; changed(v) => { root.set-opt(10, v); } }
+            OptSlider { width: 230px; opt: root.opts[10]; mod-target: 12; changed(v) => { root.set-opt(10, v); } }
             Rectangle { horizontal-stretch: 1; }
             Text { text: root.export-status; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide; }
             Rectangle {
@@ -834,8 +1338,10 @@ export component AppWindow inherits Window {
     // Tied to the animated position, not to the boolean: the scrim stays live while the panel
     // is still travelling out, and is absent once it is parked, so it cannot swallow clicks
     // meant for the editor underneath.
+    // Keep the LFO rack outside the settings scrim so it can still be dragged onto the
+    // Max Steps field while Settings is open.
     if root.settings-x < root.base-width: Rectangle {
-        x: 0px; y: 0px; width: root.base-width; height: root.base-height;
+        x: 0px; y: 0px; width: root.base-width; height: root.base-height - 105px;
         background: #00000066;
         TouchArea { clicked => { root.settings-open = false; } }
     }
@@ -874,7 +1380,7 @@ export component AppWindow inherits Window {
                 color: Theme.text-muted; font-size: 9px; wrap: word-wrap;
             }
             Text { text: "PATTERN LIMIT"; color: Theme.text-muted; font-size: 9px; }
-            max-steps-box := NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; changed(v) => { root.set-opt(14, v); } }
+            max-steps-box := NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; mod-target: 15; changed(v) => { root.set-opt(14, v); } }
             // The Pattern arrays are allocated for 1024 steps up front, so changing the ceiling
             // never requires a host or plug-in restart.
             Text { text: "Max steps applies immediately; no restart is needed."; color: Theme.text-muted; font-size: 9px; }
@@ -912,6 +1418,13 @@ export component AppWindow inherits Window {
         }
     }
     }
+    // Outside-click catcher for the dropdowns; declared before them so it cannot cover the
+    // popup rows.
+    if root.clock-menu-open || root.wave-menu-open || root.scope-menu-open: Rectangle {
+        x: 0px; y: 0px; width: root.base-width; height: root.base-height;
+        background: #00000008;
+        TouchArea { clicked => { root.clock-menu-open = false; root.wave-menu-open = false; root.scope-menu-open = false; } }
+    }
     // Clock-rate dropdown overlay.
     if root.clock-menu-open: DropdownList {
         x: root.clock-menu-x; y: root.clock-menu-y;
@@ -925,14 +1438,15 @@ export component AppWindow inherits Window {
         x: root.wave-menu-x; y: root.wave-menu-y;
         width: 160px; height: 260px;
         options: root.wave-names;
-        current: root.osc-wave;
-        selected(i) => { root.set-osc-wave(i); root.wave-menu-open = false; }
-    }
-    // Outside-click catcher for the dropdowns.
-    if root.clock-menu-open || root.wave-menu-open || root.scope-menu-open: Rectangle {
-        x: 0px; y: 0px; width: root.base-width; height: root.base-height;
-        background: #00000008;
-        TouchArea { clicked => { root.clock-menu-open = false; root.wave-menu-open = false; root.scope-menu-open = false; } }
+        current: root.wave-menu-target == 0 ? root.osc-wave : (root.wave-menu-target == 1 ? root.lfo1-wave : (root.wave-menu-target == 2 ? root.lfo2-wave : (root.wave-menu-target == 3 ? root.lfo3-wave : root.lfo4-wave)));
+        selected(i) => {
+            if (root.wave-menu-target == 0) { root.set-osc-wave(i); }
+            if (root.wave-menu-target == 1) { root.set-lfo-wave(1, i); }
+            if (root.wave-menu-target == 2) { root.set-lfo-wave(2, i); }
+            if (root.wave-menu-target == 3) { root.set-lfo-wave(3, i); }
+            if (root.wave-menu-target == 4) { root.set-lfo-wave(4, i); }
+            root.wave-menu-open = false;
+        }
     }
     // Randomize-scope popup.
     if root.scope-menu-open: Rectangle {
@@ -959,6 +1473,89 @@ export component AppWindow inherits Window {
                 ScopeChip { width: 74px; label: "ACID"; active: root.scope-acid; toggled => { root.toggle-scope(6); } }
                 ScopeChip { width: 74px; label: "FEEL"; active: root.scope-feel; toggled => { root.toggle-scope(7); } }
             }
+        }
+    }
+
+    // Read-only modulation matrix, sliding up from below.
+    if root.matrix-y < root.base-height: Rectangle {
+        x: 0px; y: 0px; width: root.base-width; height: root.base-height;
+        background: #00000055;
+        TouchArea { clicked => { root.matrix-open = false; } }
+    }
+    Rectangle {
+        x: 0px; y: root.matrix-y; width: root.base-width; height: 300px;
+        background: Theme.surface; border-width: 1px; border-color: Theme.border;
+        drop-shadow-blur: 16px; drop-shadow-color: #00000055; drop-shadow-offset-y: -4px;
+        animate y { duration: 150ms; easing: ease-in-out; }
+        VerticalLayout {
+            padding: 10px; spacing: 6px;
+            HorizontalLayout {
+                height: 24px;
+                Text { text: "MODULATION MATRIX"; color: Theme.c1; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+                Text { horizontal-stretch: 1; text: "drag an LFO point onto a parameter to link · × removes a link"; color: Theme.text-muted; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                Rectangle {
+                    width: 62px; height: 22px; border-radius: 4px;
+                    background: matrix-close.has-hover ? Theme.hi : Theme.control;
+                    Text { text: "CLOSE"; color: matrix-close.has-hover ? Theme.on-accent : Theme.text; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    matrix-close := TouchArea { clicked => { root.matrix-open = false; } }
+                }
+            }
+            HorizontalLayout {
+                height: 18px; spacing: 6px;
+                Text { width: 38px; text: "LFO"; color: Theme.text-muted; font-size: 10px; }
+                Text { width: 220px; text: "SOURCE"; color: Theme.text-muted; font-size: 10px; }
+                Text { width: 150px; text: "TARGET"; color: Theme.text-muted; font-size: 10px; }
+                Text { width: 70px; text: "BASE"; color: Theme.text-muted; font-size: 10px; horizontal-alignment: right; }
+                Text { width: 70px; text: "VALUE"; color: Theme.text-muted; font-size: 10px; horizontal-alignment: right; }
+                Text { width: 70px; text: "DELTA"; color: Theme.text-muted; font-size: 10px; horizontal-alignment: right; }
+                Text { width: 24px; text: ""; }
+            }
+            if root.mod-rows.length == 0: Text {
+                text: "No links yet. Drag a colored LFO point onto any numeric parameter.";
+                color: Theme.text-muted; font-size: 13px; wrap: word-wrap;
+            }
+            ScrollView {
+                vertical-stretch: 1;
+                vertical-scrollbar-policy: as-needed;
+                VerticalLayout {
+                    spacing: 2px;
+                    for row in root.mod-rows: Rectangle {
+                        height: 28px; border-radius: 3px;
+                        background: row.lfo == 1 ? Theme.c1.with-alpha(0.08) : (row.lfo == 2 ? Theme.c2.with-alpha(0.08) : (row.lfo == 3 ? Theme.c3.with-alpha(0.08) : Theme.hi.with-alpha(0.05)));
+                        HorizontalLayout {
+                            padding-left: 6px; padding-right: 6px; spacing: 6px;
+                            Text { width: 38px; text: "\{row.lfo}"; color: row.lfo == 1 ? Theme.c1 : (row.lfo == 2 ? Theme.c2 : (row.lfo == 3 ? Theme.c3 : Theme.hi)); font-size: 11px; font-weight: 700; vertical-alignment: center; }
+                            Text { width: 220px; text: row.source; color: Theme.text-muted; font-size: 11px; vertical-alignment: center; overflow: elide; }
+                            Text { width: 150px; text: row.target; color: Theme.text; font-size: 11px; vertical-alignment: center; overflow: elide; }
+                            Text { width: 70px; text: row.base; color: Theme.text-muted; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                            Text { width: 70px; text: row.value; color: Theme.c2; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                            Text { width: 70px; text: row.delta; color: Theme.text-muted; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                            Rectangle {
+                                width: 24px; height: 28px; border-radius: 3px;
+                                background: delete-touch.has-hover ? Theme.c3.with-alpha(0.65) : transparent;
+                                Text { width: parent.width; height: parent.height; text: "×"; color: delete-touch.has-hover ? Theme.on-accent : Theme.text-muted; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                                delete-touch := TouchArea { clicked => { root.delete-mod(row.lfo, row.target-id); } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Linked-LFO tooltip below the hovered parameter.
+    if ModHover.target >= 0 && ModView.view(ModHover.target).linked && !root.matrix-open && ModDrag.lfo == 0: Rectangle {
+        x: Math.max(6px, Math.min(ModHover.x, root.base-width - 326px));
+        y: Math.min(ModHover.y + 2px, root.base-height - 26px);
+        width: 320px; height: 22px;
+        border-radius: 4px; background: Theme.surface;
+        border-width: 1px; border-color: Theme.c3;
+        drop-shadow-blur: 10px; drop-shadow-color: #00000055; drop-shadow-offset-y: 3px;
+        Text {
+            x: 8px; width: parent.width - 16px; height: parent.height;
+            text: ModView.view(ModHover.target).lfo-text;
+            color: Theme.text; font-size: 10px;
+            vertical-alignment: center; overflow: elide;
         }
     }
 }

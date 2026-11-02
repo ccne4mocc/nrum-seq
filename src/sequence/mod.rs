@@ -53,9 +53,8 @@ pub(crate) use levy_flight::{step_min as levy_step_min, tail_alpha as levy_alpha
 pub(crate) use logistic::{r_of as logistic_r, x0 as logistic_x0};
 pub(crate) use oscillator::WAVE_COUNT as oscillator_wave_count;
 pub(crate) use tent_map::mu_of as tent_mu;
-// Only the panel's unit tests sample the waveform directly now; the panel itself reads the
-// generator's published `orbit`.
-#[cfg(test)]
+// The LFO picker samples the same waveform the oscillator generator uses, so the icon and the
+// modulation shape cannot drift. The panel itself reads the generator's published `orbit`.
 pub(crate) use oscillator::value as oscillator_value;
 pub(crate) use phyllotaxis::{
     lane_threshold as phyllotaxis_threshold, primary_phase as phyllotaxis_primary,

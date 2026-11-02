@@ -6,16 +6,19 @@ mod help;
 mod keys;
 mod midi_export;
 mod modes;
+mod modulation;
 mod sequence;
 mod view;
 
 pub use modes::Mode;
+pub use modulation::ModTarget;
 
+use modulation::{fold, target_bit, target_in_mask, LfoClock, LfoSpec, LFO_COUNT, LFO_MAX_HZ};
 use nice_plug::prelude::*;
 use sequence::{
     generate, GenParams, Pattern, DEFAULT_MAX_STEPS, MAX_STEPS, MIN_MAX_STEPS, TRACKS,
 };
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 
 #[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
@@ -128,6 +131,21 @@ pub enum OscWave {
     #[id = "noise"] #[name = "Noise"] Noise,
 }
 
+/// LFO speed domain. New projects default to Hz; the beat domain remains available for
+/// tempo-locked movement.
+#[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
+pub enum LfoRateMode {
+    #[id = "hz"] #[name = "Hz"] Hz,
+    #[id = "beats"] #[name = "Beats"] Beats,
+}
+
+/// Whether a modulation offset can move both ways or only upward from the base value.
+#[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
+pub enum LfoPolarity {
+    #[id = "bipolar"] #[name = "Bipolar"] Bipolar,
+    #[id = "unipolar"] #[name = "Unipolar"] Unipolar,
+}
+
 /// Which parameter groups RANDOMIZE is allowed to touch. One host parameter, five bits.
 pub mod scope {
     pub const MODE: i32 = 1 << 0;
@@ -178,6 +196,43 @@ pub struct DrumParams {
     /// Delays every second step by this fraction of a step. 0 is straight; 1/3 gives
     /// triplet feel. Applied in the beat domain so NoteOff follows the onset.
     #[id = "swing"] pub swing: FloatParam,
+    // --- LFO modulation (runtime overlay; links are persisted, values are host parameters) --
+    #[id = "lfo1_enabled"] pub lfo1_enabled: BoolParam,
+    #[id = "lfo1_wave"] pub lfo1_wave: EnumParam<OscWave>,
+    #[id = "lfo1_rate_mode"] pub lfo1_rate_mode: EnumParam<LfoRateMode>,
+    #[id = "lfo1_freq"] pub lfo1_freq: FloatParam,
+    #[id = "lfo1_rate"] pub lfo1_rate: FloatParam,
+    #[id = "lfo1_depth"] pub lfo1_depth: FloatParam,
+    #[id = "lfo1_phase"] pub lfo1_phase: FloatParam,
+    #[id = "lfo1_polarity"] pub lfo1_polarity: EnumParam<LfoPolarity>,
+    #[persist = "lfo1_links"] pub lfo1_links: AtomicU64,
+    #[id = "lfo2_enabled"] pub lfo2_enabled: BoolParam,
+    #[id = "lfo2_wave"] pub lfo2_wave: EnumParam<OscWave>,
+    #[id = "lfo2_rate_mode"] pub lfo2_rate_mode: EnumParam<LfoRateMode>,
+    #[id = "lfo2_freq"] pub lfo2_freq: FloatParam,
+    #[id = "lfo2_rate"] pub lfo2_rate: FloatParam,
+    #[id = "lfo2_depth"] pub lfo2_depth: FloatParam,
+    #[id = "lfo2_phase"] pub lfo2_phase: FloatParam,
+    #[id = "lfo2_polarity"] pub lfo2_polarity: EnumParam<LfoPolarity>,
+    #[persist = "lfo2_links"] pub lfo2_links: AtomicU64,
+    #[id = "lfo3_enabled"] pub lfo3_enabled: BoolParam,
+    #[id = "lfo3_wave"] pub lfo3_wave: EnumParam<OscWave>,
+    #[id = "lfo3_rate_mode"] pub lfo3_rate_mode: EnumParam<LfoRateMode>,
+    #[id = "lfo3_freq"] pub lfo3_freq: FloatParam,
+    #[id = "lfo3_rate"] pub lfo3_rate: FloatParam,
+    #[id = "lfo3_depth"] pub lfo3_depth: FloatParam,
+    #[id = "lfo3_phase"] pub lfo3_phase: FloatParam,
+    #[id = "lfo3_polarity"] pub lfo3_polarity: EnumParam<LfoPolarity>,
+    #[persist = "lfo3_links"] pub lfo3_links: AtomicU64,
+    #[id = "lfo4_enabled"] pub lfo4_enabled: BoolParam,
+    #[id = "lfo4_wave"] pub lfo4_wave: EnumParam<OscWave>,
+    #[id = "lfo4_rate_mode"] pub lfo4_rate_mode: EnumParam<LfoRateMode>,
+    #[id = "lfo4_freq"] pub lfo4_freq: FloatParam,
+    #[id = "lfo4_rate"] pub lfo4_rate: FloatParam,
+    #[id = "lfo4_depth"] pub lfo4_depth: FloatParam,
+    #[id = "lfo4_phase"] pub lfo4_phase: FloatParam,
+    #[id = "lfo4_polarity"] pub lfo4_polarity: EnumParam<LfoPolarity>,
+    #[persist = "lfo4_links"] pub lfo4_links: AtomicU64,
     /// A change in either direction requests a fresh deterministic variation.
     #[id = "generate"] pub generate: BoolParam,
     #[id = "invert"] pub invert: BoolParam,
@@ -212,6 +267,38 @@ pub struct DrumParams {
     #[id = "rim_velocity"] pub rim_velocity: FloatParam,
     #[id = "low_tom_velocity"] pub low_tom_velocity: FloatParam,
     #[id = "perc_velocity"] pub perc_velocity: FloatParam,
+}
+
+/// Format an LFO frequency in Hz. kHz is not offered: the speed field is either Hz or a
+/// beat-synced rate.
+fn format_hz(value: f32) -> String {
+    if !value.is_finite() {
+        return "0.00 Hz".to_string();
+    }
+    let value = value.clamp(0.01, LFO_MAX_HZ);
+    if value >= 10.0 {
+        format!("{value:.1} Hz")
+    } else {
+        format!("{value:.2} Hz")
+    }
+}
+
+/// Accept `Hz` or a bare number (interpreted as Hz) in typed speed fields.
+fn parse_hz(text: &str) -> Option<f32> {
+    let text = text.trim().to_ascii_lowercase();
+    let number = text.strip_suffix("hz").unwrap_or(text.as_str());
+    let value = number.trim().parse::<f32>().ok()?;
+    value.is_finite().then(|| value.clamp(0.01, LFO_MAX_HZ))
+}
+
+fn hz_param(name: &'static str, value: f32) -> FloatParam {
+    FloatParam::new(
+        name,
+        value,
+        FloatRange::Skewed { min: 0.01, max: LFO_MAX_HZ, factor: FloatRange::skew_factor(-2.0) },
+    )
+    .with_value_to_string(Arc::new(|v: f32| format_hz(v)))
+    .with_string_to_value(Arc::new(|s: &str| parse_hz(s)))
 }
 
 fn percentage_param(name: &'static str, value: f32) -> FloatParam {
@@ -255,6 +342,42 @@ impl Default for DrumParams {
             rate: EnumParam::new("Rate", Rate::Sixteenth),
             gate: FloatParam::new("Gate", 0.12, FloatRange::Linear { min: 0.02, max: 1.0 }),
             swing: FloatParam::new("Swing", 0.0, FloatRange::Linear { min: 0.0, max: 0.5 }),
+            lfo1_enabled: BoolParam::new("LFO 1 Enabled", true),
+            lfo1_wave: EnumParam::new("LFO 1 Wave", OscWave::Sine),
+            lfo1_rate_mode: EnumParam::new("LFO 1 Rate Mode", LfoRateMode::Hz),
+            lfo1_freq: hz_param("LFO 1 Frequency", 0.5),
+            lfo1_rate: FloatParam::new("LFO 1 Rate (beats)", 4.0, FloatRange::Linear { min: 0.25, max: 16.0 }),
+            lfo1_depth: FloatParam::new("LFO 1 Depth", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            lfo1_phase: FloatParam::new("LFO 1 Phase", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            lfo1_polarity: EnumParam::new("LFO 1 Polarity", LfoPolarity::Bipolar),
+            lfo1_links: AtomicU64::new(0),
+            lfo2_enabled: BoolParam::new("LFO 2 Enabled", true),
+            lfo2_wave: EnumParam::new("LFO 2 Wave", OscWave::Triangle),
+            lfo2_rate_mode: EnumParam::new("LFO 2 Rate Mode", LfoRateMode::Hz),
+            lfo2_freq: hz_param("LFO 2 Frequency", 0.25),
+            lfo2_rate: FloatParam::new("LFO 2 Rate (beats)", 8.0, FloatRange::Linear { min: 0.25, max: 16.0 }),
+            lfo2_depth: FloatParam::new("LFO 2 Depth", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            lfo2_phase: FloatParam::new("LFO 2 Phase", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            lfo2_polarity: EnumParam::new("LFO 2 Polarity", LfoPolarity::Bipolar),
+            lfo2_links: AtomicU64::new(0),
+            lfo3_enabled: BoolParam::new("LFO 3 Enabled", true),
+            lfo3_wave: EnumParam::new("LFO 3 Wave", OscWave::Saw),
+            lfo3_rate_mode: EnumParam::new("LFO 3 Rate Mode", LfoRateMode::Hz),
+            lfo3_freq: hz_param("LFO 3 Frequency", 1.0),
+            lfo3_rate: FloatParam::new("LFO 3 Rate (beats)", 2.0, FloatRange::Linear { min: 0.25, max: 16.0 }),
+            lfo3_depth: FloatParam::new("LFO 3 Depth", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            lfo3_phase: FloatParam::new("LFO 3 Phase", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            lfo3_polarity: EnumParam::new("LFO 3 Polarity", LfoPolarity::Bipolar),
+            lfo3_links: AtomicU64::new(0),
+            lfo4_enabled: BoolParam::new("LFO 4 Enabled", true),
+            lfo4_wave: EnumParam::new("LFO 4 Wave", OscWave::Square),
+            lfo4_rate_mode: EnumParam::new("LFO 4 Rate Mode", LfoRateMode::Hz),
+            lfo4_freq: hz_param("LFO 4 Frequency", 2.0),
+            lfo4_rate: FloatParam::new("LFO 4 Rate (beats)", 1.0, FloatRange::Linear { min: 0.25, max: 16.0 }),
+            lfo4_depth: FloatParam::new("LFO 4 Depth", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            lfo4_phase: FloatParam::new("LFO 4 Phase", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            lfo4_polarity: EnumParam::new("LFO 4 Polarity", LfoPolarity::Bipolar),
+            lfo4_links: AtomicU64::new(0),
             generate: BoolParam::new("Generate", false),
             invert: BoolParam::new("Invert Pattern", false),
             mirror: BoolParam::new("Mirror Pattern", false),
@@ -289,6 +412,16 @@ impl Default for DrumParams {
             perc_velocity: percentage_param("Percussion Velocity", 0.70),
         }
     }
+}
+
+/// Effective feel/scheduling values for one note or block.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ScheduleValues {
+    pub swing: f32,
+    pub gate: f32,
+    pub velocity: f32,
+    pub regenerate_every: i32,
+    pub randomize_after: i32,
 }
 
 impl DrumParams {
@@ -332,6 +465,191 @@ impl DrumParams {
     }
 
 
+    /// One LFO's settings as a compact, copyable value.
+    pub(crate) fn lfo_spec(&self, slot: usize) -> LfoSpec {
+        match slot {
+            0 => LfoSpec {
+                enabled: self.lfo1_enabled.value(),
+                wave: self.lfo1_wave.value(),
+                rate_mode: self.lfo1_rate_mode.value(),
+                freq_hz: self.lfo1_freq.value(),
+                rate_beats: self.lfo1_rate.value(),
+                depth: self.lfo1_depth.value(),
+                phase: self.lfo1_phase.value(),
+                polarity: self.lfo1_polarity.value(),
+            },
+            1 => LfoSpec {
+                enabled: self.lfo2_enabled.value(),
+                wave: self.lfo2_wave.value(),
+                rate_mode: self.lfo2_rate_mode.value(),
+                freq_hz: self.lfo2_freq.value(),
+                rate_beats: self.lfo2_rate.value(),
+                depth: self.lfo2_depth.value(),
+                phase: self.lfo2_phase.value(),
+                polarity: self.lfo2_polarity.value(),
+            },
+            2 => LfoSpec {
+                enabled: self.lfo3_enabled.value(),
+                wave: self.lfo3_wave.value(),
+                rate_mode: self.lfo3_rate_mode.value(),
+                freq_hz: self.lfo3_freq.value(),
+                rate_beats: self.lfo3_rate.value(),
+                depth: self.lfo3_depth.value(),
+                phase: self.lfo3_phase.value(),
+                polarity: self.lfo3_polarity.value(),
+            },
+            _ => LfoSpec {
+                enabled: self.lfo4_enabled.value(),
+                wave: self.lfo4_wave.value(),
+                rate_mode: self.lfo4_rate_mode.value(),
+                freq_hz: self.lfo4_freq.value(),
+                rate_beats: self.lfo4_rate.value(),
+                depth: self.lfo4_depth.value(),
+                phase: self.lfo4_phase.value(),
+                polarity: self.lfo4_polarity.value(),
+            },
+        }
+    }
+
+    pub(crate) fn lfo_signals(&self, clock: LfoClock) -> [f32; LFO_COUNT] {
+        std::array::from_fn(|slot| modulation::lfo_signal(self.lfo_spec(slot), clock))
+    }
+
+    fn lfo_link_field(&self, slot: usize) -> &AtomicU64 {
+        match slot {
+            0 => &self.lfo1_links,
+            1 => &self.lfo2_links,
+            2 => &self.lfo3_links,
+            _ => &self.lfo4_links,
+        }
+    }
+
+    pub(crate) fn lfo_link_mask(&self, slot: usize) -> u64 {
+        self.lfo_link_field(slot).load(Relaxed)
+    }
+
+    pub(crate) fn set_lfo_link(&self, slot: usize, target: ModTarget, linked: bool) {
+        let field = self.lfo_link_field(slot);
+        if linked {
+            field.fetch_or(target_bit(target), Relaxed);
+        } else {
+            field.fetch_and(!target_bit(target), Relaxed);
+        }
+    }
+
+    pub(crate) fn has_generation_links(&self) -> bool {
+        (0..LFO_COUNT).any(|slot| {
+            let mask = self.lfo_link_mask(slot);
+            ModTarget::ALL
+                .iter()
+                .any(|target| target.affects_generation() && target_in_mask(mask, *target))
+        })
+    }
+
+    fn target_base(&self, target: ModTarget) -> f32 {
+        match target {
+            ModTarget::Steps => self.steps.value(),
+            ModTarget::Pulses => self.pulses.value() as f32,
+            ModTarget::Rotate => self.rotate.value() as f32,
+            ModTarget::Density => self.density.value(),
+            ModTarget::Seed => self.seed.value(),
+            ModTarget::OscPhase => self.phase.value(),
+            ModTarget::OscRate => self.osc_rate.value(),
+            ModTarget::CaRule => self.ca_rule.value() as f32,
+            ModTarget::Probability => self.probability.value(),
+            ModTarget::Swing => self.swing.value(),
+            ModTarget::Gate => self.gate.value(),
+            ModTarget::Velocity => self.velocity.value(),
+            ModTarget::RegenerateEvery => self.regenerate_every.value() as f32,
+            ModTarget::Symmetry => self.symmetry.value() as f32,
+            ModTarget::RandomizeAfter => self.randomize_after_lengths.value() as f32,
+            ModTarget::MaxSteps => self.max_steps.value() as f32,
+        }
+    }
+
+    pub(crate) fn target_range(&self, target: ModTarget) -> (f32, f32) {
+        match target {
+            ModTarget::Steps => (1.0, self.step_ceiling() as f32),
+            ModTarget::Pulses => (0.0, self.step_ceiling() as f32),
+            ModTarget::Rotate => (0.0, (self.cell_count() - 1).max(0) as f32),
+            ModTarget::Density
+            | ModTarget::Seed
+            | ModTarget::OscPhase
+            | ModTarget::Probability => (0.0, 1.0),
+            ModTarget::OscRate => (0.125, 8.0),
+            ModTarget::CaRule => (0.0, 255.0),
+            ModTarget::Swing => (0.0, 0.5),
+            ModTarget::Gate => (0.02, 1.0),
+            ModTarget::Velocity => (0.01, 1.0),
+            ModTarget::RegenerateEvery | ModTarget::RandomizeAfter => (0.0, 256.0),
+            ModTarget::Symmetry => (1.0, 8.0),
+            ModTarget::MaxSteps => (MIN_MAX_STEPS as f32, MAX_STEPS as f32),
+        }
+    }
+
+    /// Base value plus every linked LFO's signal, clamped to the target's range. Integer targets
+    /// are rounded after summing so multiple LFOs combine predictably.
+    pub(crate) fn target_value(&self, target: ModTarget, signals: &[f32; LFO_COUNT]) -> f32 {
+        let base = self.target_base(target);
+        let (min, max) = self.target_range(target);
+        let mut offset = 0.0;
+        for (slot, signal) in signals.iter().enumerate() {
+            if target_in_mask(self.lfo_link_mask(slot), target) {
+                offset += *signal;
+            }
+        }
+        let value = fold(base, offset, min, max);
+        if target.is_int() { value.round().clamp(min, max) } else { value }
+    }
+
+    /// Effective generation snapshot at a clock position. Only pattern-shaping links change the
+    /// generated line; feel targets are still filled in so previews see one snapshot.
+    pub(crate) fn gen_params_at(&self, clock: LfoClock) -> GenParams {
+        let signals = self.lfo_signals(clock);
+        let cap = self
+            .target_value(ModTarget::MaxSteps, &signals)
+            .round()
+            .clamp(MIN_MAX_STEPS as f32, MAX_STEPS as f32) as usize;
+        let raw = self.target_value(ModTarget::Steps, &signals).clamp(1.0, cap as f32);
+        let snap = self.round_steps.value();
+        let cells = cell_count_for(raw, snap, cap);
+        let max_rotate = (cells - 1).max(0) as f32;
+        let mut out = self.gen_params();
+        out.steps = cells as usize;
+        out.length = if snap { cells as f32 } else { raw };
+        out.pulses = self
+            .target_value(ModTarget::Pulses, &signals)
+            .round()
+            .clamp(0.0, cap as f32) as usize;
+        out.rotate = self
+            .target_value(ModTarget::Rotate, &signals)
+            .round()
+            .clamp(0.0, max_rotate) as usize;
+        out.density = self.target_value(ModTarget::Density, &signals);
+        out.probability = self.target_value(ModTarget::Probability, &signals);
+        out.velocity = self.target_value(ModTarget::Velocity, &signals);
+        out.seed = self.target_value(ModTarget::Seed, &signals);
+        out.phase = self.target_value(ModTarget::OscPhase, &signals);
+        out.osc_rate = self.target_value(ModTarget::OscRate, &signals);
+        out.ca_rule = self.target_value(ModTarget::CaRule, &signals).round().clamp(0.0, 255.0) as u8;
+        out.symmetry = self
+            .target_value(ModTarget::Symmetry, &signals)
+            .round()
+            .clamp(1.0, 8.0) as usize;
+        out
+    }
+
+    pub(crate) fn schedule_at(&self, clock: LfoClock) -> ScheduleValues {
+        let signals = self.lfo_signals(clock);
+        ScheduleValues {
+            swing: self.target_value(ModTarget::Swing, &signals),
+            gate: self.target_value(ModTarget::Gate, &signals),
+            velocity: self.target_value(ModTarget::Velocity, &signals),
+            regenerate_every: self.target_value(ModTarget::RegenerateEvery, &signals).round() as i32,
+            randomize_after: self.target_value(ModTarget::RandomizeAfter, &signals).round() as i32,
+        }
+    }
+
     fn track_enabled(&self, t: usize) -> bool {
         match t { 0 => self.kick_on.value(), 1 => self.snare_on.value(), 2 => self.closed_hat_on.value(), 3 => self.open_hat_on.value(), 4 => self.clap_on.value(), 5 => self.rim_on.value(), 6 => self.low_tom_on.value(), _ => self.perc_on.value() }
     }
@@ -362,6 +680,14 @@ pub struct Shared {
     pub regen_pulse: AtomicBool,
     /// Last host tempo as `f32` bits, for the editor-side MIDI export. Zero means "not seen yet".
     pub tempo_bits: AtomicU32,
+    /// Current transport/free-run beat as `f64` bits, for LFO values and animation.
+    pub last_beat: AtomicU64,
+    /// Beat at which the current pattern was generated, for preview parity.
+    pub pattern_beat: AtomicU64,
+    /// Normalized phase of each LFO at the start of the last processed block.
+    pub lfo_phase: [AtomicU32; LFO_COUNT],
+    /// True while the host transport or free-run clock is advancing the LFOs.
+    pub lfo_running: AtomicBool,
     /// Name of the DAW track hosting this instance, empty when the host does not say.
     /// Written only on the host main thread (`initialize` and `track_context_changed`) and read
     /// by the editor. The editor must not ask the wrapper's `GuiContext::track_name()` itself:
@@ -384,6 +710,10 @@ impl Default for Shared {
             randomize_request: AtomicU32::new(0),
             regen_pulse: AtomicBool::new(false),
             tempo_bits: AtomicU32::new(0),
+            last_beat: AtomicU64::new(0),
+            pattern_beat: AtomicU64::new(0),
+            lfo_phase: std::array::from_fn(|_| AtomicU32::new(0)),
+            lfo_running: AtomicBool::new(false),
             track_name: Mutex::new(String::new()),
             track_rev: AtomicU32::new(0),
             text_focus: AtomicBool::new(false),
@@ -401,6 +731,27 @@ impl Shared {
                 self.track_rev.fetch_add(1, Relaxed);
             }
         }
+    }
+
+    pub(crate) fn sample_tempo(&self) -> f32 {
+        f32::from_bits(self.tempo_bits.load(Relaxed))
+    }
+
+    /// Clock for live matrix/animation values.
+    pub(crate) fn lfo_clock(&self) -> LfoClock {
+        LfoClock::from_beat(
+            f64::from_bits(self.last_beat.load(Relaxed)),
+            self.sample_tempo() as f64,
+        )
+    }
+
+    /// Clock at which the current pattern was generated. Preview generation uses this so it
+    /// matches the loop-boundary snapshot the audio thread actually plays.
+    pub(crate) fn pattern_clock(&self) -> LfoClock {
+        LfoClock::from_beat(
+            f64::from_bits(self.pattern_beat.load(Relaxed)),
+            self.sample_tempo() as f64,
+        )
     }
 }
 
@@ -439,7 +790,10 @@ struct Active { note: u8, off_beat: f64 }
 pub struct NDrum {
     params: Arc<DrumParams>,
     shared: Arc<Shared>,
+    /// Actual snapshot the current pattern was generated from (including modulation).
     last_key: Option<GenParams>,
+    /// Unmodulated snapshot used to detect manual parameter edits.
+    last_base_key: Option<GenParams>,
     pattern: Pattern,
     /// Loop length in steps, from the same snapshot as `pattern`.
     loop_length: f64,
@@ -454,15 +808,17 @@ pub struct NDrum {
     free_beat: f64,
     last_regen_cycle: Option<i64>,
     last_randomize_cycle: Option<i64>,
+    /// Last loop cycle for which pattern-shaping LFO links were sampled.
+    last_mod_cycle: Option<i64>,
     sample_rate: f64,
 }
 impl Default for NDrum {
     fn default() -> Self {
         Self {
             params: Arc::new(DrumParams::default()), shared: Arc::new(Shared::default()),
-            last_key: None, pattern: Pattern::default(), loop_length: 16.0, last_generate: None,
+            last_key: None, last_base_key: None, pattern: Pattern::default(), loop_length: 16.0, last_generate: None,
             active: [None; TRACKS], expected_beat: None, next_step: None, pending_reset: false, free_beat: 0.0,
-            last_regen_cycle: None, last_randomize_cycle: None, sample_rate: 44100.0,
+            last_regen_cycle: None, last_randomize_cycle: None, last_mod_cycle: None, sample_rate: 44100.0,
         }
     }
 }
@@ -525,10 +881,13 @@ impl Plugin for NDrum {
         self.free_beat = 0.0;
         self.last_regen_cycle = None;
         self.last_randomize_cycle = None;
+        self.last_mod_cycle = None;
         self.last_key = None;
+        self.last_base_key = None;
         self.loop_length = 16.0;
         self.last_generate = None;
         self.shared.current_step.store(-1, Relaxed);
+        self.shared.lfo_running.store(false, Relaxed);
     }
 
     fn process(&mut self, buffer: &mut Buffer, _aux: &mut AuxiliaryBuffers, context: &mut impl ProcessContext<Self>) -> ProcessStatus {
@@ -542,17 +901,6 @@ impl Plugin for NDrum {
         let generated = p.generate.value();
         if matches!(self.last_generate, Some(prev) if prev != generated) { p.variation.fetch_add(1, Relaxed); }
         self.last_generate = Some(generated);
-        let initial_key = p.gen_params();
-        if self.last_key != Some(initial_key) {
-            self.pattern = generate(&initial_key);
-            self.loop_length = initial_key.length as f64;
-            self.last_key = Some(initial_key);
-            // Cycle numbers are counted in pattern lengths, so changing the length renumbers
-            // them; the remembered cycle would otherwise suppress or trigger the next
-            // regeneration against the wrong count.
-            self.last_regen_cycle = None;
-            self.last_randomize_cycle = None;
-        }
 
         let n_samples = buffer.samples();
         let transport = context.transport();
@@ -576,15 +924,44 @@ impl Plugin for NDrum {
             self.expected_beat = None;
             self.next_step = None;
             self.shared.current_step.store(-1, Relaxed);
+            self.shared.lfo_running.store(false, Relaxed);
             return ProcessStatus::Normal;
         };
+
+        let clock_start = LfoClock::from_beat(start, bpm);
+        self.shared.last_beat.store(start.to_bits(), Relaxed);
+        self.shared.lfo_running.store(true, Relaxed);
+        for slot in 0..LFO_COUNT {
+            self.shared.lfo_phase[slot]
+                .store(modulation::lfo_phase(p.lfo_spec(slot), clock_start).to_bits(), Relaxed);
+        }
+
+        // Base parameters drive change detection. The actual pattern key includes the LFO
+        // snapshot at this beat; LFO-only movement is sampled at loop boundaries below.
+        let base_key = p.gen_params();
+        if self.last_base_key != Some(base_key) {
+            let initial_key = p.gen_params_at(clock_start);
+            self.pattern = generate(&initial_key);
+            self.loop_length = initial_key.length as f64;
+            self.last_key = Some(initial_key);
+            self.last_base_key = Some(base_key);
+            self.last_regen_cycle = None;
+            self.last_randomize_cycle = None;
+            self.last_mod_cycle = None;
+            self.shared.pattern_beat.store(start.to_bits(), Relaxed);
+        }
 
         let end = start + block_beats;
         // A jump is a discontinuity, so tolerance is block-relative: hosts that report
         // pos_beats quantised to the sample grid, or that resync between blocks, are not jumps.
         let jump_tolerance = 0.02_f64.max(block_beats * 2.0);
         let transport_jump = self.expected_beat.map(|e| (start - e).abs() > jump_tolerance).unwrap_or(false);
-        if transport_jump { self.stop_all(context); self.last_regen_cycle = None; self.last_randomize_cycle = None; }
+        if transport_jump {
+            self.stop_all(context);
+            self.last_regen_cycle = None;
+            self.last_randomize_cycle = None;
+            self.last_mod_cycle = None;
+        }
         self.expected_beat = Some(end);
         if !playing { self.free_beat = end; }
 
@@ -597,14 +974,23 @@ impl Plugin for NDrum {
         // Swing delays alternate steps past their unswung position, so a step can fall
         // beyond this block's end. The cursor is carried across blocks rather than
         // re-derived from the host position, otherwise a deferred step would be skipped.
-        let swing = p.swing.value().clamp(0.0, 0.5) as f64 * step_len;
-        let swung = |k: i64| k as f64 * step_len + if k.rem_euclid(2) != 0 { swing } else { 0.0 };
+        let schedule_start = p.schedule_at(clock_start);
+        let every = schedule_start.regenerate_every.max(0) as i64;
+        let randomize_every = schedule_start.randomize_after.max(0) as i64;
         let mut k = resume_cursor(self.next_step, transport_jump, start, end, spb);
-        let every = p.regenerate_every.value().max(0) as i64;
-        let randomize_every = p.randomize_after_lengths.value().max(0) as i64;
+        if self.last_mod_cycle.is_none() {
+            self.last_mod_cycle = Some((k as f64 / self.loop_length).floor() as i64);
+        }
 
         loop {
-            let next_step = if (k as f64) < s1 + 1.0 { swung(k) } else { f64::INFINITY };
+            let nominal_beat = k as f64 * step_len;
+            let nominal_clock = LfoClock::from_beat(nominal_beat, bpm);
+            let swing = p.schedule_at(nominal_clock).swing.clamp(0.0, 0.5) as f64 * step_len;
+            let next_step = if (k as f64) < s1 + 1.0 {
+                nominal_beat + if k.rem_euclid(2) != 0 { swing } else { 0.0 }
+            } else {
+                f64::INFINITY
+            };
             let next_off = self.active.iter().filter_map(|a| a.map(|v| v.off_beat)).fold(f64::INFINITY, f64::min);
             let at = next_step.min(next_off);
             if !at.is_finite() || at >= end - 1e-9 { break; }
@@ -619,26 +1005,42 @@ impl Plugin for NDrum {
                 }
             }
             if next_step <= at + 1e-9 && next_step < end - 1e-9 {
-                let idx = step_index(k, self.loop_length) as usize;
                 // Complete pattern lengths, not host beats, like regeneration. The request is
                 // lock-free here; the editor applies it through ParamSetter on its next tick.
                 if let Some(cycle) = regeneration_cycle_at(k, self.loop_length, randomize_every, self.last_randomize_cycle) {
                     self.shared.randomize_request.fetch_add(1, Relaxed);
                     self.last_randomize_cycle = Some(cycle);
                 }
-                if let Some(cycle) = regeneration_cycle_at(k, self.loop_length, every, self.last_regen_cycle) {
-                    p.variation.fetch_add(1, Relaxed);
-                    let next_key = p.gen_params();
+
+                // Pattern-shaping LFO links are sampled once per loop. Derive the cycle from the
+                // loop length in force at this step so a Steps change cannot skip a boundary.
+                let mod_cycle = (k as f64 / self.loop_length).floor() as i64;
+                let mod_due = p.has_generation_links() && self.last_mod_cycle != Some(mod_cycle);
+                let regen_cycle = regeneration_cycle_at(k, self.loop_length, every, self.last_regen_cycle);
+                if mod_due || regen_cycle.is_some() {
+                    if let Some(cycle) = regen_cycle {
+                        p.variation.fetch_add(1, Relaxed);
+                        self.last_regen_cycle = Some(cycle);
+                        self.shared.regen_pulse.store(true, Relaxed);
+                    }
+                    let next_key = p.gen_params_at(nominal_clock);
                     self.pattern = generate(&next_key);
                     self.loop_length = next_key.length as f64;
                     self.last_key = Some(next_key);
-                    self.last_regen_cycle = Some(cycle);
-                    self.shared.regen_pulse.store(true, Relaxed);
+                    // Regenerate-after-N bumps `variation`; refresh the base snapshot too or the
+                    // next block would see a false manual change and generate a second time.
+                    self.last_base_key = Some(p.gen_params());
+                    self.last_mod_cycle = Some((k as f64 / self.loop_length).floor() as i64);
+                    self.shared.pattern_beat.store(nominal_beat.to_bits(), Relaxed);
                 }
+
                 // Regeneration can change the step count; clamp the active index to
                 // the new generated length before updating the playhead or reading hits.
+                let idx = step_index(k, self.loop_length) as usize;
                 let idx = idx.min(self.pattern.steps.saturating_sub(1));
                 self.shared.current_step.store(idx as i32, Relaxed);
+                let note_clock = LfoClock::from_beat(next_step, bpm);
+                let schedule_note = p.schedule_at(note_clock);
                 for tr in 0..TRACKS {
                     if !p.track_enabled(tr) || !self.pattern.hit[tr][idx] { continue; }
                     let t = timing(next_step);
@@ -646,9 +1048,9 @@ impl Plugin for NDrum {
                         context.send_event(NoteEvent::NoteOff { timing: t, voice_id: None, channel: 9, note: a.note, velocity: 0.0 });
                     }
                     let note = p.track_note(tr);
-                    let velocity = (p.track_velocity(tr) * p.velocity.value() * self.pattern.accent[tr][idx]).clamp(0.01, 1.0);
+                    let velocity = (p.track_velocity(tr) * schedule_note.velocity * self.pattern.accent[tr][idx]).clamp(0.01, 1.0);
                     context.send_event(NoteEvent::NoteOn { timing: t, voice_id: None, channel: 9, note, velocity });
-                    self.active[tr] = Some(Active { note, off_beat: next_step + p.gate.value() as f64 * step_len });
+                    self.active[tr] = Some(Active { note, off_beat: next_step + schedule_note.gate as f64 * step_len });
                 }
                 k += 1;
             }
@@ -682,7 +1084,7 @@ mod tests {
         let params = DrumParams::default();
         let map = params.param_map();
         let ids: Vec<&str> = map.iter().map(|(id, _, _)| id.as_str()).collect();
-        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_lengths", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "generate", "invert", "mirror", "logging", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
+        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_lengths", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "lfo1_enabled", "lfo1_wave", "lfo1_rate_mode", "lfo1_freq", "lfo1_rate", "lfo1_depth", "lfo1_phase", "lfo1_polarity", "lfo2_enabled", "lfo2_wave", "lfo2_rate_mode", "lfo2_freq", "lfo2_rate", "lfo2_depth", "lfo2_phase", "lfo2_polarity", "lfo3_enabled", "lfo3_wave", "lfo3_rate_mode", "lfo3_freq", "lfo3_rate", "lfo3_depth", "lfo3_phase", "lfo3_polarity", "lfo4_enabled", "lfo4_wave", "lfo4_rate_mode", "lfo4_freq", "lfo4_rate", "lfo4_depth", "lfo4_phase", "lfo4_polarity", "generate", "invert", "mirror", "logging", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
             assert!(ids.contains(&expected), "missing parameter {expected}");
         }
         for (id, ptr, _) in &map {
@@ -945,6 +1347,58 @@ mod tests {
         assert_eq!(p.cell_count(), 16);
         assert_eq!(p.gen_params().steps, p.cell_count() as usize);
         assert!(p.gen_params().steps <= DEFAULT_MAX_STEPS);
+    }
+
+    #[test]
+    fn hz_formatter_and_parser_are_hz_only() {
+        assert_eq!(format_hz(0.5), "0.50 Hz");
+        assert_eq!(format_hz(7.5), "7.50 Hz");
+        assert_eq!(format_hz(10.0), "10.0 Hz");
+        assert_eq!(format_hz(1_500.0), "10.0 Hz");
+        assert_eq!(parse_hz("0.5"), Some(0.5));
+        assert_eq!(parse_hz(" 10 hz "), Some(10.0));
+        assert_eq!(parse_hz("20000"), Some(10.0));
+        assert_eq!(parse_hz("nope"), None);
+    }
+
+    #[test]
+    fn lfo_links_drive_the_generation_snapshot() {
+        let p = DrumParams {
+            lfo1_links: AtomicU64::new(target_bit(ModTarget::Steps)),
+            lfo1_wave: EnumParam::new("LFO 1 Wave", OscWave::Sine),
+            lfo1_rate_mode: EnumParam::new("LFO 1 Rate Mode", LfoRateMode::Hz),
+            lfo1_freq: hz_param("LFO 1 Frequency", 1.0),
+            lfo1_depth: FloatParam::new("LFO 1 Depth", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            steps: FloatParam::new("Steps", 16.0, FloatRange::Linear { min: 1.0, max: MAX_STEPS as f32 }),
+            ..DrumParams::default()
+        };
+        assert!(p.has_generation_links());
+        assert!(target_in_mask(p.lfo_link_mask(0), ModTarget::Steps));
+        let base = p.gen_params();
+        let peak = p.gen_params_at(LfoClock { beat: 0.25, seconds: 0.25 });
+        assert!(peak.steps > base.steps, "{} -> {}", base.steps, peak.steps);
+        p.set_lfo_link(0, ModTarget::Steps, false);
+        assert!(!p.has_generation_links());
+    }
+
+    #[test]
+    fn every_target_modulation_stays_inside_its_range() {
+        for target in ModTarget::ALL {
+            let p = DrumParams {
+                lfo1_links: AtomicU64::new(target_bit(target)),
+                lfo1_wave: EnumParam::new("LFO 1 Wave", OscWave::Sine),
+                lfo1_rate_mode: EnumParam::new("LFO 1 Rate Mode", LfoRateMode::Hz),
+                lfo1_freq: hz_param("LFO 1 Frequency", 1.0),
+                lfo1_depth: FloatParam::new("LFO 1 Depth", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+                ..DrumParams::default()
+            };
+            let (min, max) = p.target_range(target);
+            for step in 0..16 {
+                let clock = LfoClock { beat: step as f64 * 0.1, seconds: step as f64 * 0.1 };
+                let value = p.target_value(target, &p.lfo_signals(clock));
+                assert!(value >= min && value <= max, "{target:?}: {value} outside {min}..{max}");
+            }
+        }
     }
 
     /// Reproduce the scheduler's step walk for one block, returning (played, cursor).

@@ -1,0 +1,300 @@
+//! LFO signal model and modulation target metadata.
+//!
+//! Pure, Slint-free and allocation-free. `process()` and the editor preview use the same
+//! functions, so a drawn modulation value cannot drift from the scheduler.
+
+use crate::{LfoPolarity, LfoRateMode, OscWave};
+use nice_plug::prelude::Enum;
+
+pub const LFO_COUNT: usize = 4;
+
+/// Highest free-running LFO frequency. The speed field is Hz-only; kHz is deliberately not
+/// offered because the scheduler samples LFOs per event, not at audio rate.
+pub const LFO_MAX_HZ: f32 = 10.0;
+
+/// A user-editable numeric parameter that an LFO may modulate.
+///
+/// The order is a persisted-link contract: append new targets, never renumber existing ones.
+/// `lfo*_links` stores one bit per target at `1 << index`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ModTarget {
+    Steps,
+    Pulses,
+    Rotate,
+    Density,
+    Seed,
+    OscPhase,
+    OscRate,
+    CaRule,
+    Probability,
+    Swing,
+    Gate,
+    Velocity,
+    RegenerateEvery,
+    Symmetry,
+    RandomizeAfter,
+    MaxSteps,
+}
+
+impl ModTarget {
+    pub const ALL: [ModTarget; 16] = [
+        ModTarget::Steps,
+        ModTarget::Pulses,
+        ModTarget::Rotate,
+        ModTarget::Density,
+        ModTarget::Seed,
+        ModTarget::OscPhase,
+        ModTarget::OscRate,
+        ModTarget::CaRule,
+        ModTarget::Probability,
+        ModTarget::Swing,
+        ModTarget::Gate,
+        ModTarget::Velocity,
+        ModTarget::RegenerateEvery,
+        ModTarget::Symmetry,
+        ModTarget::RandomizeAfter,
+        ModTarget::MaxSteps,
+    ];
+
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    pub fn from_index(index: usize) -> Option<Self> {
+        Self::ALL.get(index).copied()
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ModTarget::Steps => "Steps",
+            ModTarget::Pulses => "Pulses",
+            ModTarget::Rotate => "Rotate",
+            ModTarget::Density => "Density",
+            ModTarget::Seed => "Seed",
+            ModTarget::OscPhase => "Osc phase",
+            ModTarget::OscRate => "Osc rate",
+            ModTarget::CaRule => "CA rule",
+            ModTarget::Probability => "Probability",
+            ModTarget::Swing => "Swing",
+            ModTarget::Gate => "Gate",
+            ModTarget::Velocity => "Velocity",
+            ModTarget::RegenerateEvery => "Regenerate after",
+            ModTarget::Symmetry => "Symmetry",
+            ModTarget::RandomizeAfter => "Randomize after",
+            ModTarget::MaxSteps => "Max steps",
+        }
+    }
+
+    /// Targets that change `sequence::generate()` output and therefore need a loop-boundary
+    /// regeneration. Feel and scheduling targets are sampled later.
+    pub fn affects_generation(self) -> bool {
+        matches!(
+            self,
+            ModTarget::Steps
+                | ModTarget::Pulses
+                | ModTarget::Rotate
+                | ModTarget::Density
+                | ModTarget::Seed
+                | ModTarget::OscPhase
+                | ModTarget::OscRate
+                | ModTarget::CaRule
+                | ModTarget::Probability
+                | ModTarget::Symmetry
+                | ModTarget::MaxSteps
+        )
+    }
+
+    pub fn is_int(self) -> bool {
+        matches!(
+            self,
+            ModTarget::Pulses
+                | ModTarget::Rotate
+                | ModTarget::CaRule
+                | ModTarget::RegenerateEvery
+                | ModTarget::Symmetry
+                | ModTarget::RandomizeAfter
+                | ModTarget::MaxSteps
+        )
+    }
+}
+
+pub fn target_bit(target: ModTarget) -> u64 {
+    1u64 << target.index()
+}
+
+pub fn target_in_mask(mask: u64, target: ModTarget) -> bool {
+    mask & target_bit(target) != 0
+}
+
+/// Transport position in both the beat domain (beat-synced LFOs, swing, note timing) and the
+/// seconds domain (Hz LFOs). Built from the host beat so transport jumps stay coherent.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LfoClock {
+    pub beat: f64,
+    pub seconds: f64,
+}
+
+impl LfoClock {
+    pub fn from_beat(beat: f64, bpm: f64) -> Self {
+        let beat = if beat.is_finite() { beat } else { 0.0 };
+        let bpm = if bpm.is_finite() && bpm > 0.0 { bpm } else { 120.0 };
+        Self { beat, seconds: beat * 60.0 / bpm }
+    }
+}
+
+/// Everything one LFO needs to evaluate its phase. `Copy` so the audio thread can build it
+/// without allocation.
+#[derive(Clone, Copy, Debug)]
+pub struct LfoSpec {
+    pub enabled: bool,
+    pub wave: OscWave,
+    pub rate_mode: LfoRateMode,
+    pub freq_hz: f32,
+    pub rate_beats: f32,
+    pub depth: f32,
+    pub phase: f32,
+    pub polarity: LfoPolarity,
+}
+
+impl Default for LfoSpec {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            wave: OscWave::Sine,
+            rate_mode: LfoRateMode::Hz,
+            freq_hz: 0.5,
+            rate_beats: 4.0,
+            depth: 0.0,
+            phase: 0.0,
+            polarity: LfoPolarity::Bipolar,
+        }
+    }
+}
+
+/// Normalized phase in `0..1`. Invalid host values are clamped rather than propagated.
+pub fn lfo_phase(spec: LfoSpec, clock: LfoClock) -> f32 {
+    let offset = if spec.phase.is_finite() { spec.phase.rem_euclid(1.0) as f64 } else { 0.0 };
+    let cycles = match spec.rate_mode {
+        LfoRateMode::Hz => {
+            let hz = if spec.freq_hz.is_finite() { spec.freq_hz.clamp(0.01, LFO_MAX_HZ) } else { 0.5 };
+            clock.seconds * hz as f64
+        }
+        LfoRateMode::Beats => {
+            let beats = if spec.rate_beats.is_finite() { spec.rate_beats.clamp(0.25, 16.0) } else { 4.0 };
+            clock.beat / beats as f64
+        }
+    };
+    if !cycles.is_finite() {
+        return offset as f32;
+    }
+    (cycles + offset).rem_euclid(1.0) as f32
+}
+
+/// One LFO sample. Bipolar spans `-depth..=depth`; unipolar spans `0..=depth`.
+pub fn lfo_signal(spec: LfoSpec, clock: LfoClock) -> f32 {
+    if !spec.enabled {
+        return 0.0;
+    }
+    let depth = if spec.depth.is_finite() { spec.depth.clamp(0.0, 1.0) } else { 0.0 };
+    if depth <= 0.0 {
+        return 0.0;
+    }
+    let wave = crate::sequence::oscillator_value(spec.wave.to_index(), lfo_phase(spec, clock));
+    let shaped = match spec.polarity {
+        LfoPolarity::Bipolar => wave * 2.0 - 1.0,
+        LfoPolarity::Unipolar => wave,
+    };
+    (depth * shaped).clamp(-1.0, 1.0)
+}
+
+/// Fold a summed modulation offset into a parameter range. Half the range is the full-depth
+/// span, matching the feel scales used before the LFO subsystem.
+pub fn fold(base: f32, offset: f32, min: f32, max: f32) -> f32 {
+    let (lo, hi) = if min <= max { (min, max) } else { (max, min) };
+    if !base.is_finite() {
+        return lo;
+    }
+    let span = (hi - lo) * 0.5;
+    let value = base + if offset.is_finite() { offset * span } else { 0.0 };
+    value.clamp(lo, hi)
+}
+
+/// Display formatter shared by the matrix and hover summaries.
+pub fn format_target_value(target: ModTarget, value: f32) -> String {
+    if !value.is_finite() {
+        return "—".to_string();
+    }
+    match target {
+        ModTarget::Density
+        | ModTarget::Probability
+        | ModTarget::Swing
+        | ModTarget::Gate
+        | ModTarget::Velocity => format!("{:.0}%", value * 100.0),
+        ModTarget::Seed => format!("{value:.3}"),
+        ModTarget::OscPhase => format!("{:.0}°", value * 360.0),
+        ModTarget::OscRate => format!("{value:.2}"),
+        _ => format!("{value:.0}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec() -> LfoSpec {
+        LfoSpec { depth: 1.0, ..LfoSpec::default() }
+    }
+
+    #[test]
+    fn target_indices_are_unique_and_fit_a_link_mask() {
+        for (i, target) in ModTarget::ALL.iter().enumerate() {
+            assert_eq!(target.index(), i, "{target:?}");
+            assert_eq!(ModTarget::from_index(i), Some(*target));
+        }
+        assert_eq!(ModTarget::from_index(ModTarget::ALL.len()), None);
+        assert_eq!(target_bit(ModTarget::Steps), 1);
+        assert_eq!(target_bit(ModTarget::MaxSteps), 1 << 15);
+    }
+
+    #[test]
+    fn hz_phase_uses_seconds_and_beat_phase_uses_beats() {
+        let hz = LfoSpec { rate_mode: LfoRateMode::Hz, freq_hz: 1.0, ..spec() };
+        assert!((lfo_phase(hz, LfoClock { beat: 0.0, seconds: 0.25 }) - 0.25).abs() < 1e-6);
+        let beats = LfoSpec { rate_mode: LfoRateMode::Beats, rate_beats: 4.0, ..spec() };
+        assert!((lfo_phase(beats, LfoClock { beat: 1.0, seconds: 9.0 }) - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn disabled_lfo_is_silent() {
+        let spec = LfoSpec { enabled: false, depth: 1.0, ..LfoSpec::default() };
+        assert_eq!(lfo_signal(spec, LfoClock { beat: 1.0, seconds: 1.0 }), 0.0);
+    }
+
+    #[test]
+    fn polarity_controls_the_sign_and_offset() {
+        let bipolar = LfoSpec { wave: OscWave::Sine, freq_hz: 1.0, phase: 0.0, ..spec() };
+        let unipolar = LfoSpec { polarity: LfoPolarity::Unipolar, ..bipolar };
+        let peak = LfoClock { beat: 0.25, seconds: 0.25 };
+        let trough = LfoClock { beat: 0.75, seconds: 0.75 };
+        assert!((lfo_signal(bipolar, peak) - 1.0).abs() < 1e-6);
+        assert!((lfo_signal(unipolar, peak) - 1.0).abs() < 1e-6);
+        assert!((lfo_signal(bipolar, trough) + 1.0).abs() < 1e-6);
+        assert!(lfo_signal(unipolar, trough).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fold_clamps_to_the_parameter_range() {
+        assert!((fold(0.25, 0.5, 0.0, 0.5) - 0.375).abs() < 1e-6);
+        assert!((fold(0.45, 1.0, 0.02, 1.0) - 0.94).abs() < 1e-6);
+        assert_eq!(fold(0.45, -1.0, 0.02, 1.0), 0.02);
+        assert_eq!(fold(f32::NAN, 1.0, 2.0, 8.0), 2.0);
+    }
+
+    #[test]
+    fn target_labels_and_formats_are_complete() {
+        for target in ModTarget::ALL {
+            assert!(!target.label().is_empty(), "{target:?}");
+            assert_ne!(format_target_value(target, 0.0), "—", "{target:?}");
+        }
+    }
+}

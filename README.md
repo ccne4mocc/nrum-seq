@@ -14,6 +14,7 @@ nDrum grew out of many other interests and projects. `_AlgoNemLody`, its direct 
 - Lane-independent hit generation; each lane has its own density profile, phase origin, and enable/note/velocity host parameter.
 - Automatic regeneration and per-length randomization with a scope mask (Mode / Length / Rhythm / Tone / Feel).
 - One-loop MIDI export to a timestamped SMF in a user-chosen folder.
+- **Four runtime LFOs** in a 2×2 rack below the step matrix: waveform, Hz (0.01–10) or beat-synced speed, depth, phase, bipolar/unipolar polarity and per-LFO enable. Drag an LFO point onto any numeric parameter to link it; linked controls show a depth band plus a second animated value bar, and the matrix shows/removes links.
 - Four colour themes: Neon (default), Sketch (light), Lava, Forest.
 - Technical logging toggle; when enabled, mode and parameter snapshots are appended to `~/nDrum.log` (`%USERPROFILE%\nDrum.log` on Windows).
 
@@ -90,6 +91,7 @@ src/
   editor.rs           Slint adapter and host parameter callbacks
   globals.rs          cross-component shared state (settings, runtime locks)
   help.rs             mode math text shown in the editor
+  modulation.rs       LFO clocks, signals, target metadata and link masks
   midi_export.rs      Standard MIDI File writer
   view.rs             pure geometry for each global/panel view
   sequence/           one file per generator, each with its own unit tests
