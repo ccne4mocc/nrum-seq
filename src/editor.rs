@@ -1163,6 +1163,7 @@ impl Editor for SlintEditor {
                         index: tr as i32,
                         name: SharedString::from(LANE_NAMES[tr]),
                         enabled,
+                        note: p.track_note(tr) as i32,
                         cells: ModelRc::new(VecModel::from(cells)),
                     });
                 }

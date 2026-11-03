@@ -22,7 +22,7 @@ export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, l
 export struct ModeEntry { group: string, index: int, header: bool }
 export struct ModeRow { header: bool, group: string, left: int, right: int, has-right: bool }
 export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float, hit-override: int, edited: bool, ratchet: int, offset: int }
-export struct TrackRow { index: int, name: string, enabled: bool, cells: [StepCell] }
+export struct TrackRow { index: int, name: string, enabled: bool, note: int, cells: [StepCell] }
 export struct Opt { label: string, min: float, max: float, value: float, text: string, step: float, number: string, scale: float }
 export struct ModRow { lfo: int, target-id: int, source: string, target: string, base: string, value: string, delta: string }
 export struct ModTargetView {
@@ -1148,7 +1148,8 @@ export component AppWindow inherits Window {
                 for track in root.tracks: Rectangle {
                     width: 76px; height: 22px; border-radius: 3px;
                     background: track.enabled ? Theme.control : Theme.cell-off;
-                    Text { x: 4px; width: parent.width - 40px; height: parent.height; text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55); font-size: 9px; vertical-alignment: center; overflow: elide; }
+                    Text { x: 4px; y: 0px; width: parent.width - 40px; height: 12px; text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55); font-size: 9px; vertical-alignment: center; overflow: elide; }
+                    Text { x: 4px; y: 11px; width: parent.width - 40px; height: 9px; text: "note " + track.note; color: Theme.text-muted; font-size: 7px; vertical-alignment: center; overflow: elide; }
                     TouchArea { clicked => { root.toggle-track(track.index); } }
                     // Per-lane generator badge: G = follow the global mode, M = override.
                     Rectangle {
