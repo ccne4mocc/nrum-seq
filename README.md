@@ -23,7 +23,7 @@ The basis for this project were lot of other side projects/works and linux music
 Everything is deterministic and bounded for a given parameter snapshot and seed, so a pattern can
 be recalled, automated and exported without hidden state.
 
-The plugin still needs polish in many directions and I'm also planning to add more modes from time to time and partially slim it down. Some functionalities are rather rudimentary like internal lfos, since DAW LFO tools can be linked to the plugin parameters. Sequencer Matrix is also rather simple, cause I often record the midi or sound input directly into clips or just use the export midi function.
+The plugin still needs polish in many directions and I'm also planning to add more modes from time to time and partially slim it down. Some functionalities are rather rudimentary like internal lfos, since DAW LFO tools can be linked to the plugin parameters. Sequencer Matrix is also rather simple and the idea based on [Helio](https://github.com/helio-fm/helio-sequencer), cause I often record the midi or sound input directly into clips or just use the export midi function.
 Also it can get visually confusing with higher parameter values and some combinations, depending on modes. Nevertheless, having the limits loose was more fun (step ceiling can be increased in settings). Optimizing and giving more depth in the view/presentation is also somewhere on the list (first 1D/2D more work, but also 3D ideas). 
 It's quite possible that I will smack both plugins to 1 package but I'll see. 
 
