@@ -6,7 +6,7 @@ combination. Everything else is **untested**, even when the plug-in bundles and 
 
 ## Build under test
 
-- Version: 1.3.0
+- Version: 1.3.1
 - Bundles: `target/bundled/nrum-seq.clap`, `target/bundled/nrum-seq.vst3`
 - Build command: `cargo xtask bundle nrum-seq --release`
 - Date: 2026-11-03
@@ -15,6 +15,7 @@ combination. Everything else is **untested**, even when the plug-in bundles and 
 
 | Check | Result | Notes |
 |---|---|---|
+| `cargo test --lib` | **pass** | 233 passed, 2 ignored (2026-11-03). |
 | Carla CLAP discovery | **pass** | `carla-discovery-native CLAP target/bundled/nrum-seq.clap` reports name `nrum seq`, label `com.nrumseq.nrumseq`, category `utility`, and the expected CLAP extensions (`clap.gui`, `clap.params`, `clap.latency`, …). |
 | Carla VST3 discovery | **pass** | `carla-discovery-native VST3 target/bundled/nrum-seq.vst3` reports name `nrum seq`, label, maker and 84 input parameters. Requires the pinned nice-plug fork that defers activation until `setupProcessing()`. |
 | CLAP validator | **pass** | `clap-validator 0.4.1`: **33 passed, 0 failed, 11 skipped**. The pinned nice-plug fork bounds malformed state lengths and rescans parameter values after a state load. |
@@ -41,6 +42,10 @@ combination. Everything else is **untested**, even when the plug-in bundles and 
 Run every row in `RELEASE_CHECKLIST.md` and record `pass`, `fail` or `n/a` with a note. Do not
 mark a host verified from a successful scan alone.
 
+The Windows bundle workflow is manual-only. It cross-compiles MSVC artifacts on GitHub Actions,
+but those artifacts are still unverified on real Windows hardware. The Linux and macOS jobs run
+tests and checks on every push; the bundle artifact is Linux-only.
+
 ## Reproduce the automated checks
 
 ```sh
@@ -59,9 +64,9 @@ Use the unguarded release build for validation. The `assert_process_allocs` feat
 nice-plug's own wrapper logs malformed host events from the audio thread; that is framework
 behaviour, not this plug-in's code.
 
-## State compatibility warning
+## State compatibility
 
-The CLAP state tests fail on the pre-edit baseline as well. Until the framework state path is
-investigated, do not claim CLAP project/preset state compatibility. Verify save/load manually in
-REAPER and Bitwig, and treat `state-invalid-random` as an upstream hardening issue. VST3 state
-loading has not been isolated from this.
+The pinned nice-plug fork bounds malformed state lengths, rescans parameters after state load and
+tolerates VST3 activation before `setupProcessing()`. `clap-validator` now passes its state tests.
+Project and preset save/load still need a manual round-trip in at least one CLAP and one VST3 host;
+a passing validator is not a substitute for that check.

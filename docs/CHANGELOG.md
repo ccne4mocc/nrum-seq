@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.1 — Documentation cleanup
+
+### Changed
+
+- Consolidated the docs tree under a single index: architecture, reference mapping, edit overlay,
+  LFO system, mode examples, verification, release checklist and changelog are the canonical
+  current documents.
+- Rewrote the nice-plug migration note against the current pin and moved verification results to
+  `HOST_VERIFICATION.md`.
+- Trimmed the fractal/geometric/cellular research to a future backlog; Life-like CA is marked
+  implemented (mode 39).
+- Pruned completed wishlist entries and refreshed host-verification counts and status.
+- Updated the nrum architecture document for mode 39, the `GATE` edit mode and the current
+  contact metadata.
+
 ## 1.3.0 — Editor, randomize and release cleanup
 
 ### Added

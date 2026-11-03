@@ -64,8 +64,12 @@ are not targets yet.
 ## Link storage
 
 Each LFO has a persisted `AtomicU64` mask (`lfo1_links`…`lfo4_links`). Bit
-`1 << ModTarget::index` means the LFO is linked to that target. Reads in `process()` are relaxed
-and allocation-free. The matrix is the only link editor besides drag/drop.
+`1 << ModTarget::index` means the LFO is linked to that target; the current target set uses 16
+bits. Reads in `process()` are relaxed and allocation-free. The matrix is the only link editor
+besides drag/drop.
+
+`lfoN_enabled` is a host parameter. Disabling an LFO keeps its links but contributes a zero
+signal; the cell name is greyed out and the matrix/summary text reads `off`.
 
 ## Drag interaction
 
@@ -88,3 +92,13 @@ tooltip has no TouchArea, so the parameter stays editable.
 `Shared` publishes `last_beat`, `pattern_beat`, `lfo_phase[4]` and `lfo_running`. The editor
 preview calls `gen_params_at(pattern_clock())`, matching the audio thread's loop snapshot. MIDI
 export continues to use the base snapshot.
+
+## Persistence and preview
+
+Link masks are `#[persist]` fields, so they travel with the host project but are not host
+parameters. The editor preview and the audio thread both read the same loop-boundary snapshot for
+pattern-shaping targets. Feel and tuning targets are sampled per note. Modulation is a runtime
+overlay: it is never written back to host parameters, automation or the exported MIDI file.
+
+When transport is stopped and free-run is off, `lfo_running` is false and the picker dot freezes.
+The matrix still shows the base values so the UI does not imply motion that is not happening.

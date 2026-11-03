@@ -71,7 +71,7 @@ structure is not a grid shows that structure instead. Each panel reads the gener
 formula or published state through an exported helper; if a panel's constants cannot be traced
 to a `Pattern` field or a generator helper, the panel is drawing a decoration, not the algorithm.
 
-When adding or reordering a mode, update together: the `Mode` enum in `src/modes.rs`, dispatch in `sequence::generate()`, `view::build()`, the `Mode` labels in Slint, the mode indices the UI hardcodes, the editor's `from_index()` bound, and the expected parameter/view tests.
+When adding or reordering a mode, update together: the `Mode` enum in `src/modes.rs`, dispatch in `sequence::generate()`, `view::build()`, the mode names pushed from Rust into Slint, the mode indices the UI hardcodes, the editor's `from_index()` bound, and the expected parameter/view tests.
 
 ## Crystallographic mode: what is actually a group action
 

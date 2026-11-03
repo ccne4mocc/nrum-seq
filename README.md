@@ -117,7 +117,7 @@ and only runs on GitHub Actions.
 
 ## Compatibility
 
-Version 1.3.0 uses the host identity `com.nrumseq.nrumseq` (CLAP) and `nrum-seq` (VST3 class ID).
+Version 1.3.1 uses the host identity `com.nrumseq.nrumseq` (CLAP) and `nrum-seq` (VST3 class ID).
 Sessions created with the old `com.ndrum.ndrum` / `nDrum` IDs must replace the plug-in instance.
 
 ## Status and limitations
@@ -157,6 +157,7 @@ vendor/               vendored Slint/baseview adapter
 
 | Document | Contents |
 |---|---|
+| [`docs/README.md`](docs/README.md) | Documentation index |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, invariants and data flow |
 | [`docs/REFERENCE_MAPPING.md`](docs/REFERENCE_MAPPING.md) | Where every mode and view came from |
 | [`docs/MODE_EXAMPLES.md`](docs/MODE_EXAMPLES.md) | A starting point for every mode |
