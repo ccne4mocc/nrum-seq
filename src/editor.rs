@@ -23,6 +23,37 @@ slint::include_modules!();
 const WIDTH: u32 = 860;
 const HEIGHT: u32 = 740;
 
+/// Built-in starting points. These are editor conveniences, not host parameters: applying one
+/// writes ordinary host parameters so the result remains automatable and saveable.
+struct Preset {
+    name: &'static str,
+    mode: Mode,
+    steps: f32,
+    pulses: i32,
+    density: f32,
+    probability: f32,
+    seed: f32,
+}
+
+const PRESETS: &[Preset] = &[
+    Preset { name: "HOUSE", mode: Mode::Euclidean, steps: 16.0, pulses: 4, density: 0.88, probability: 1.0, seed: 0.271 },
+    Preset { name: "BREAK", mode: Mode::Syncopation, steps: 16.0, pulses: 6, density: 0.72, probability: 0.92, seed: 0.413 },
+    Preset { name: "POLY", mode: Mode::Polyrhythm, steps: 16.0, pulses: 8, density: 0.80, probability: 1.0, seed: 0.127 },
+    Preset { name: "DEEP", mode: Mode::Slowcat, steps: 32.0, pulses: 5, density: 0.55, probability: 1.0, seed: 0.611 },
+    Preset { name: "GLITCH", mode: Mode::Genetic, steps: 16.0, pulses: 7, density: 0.45, probability: 0.78, seed: 0.337 },
+];
+
+fn apply_preset(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
+    let Some(preset) = PRESETS.get(index.max(0) as usize) else { return; };
+    set(c, &p.mode, preset.mode);
+    set(c, &p.steps, preset.steps.min(p.step_ceiling() as f32));
+    set(c, &p.pulses, preset.pulses.min(p.cell_count()));
+    set(c, &p.density, preset.density);
+    set(c, &p.probability, preset.probability);
+    set(c, &p.seed, preset.seed);
+    p.variation.fetch_add(1, Relaxed);
+}
+
 /// Append one technical line to `nrum-seq.log`; GUI thread only, never the audio path.
 fn log_line(text: &str) {
     use std::io::Write;
@@ -606,6 +637,10 @@ impl Editor for SlintEditor {
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_apply_preset(move |index| apply_preset(&c, &p, index));
+            }
+            {
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_set_osc_wave(move |v| {
                     set(&c, &p.osc_wave, OscWave::from_index(v.clamp(0, OscWave::variants().len() as i32 - 1) as usize));
                 });
@@ -873,6 +908,9 @@ impl Editor for SlintEditor {
             ui.set_mod_status(SharedString::new());
             ui.set_rate_names(ModelRc::new(VecModel::from(
                 Rate::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
+            )));
+            ui.set_preset_names(ModelRc::new(VecModel::from(
+                PRESETS.iter().map(|preset| SharedString::from(preset.name)).collect::<Vec<_>>(),
             )));
             ui.set_version(SharedString::from(env!("CARGO_PKG_VERSION")));
             // One grouped order shared with the header wheel; names are pushed from the enum.
@@ -1214,6 +1252,19 @@ impl Editor for SlintEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn built_in_presets_are_valid_for_the_current_bounds() {
+        assert!(!PRESETS.is_empty());
+        for preset in PRESETS {
+            assert!(!preset.name.is_empty());
+            assert!(preset.steps >= 1.0 && preset.steps <= MAX_STEPS as f32, "{}", preset.name);
+            assert!(preset.pulses >= 0 && preset.pulses <= preset.steps as i32, "{}", preset.name);
+            assert!((0.0..=1.0).contains(&preset.density), "{}", preset.name);
+            assert!((0.0..=1.0).contains(&preset.probability), "{}", preset.name);
+            assert!((0.0..=1.0).contains(&preset.seed), "{}", preset.name);
+        }
+    }
+
     #[test]
     fn edit_history_undoes_and_redoes_in_order() {
         use crate::edits::EditCell;

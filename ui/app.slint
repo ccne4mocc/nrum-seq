@@ -659,6 +659,7 @@ export component AppWindow inherits Window {
     background: @linear-gradient(135deg, Theme.bg1 0%, Theme.bg2 50%, Theme.bg3 100%);
     in property <int> mode: 0;
     in property <string> version;
+    in property <[string]> preset-names;
     in property <float> steps: 16;
     in property <float> max-steps: 1024;
     in property <bool> round-steps: true;
@@ -815,6 +816,7 @@ export component AppWindow inherits Window {
     /// Move the mode selection one notch in the grouped display order.
     callback step-mode(int);
     callback set-rate(int);
+    callback apply-preset(int);
     callback set-osc-wave(int);
     callback set-lfo-enabled(int, bool);
     callback set-lfo-wave(int, int);
@@ -1425,6 +1427,16 @@ export component AppWindow inherits Window {
             }
             Text { text: "COLOUR THEME"; color: Theme.text-muted; font-size: 9px; }
             Selector { options: ["Sketch", "Neon", "Lava", "Forest"]; current: root.theme-index; text-size: 10px; selected(i) => { root.set-theme(i); } }
+            Text { text: "STARTING POINTS"; color: Theme.text-muted; font-size: 9px; }
+            HorizontalLayout {
+                spacing: 3px; height: 22px;
+                for i in root.preset-names.length: Rectangle {
+                    width: (parent.width - 15px) / 6; height: 22px; border-radius: 3px;
+                    background: preset-touch.has-hover ? Theme.c2.with-alpha(0.7) : Theme.control;
+                    Text { text: root.preset-names[i]; color: preset-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 7px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                    preset-touch := TouchArea { clicked => { root.apply-preset(i); } }
+                }
+            }
             Text { text: "CONFIG FILE"; color: Theme.text-muted; font-size: 9px; }
             Text { text: root.settings-path; color: Theme.text-muted; font-size: 8px; wrap: word-wrap; }
             Text { text: "STEP SPACING"; color: Theme.text-muted; font-size: 9px; }
