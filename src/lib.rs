@@ -1051,6 +1051,240 @@ nice_export_vst3!(NrumSeq);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nice_plug::prelude::{Param, ProcessContext};
+    use nice_plug::params::InternalParamMut;
+
+    /// A transport-aware host stub for scheduler tests. It records every event with its absolute
+    /// sample position so block-boundary and timing assertions can compare against the host grid.
+    struct MockContext {
+        transport: Transport,
+        events: Vec<(u64, PluginNoteEvent<NrumSeq>)>,
+        total_samples: u64,
+    }
+
+    impl MockContext {
+        fn new(sample_rate: f32) -> Self {
+            let mut transport = Transport::new(sample_rate);
+            transport.playing = true;
+            transport.tempo = Some(120.0);
+            transport.pos_beats = Some(0.0);
+            Self { transport, events: Vec::new(), total_samples: 0 }
+        }
+
+        fn process(&mut self, plugin: &mut NrumSeq, samples: usize) {
+            let mut buffer = Buffer::default();
+            // MIDI-only plug-in: no output channels, but the sample count still drives the grid.
+            unsafe { buffer.set_slices(samples, |_| {}) };
+            let mut inputs: [Buffer<'_>; 0] = [];
+            let mut outputs: [Buffer<'_>; 0] = [];
+            let mut aux = AuxiliaryBuffers { inputs: &mut inputs, outputs: &mut outputs };
+            let _ = plugin.process(&mut buffer, &mut aux, self);
+            self.total_samples += samples as u64;
+        }
+
+        fn note_ons(&self) -> Vec<(u64, u8, f32)> {
+            self.events
+                .iter()
+                .filter_map(|(at, event)| match event {
+                    NoteEvent::NoteOn { note, velocity, .. } => Some((*at, *note, *velocity)),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        fn note_offs(&self) -> Vec<(u64, u8)> {
+            self.events
+                .iter()
+                .filter_map(|(at, event)| match event {
+                    NoteEvent::NoteOff { note, .. } => Some((*at, *note)),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    impl ProcessContext<NrumSeq> for MockContext {
+        fn plugin_api(&self) -> PluginApi { PluginApi::Clap }
+        fn execute_background(&self, _task: ()) {}
+        fn execute_gui(&self, _task: ()) {}
+        fn transport(&self) -> &Transport { &self.transport }
+        fn next_event(&mut self) -> Option<PluginNoteEvent<NrumSeq>> { None }
+        fn send_event(&mut self, event: PluginNoteEvent<NrumSeq>) {
+            let at = self.total_samples + event.timing() as u64;
+            self.events.push((at, event));
+        }
+        fn set_latency_samples(&self, _samples: u32) {}
+        fn set_current_voice_capacity(&self, _capacity: u32) {}
+    }
+
+    fn set_param<P: Param + InternalParamMut>(param: &P, value: P::Plain) {
+        unsafe { param._internal_set_plain_value(value); }
+    }
+
+    /// A pattern with a hit on every step: oscillator top-k at full density. Used where a test
+    /// needs consecutive retriggers rather than a sparse Euclidean line.
+    fn every_step_plugin() -> (NrumSeq, MockContext) {
+        let mut plugin = NrumSeq::default();
+        plugin.sample_rate = 44_100.0;
+        set_param(&plugin.params.mode, Mode::Oscillator);
+        set_param(&plugin.params.steps, 16.0);
+        set_param(&plugin.params.pulses, 16);
+        set_param(&plugin.params.density, 1.0);
+        set_param(&plugin.params.probability, 1.0);
+        set_param(&plugin.params.gate, 1.0);
+        set_param(&plugin.params.swing, 0.0);
+        (plugin, MockContext::new(44_100.0))
+    }
+
+    fn run_playing(plugin: &mut NrumSeq, ctx: &mut MockContext, blocks: usize, block_samples: usize) {
+        let bpm = ctx.transport.tempo.unwrap();
+        let sr = ctx.transport.sample_rate as f64;
+        let beats_per_sample = (bpm / 60.0) / sr;
+        for _ in 0..blocks {
+            ctx.process(plugin, block_samples);
+            if let Some(pos) = ctx.transport.pos_beats.as_mut() {
+                *pos += block_samples as f64 * beats_per_sample;
+            }
+        }
+    }
+
+    #[test]
+    fn scheduler_places_hits_on_the_host_step_grid() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        // 1/16 at 120 BPM is 5512.5 samples per step. Run just over four steps.
+        run_playing(&mut plugin, &mut ctx, 48, 512);
+        let ons = ctx.note_ons();
+        assert!(!ons.is_empty(), "the scheduler emitted no notes");
+        let samples_per_step = 5512.5;
+        for (at, note, velocity) in &ons {
+            let step = (*at as f64 / samples_per_step).round();
+            assert!((*at as f64 - step * samples_per_step).abs() <= 1.0,
+                "note {note} at sample {at} is not on a step boundary");
+            assert!((0.0..=1.0).contains(velocity), "velocity {velocity} is out of range");
+        }
+    }
+
+    #[test]
+    fn one_sample_blocks_do_not_drop_or_duplicate_steps() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        // One step is 5512.5 samples; run just under two full steps in one-sample blocks.
+        run_playing(&mut plugin, &mut ctx, 11_000, 1);
+        let kicks: Vec<u64> = ctx
+            .note_ons()
+            .into_iter()
+            .filter(|(_, note, _)| *note == 36)
+            .map(|(at, _, _)| at)
+            .collect();
+        assert_eq!(kicks.len(), 2, "expected the kick on the first two steps, got {kicks:?}");
+        assert!(kicks[0] <= 1, "kick is not on the downbeat: {kicks:?}");
+        assert!((kicks[1] as f64 - 5512.5).abs() <= 1.0,
+            "second step is not on the next grid cell: {kicks:?}");
+    }
+
+    #[test]
+    fn swing_delays_only_the_odd_steps() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        set_param(&plugin.params.swing, 0.5);
+        run_playing(&mut plugin, &mut ctx, 48, 512);
+        let ons = ctx.note_ons();
+        assert!(!ons.is_empty());
+        // Every onset must sit on an even step or half a step after an odd one.
+        for (at, _, note) in &ons {
+            let nearest = (0..8)
+                .flat_map(|k| [k as f64 * 5512.5, k as f64 * 5512.5 + 2756.25])
+                .map(|expect| (expect - *at as f64).abs())
+                .fold(f64::INFINITY, f64::min);
+            assert!(nearest <= 1.5, "note {note} at {at} is off the swung grid ({nearest} samples)");
+        }
+        assert!(ons.iter().any(|(at, _, _)| (*at as f64 - 8268.75).abs() <= 1.5),
+            "the odd step was not delayed by half a step");
+        assert!(!ons.iter().any(|(at, _, _)| (*at as f64 - 5512.5).abs() <= 1.5),
+            "an odd step leaked onto the straight grid");
+    }
+
+    #[test]
+    fn retrigger_sends_note_off_before_the_next_note_on() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        run_playing(&mut plugin, &mut ctx, 48, 512);
+        // Walk the kick events in order. A note-on while the previous kick is still active would
+        // either overlap or steal the voice, so the generator must close it first.
+        let mut active = false;
+        let mut ons = 0usize;
+        for (at, event) in &ctx.events {
+            match event {
+                NoteEvent::NoteOn { note: 36, .. } => {
+                    assert!(!active, "kick retriggered at {at} while the previous note was active");
+                    active = true;
+                    ons += 1;
+                }
+                NoteEvent::NoteOff { note: 36, .. } => active = false,
+                _ => {}
+            }
+        }
+        assert!(ons >= 2, "the test needs at least two kick notes, got {ons}");
+    }
+
+    #[test]
+    fn stop_flushes_every_active_note() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        run_playing(&mut plugin, &mut ctx, 2, 512);
+        assert!(!ctx.note_ons().is_empty());
+        let sounding: Vec<u8> = ctx.note_ons().iter().map(|(_, note, _)| *note).collect();
+        assert!(!sounding.is_empty());
+        ctx.transport.playing = false;
+        ctx.process(&mut plugin, 512);
+        let offs = ctx.note_offs();
+        for note in sounding {
+            assert!(offs.iter().any(|(_, n)| *n == note), "stop did not flush note {note}");
+        }
+    }
+
+    #[test]
+    fn reset_flushes_notes_on_the_next_process_call() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        run_playing(&mut plugin, &mut ctx, 2, 512);
+        plugin.reset();
+        ctx.transport.playing = true;
+        ctx.process(&mut plugin, 512);
+        assert!(!ctx.note_offs().is_empty(), "reset left notes hanging");
+    }
+
+    #[test]
+    fn a_transport_jump_flushes_notes_before_resuming() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        run_playing(&mut plugin, &mut ctx, 2, 512);
+        let before = ctx.events.len();
+        ctx.transport.pos_beats = Some(64.0);
+        ctx.process(&mut plugin, 512);
+        let after = &ctx.events[before..];
+        assert!(after.iter().any(|(_, e)| matches!(e, NoteEvent::NoteOff { .. })),
+            "a jump did not flush active notes");
+        let first_off = after.iter().position(|(_, e)| matches!(e, NoteEvent::NoteOff { .. })).unwrap();
+        let first_on = after.iter().position(|(_, e)| matches!(e, NoteEvent::NoteOn { .. }));
+        if let Some(first_on) = first_on {
+            assert!(first_off < first_on, "the jump resumed before flushing");
+        }
+    }
+
+    #[test]
+    fn lane_disable_suppresses_only_that_lane() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        set_param(&plugin.params.kick_on, false);
+        run_playing(&mut plugin, &mut ctx, 12, 512);
+        let notes: Vec<u8> = ctx.note_ons().iter().map(|(_, n, _)| *n).collect();
+        assert!(!notes.contains(&36), "disabled kick still emitted note 36");
+        assert!(notes.contains(&38), "snare should still be enabled");
+    }
+
+    #[test]
+    fn one_step_patterns_still_emit_a_note() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        set_param(&plugin.params.steps, 1.0);
+        set_param(&plugin.params.pulses, 1);
+        run_playing(&mut plugin, &mut ctx, 8, 512);
+        assert!(!ctx.note_ons().is_empty(), "a one-step pattern was silent");
+    }
+
     #[test]
     fn every_parameter_is_host_automatable_and_visible() {
         let params = DrumParams::default();
