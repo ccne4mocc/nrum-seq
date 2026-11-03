@@ -57,6 +57,10 @@ export global HoverTip {
     in-out property <string> text: "";
     in-out property <length> x: 0px;
     in-out property <length> y: 0px;
+    // Position of the control that owns the visible tip, so moving between two controls with
+    // the same hint cannot let the old control clear the new one's tip.
+    in-out property <length> owner-x: 0px;
+    in-out property <length> owner-y: 0px;
 }
 
 /// A TouchArea that publishes its hint while hovered. The tooltip is drawn once at the window
@@ -68,10 +72,20 @@ component TipTouch inherits TouchArea {
             HoverTip.text = root.hint;
             HoverTip.x = root.absolute-position.x;
             HoverTip.y = root.absolute-position.y + root.height + 3px;
+            HoverTip.owner-x = root.absolute-position.x;
+            HoverTip.owner-y = root.absolute-position.y;
         }
     }
     changed has-hover => {
-        if (!root.has-hover && HoverTip.text == root.hint) { HoverTip.text = ""; }
+        if (root.has-hover) {
+            HoverTip.text = root.hint;
+            HoverTip.x = root.absolute-position.x;
+            HoverTip.y = root.absolute-position.y + root.height + 3px;
+            HoverTip.owner-x = root.absolute-position.x;
+            HoverTip.owner-y = root.absolute-position.y;
+        } else if (HoverTip.owner-x == root.absolute-position.x && HoverTip.owner-y == root.absolute-position.y) {
+            HoverTip.text = "";
+        }
     }
 }
 
@@ -148,6 +162,7 @@ component ScopeChip inherits Rectangle {
 component OptSlider inherits Rectangle {
     in property <Opt> opt;
     in property <int> mod-target: -1;
+    in property <string> hint: "Drag or scroll to adjust";
     callback changed(float);
     height: 25px;
     border-radius: 4px; background: Theme.control; clip: true;
@@ -202,6 +217,13 @@ component OptSlider inherits Rectangle {
     Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.opt.text; color: Theme.text; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
     ta := TouchArea {
         pointer-event(e) => {
+            if (root.hint != "") {
+                HoverTip.text = root.hint;
+                HoverTip.x = root.absolute-position.x;
+                HoverTip.y = root.absolute-position.y + root.height + 3px;
+                HoverTip.owner-x = root.absolute-position.x;
+                HoverTip.owner-y = root.absolute-position.y;
+            }
             if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
                 root.changed(root.opt.min + Math.clamp(ta.mouse-x / ta.width, 0, 1) * (root.opt.max - root.opt.min));
             }
@@ -221,6 +243,18 @@ component OptSlider inherits Rectangle {
             } else {
                 reject
             }
+        }
+    }
+    property <bool> tip-hover: ta.has-hover;
+    changed tip-hover => {
+        if (tip-hover) {
+            HoverTip.text = root.hint;
+            HoverTip.x = root.absolute-position.x;
+            HoverTip.y = root.absolute-position.y + root.height + 3px;
+            HoverTip.owner-x = root.absolute-position.x;
+            HoverTip.owner-y = root.absolute-position.y;
+        } else if (HoverTip.owner-x == root.absolute-position.x && HoverTip.owner-y == root.absolute-position.y) {
+            HoverTip.text = "";
         }
     }
     if root.edit-open: Rectangle {
@@ -460,6 +494,7 @@ component LfoChip inherits Rectangle {
     in property <string> label;
     in property <bool> active: false;
     in property <length> text-size: 9px;
+    in property <string> hint: "";
     callback clicked();
     height: 28px; border-radius: 4px;
     background: root.active
@@ -467,7 +502,7 @@ component LfoChip inherits Rectangle {
         : (ta.has-hover ? Theme.control-hover : Theme.control);
     border-width: 1px; border-color: Theme.border;
     Text { width: parent.width; height: parent.height; text: root.label; color: root.active ? Theme.on-accent : Theme.text; font-size: root.text-size; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TipTouch { hint: root.hint; clicked => { root.clicked(); } }
 }
 
 // One LFO in the 2x2 rack.
@@ -549,7 +584,7 @@ component LfoCell inherits Rectangle {
             selected(i) => { root.wave-selected(i); }
             opened(x, y) => { root.wave-opened(x, y); }
         }
-        LfoChip { width: 28px; label: root.rate-mode == 0 ? "Hz" : "BT"; active: false; clicked => { root.rate-mode-toggled(); } }
+        LfoChip { width: 28px; label: root.rate-mode == 0 ? "Hz" : "BT"; active: false; hint: "Rate mode: Hz (free-running) or BT (beat-synced)"; clicked => { root.rate-mode-toggled(); } }
         speed-slider := OptSlider {
             width: 84px; height: 25px;
             opt: {
@@ -566,6 +601,7 @@ component LfoCell inherits Rectangle {
         }
         depth-slider := OptSlider {
             width: 58px; height: 25px;
+            hint: "Depth: 0–200% of the target range; 100% is a full sweep";
             opt: { label: "Dep", min: 0, max: 2, value: root.depth, text: "\{Math.round(root.depth * 100)}%", step: 0.01, number: "\{Math.round(root.depth * 100)}", scale: 0.01 };
             changed(v) => { root.depth-changed(v); }
         }
@@ -574,7 +610,7 @@ component LfoCell inherits Rectangle {
             opt: { label: "Phs", min: 0, max: 1, value: root.phase, text: "\{Math.round(root.phase * 360)}°", step: 0.01, number: "\{Math.round(root.phase * 360)}", scale: 1.0 / 360.0 };
             changed(v) => { root.phase-changed(v); }
         }
-        LfoChip { width: 30px; label: root.polarity == 0 ? "±" : (root.polarity == 1 ? "+" : "−"); text-size: 11px; active: root.polarity == 0; clicked => { root.polarity-toggled(); } }
+        LfoChip { width: 30px; label: root.polarity == 0 ? "±" : (root.polarity == 1 ? "↑" : "↓"); text-size: 11px; active: true; hint: "Polarity: click to cycle bipolar ±, positive ↑ (adds) and negative ↓ (subtracts)"; clicked => { root.polarity-toggled(); } }
     }
 }
 
@@ -1678,15 +1714,15 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Linked-LFO tooltip below the hovered parameter.
+    // Hover description. A fixed status line cannot sit under the pointer and steal hover from
+    // the control that just opened it, which made the old floating tip flicker or vanish.
     if HoverTip.text != "": Rectangle {
-        x: Math.max(4px, Math.min(HoverTip.x, root.base-width - 264px));
-        y: HoverTip.y + 22px > root.base-height ? HoverTip.y - 24px : HoverTip.y;
-        width: 260px; height: 20px;
+        x: 8px; y: root.base-height - 26px;
+        width: root.base-width - 16px; height: 20px;
         border-radius: 3px; background: Theme.surface;
         border-width: 1px; border-color: Theme.border;
         drop-shadow-blur: 8px; drop-shadow-color: #00000055;
-        Text { x: 6px; width: parent.width - 12px; height: parent.height; text: HoverTip.text; color: Theme.text; font-size: 8px; vertical-alignment: center; overflow: elide; }
+        Text { x: 8px; width: parent.width - 16px; height: parent.height; text: HoverTip.text; color: Theme.text; font-size: 9px; vertical-alignment: center; overflow: elide; }
     }
     if ModHover.target >= 0 && ModView.view(ModHover.target).linked && !root.matrix-open && ModDrag.lfo == 0: Rectangle {
         x: Math.max(6px, Math.min(ModHover.x, root.base-width - 326px));
