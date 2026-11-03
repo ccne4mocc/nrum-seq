@@ -16,7 +16,12 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         for i in 0..p.steps {
             let slot = (i + shift) % motif;
             let phrase = (i / motif + tr) % (tr % 3 + 2);
-            let hit = (slot * count + tr) % motif < count.min(motif) && phrase != 0 && ((i + tr) % 4 == 0 || p.density > 0.35);
+            // A pattern no longer than the first motif never reaches phrase 1. Let lane 0 sound
+            // in that first phrase instead of tiling silence across the whole lane.
+            let first_phrase = p.steps <= motif;
+            let hit = (slot * count + tr) % motif < count.min(motif)
+                && (phrase != 0 || first_phrase)
+                && ((i + tr) % 4 == 0 || p.density > 0.35);
             set_hit(&mut out, tr, i, hit && ((i + tr * 2) % 7 != 6 || p.density > 0.75), if i % 4 == 0 { 1.0 } else { 0.66 });
         }
     }
