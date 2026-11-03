@@ -15,7 +15,7 @@ nrum seq grew out of many other interests and projects. `_AlgoNemLody`, its dire
 - Per-step editing: hit overrides, probability, accent, ratchets (1–4) and step-wide microtiming, with undo/redo and a `CLR ALL` reset. Edits are display-space and survive rotation, mirror and Generate.
 - Automatic regeneration and per-length randomization with a scope mask (Mode / Length / Rhythm / Tone / Feel).
 - One-loop MIDI export to a timestamped SMF in a user-chosen folder.
-- **Four runtime LFOs** in a 2×2 rack below the step matrix: waveform, Hz (0.01–10) or beat-synced speed, depth, phase, bipolar/unipolar polarity and per-LFO enable. Drag an LFO point onto any numeric parameter to link it; linked controls show a depth band plus a second animated value bar, and the matrix shows/removes links.
+- **Four runtime LFOs** in a 2×2 rack below the step matrix: waveform, Hz (0.01–10) or beat-synced speed, depth (0–200%), phase, bipolar / unipolar / unipolar-negative polarity and per-LFO enable. Drag an LFO point onto any numeric parameter to link it; linked controls show a depth band plus a second animated value bar, and the matrix shows/removes links.
 - Built-in starting-point presets for house, broken beat, polyrhythm, deep and glitch material. Presets write ordinary host parameters.
 - Four colour themes: Neon (default), Sketch (light), Lava, Forest.
 - Technical logging toggle; when enabled, mode and parameter snapshots are appended to `~/nrum-seq.log` (`%USERPROFILE%\nrum-seq.log` on Windows).

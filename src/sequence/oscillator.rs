@@ -14,8 +14,13 @@ pub(crate) fn value(wave: usize, phase: f32) -> f32 {
         3 => if phase < 0.5 { 1.0 } else { 0.0 },
         // Narrow gate: the onsets bunch into the first quarter of every cycle.
         4 => if phase < 0.25 { 1.0 } else { 0.0 },
-        // Exponential fall: the onsets bunch at the start of every cycle.
-        5 => (-3.2 * phase as f64).exp() as f32,
+        // Exponential fall: the onsets bunch at the start of every cycle. Normalized so the
+        // wave reaches both 0 and 1 like the others, which keeps LFO depth ranges exact.
+        5 => {
+            const K: f32 = 3.2;
+            let tail = (-K).exp();
+            ((-K * phase).exp() - tail) / (1.0 - tail)
+        }
         // Full-wave rectified: two humps per cycle instead of one.
         6 => (std::f64::consts::TAU as f32 * phase).sin().abs(),
         // Deterministic hash of the phase: the onsets scatter instead of clustering.
@@ -60,4 +65,26 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LFO depth is a share of the target range, so every deterministic waveform must actually
+    /// reach both endpoints; a wave that stops short would cap a 100% sweep below 100%.
+    #[test]
+    fn deterministic_waves_reach_both_endpoints() {
+        for wave in 0..7 {
+            let mut lo = f32::MAX;
+            let mut hi = f32::MIN;
+            for k in 0..10_000 {
+                let v = value(wave, k as f32 / 10_000.0);
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+            assert!(lo <= 1e-4, "wave {wave} bottoms at {lo}");
+            assert!(hi >= 1.0 - 1e-4, "wave {wave} tops at {hi}");
+        }
+    }
 }

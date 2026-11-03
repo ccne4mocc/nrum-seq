@@ -11,6 +11,9 @@ pub const LFO_COUNT: usize = 4;
 /// Highest free-running LFO frequency. The scheduler samples LFOs per event, not at audio rate.
 pub const LFO_MAX_HZ: f32 = 10.0;
 
+/// Highest LFO depth: 1.0 is the target's full range, 2.0 is deliberate overdrive that clips.
+pub const LFO_MAX_DEPTH: f32 = 2.0;
+
 /// A user-editable numeric parameter that an LFO may modulate.
 ///
 /// The order is a persisted-link contract: append new targets, never renumber existing ones.
@@ -189,11 +192,13 @@ pub fn lfo_phase(spec: LfoSpec, clock: LfoClock) -> f32 {
 }
 
 /// One LFO sample. Bipolar spans `-depth..=depth`; unipolar spans `0..=depth`.
+/// One LFO sample. Bipolar spans `-depth..=depth`, unipolar `0..=depth`, unipolar negative
+/// `-depth..=0`. `depth` is a share of the target range, so 1.0 is a full sweep.
 pub fn lfo_signal(spec: LfoSpec, clock: LfoClock) -> f32 {
     if !spec.enabled {
         return 0.0;
     }
-    let depth = if spec.depth.is_finite() { spec.depth.clamp(0.0, 1.0) } else { 0.0 };
+    let depth = if spec.depth.is_finite() { spec.depth.clamp(0.0, LFO_MAX_DEPTH) } else { 0.0 };
     if depth <= 0.0 {
         return 0.0;
     }
@@ -201,18 +206,19 @@ pub fn lfo_signal(spec: LfoSpec, clock: LfoClock) -> f32 {
     let shaped = match spec.polarity {
         LfoPolarity::Bipolar => wave * 2.0 - 1.0,
         LfoPolarity::Unipolar => wave,
+        LfoPolarity::UnipolarNegative => -wave,
     };
-    (depth * shaped).clamp(-1.0, 1.0)
+    (depth * shaped).clamp(-LFO_MAX_DEPTH, LFO_MAX_DEPTH)
 }
 
-/// Fold a summed modulation offset into a parameter range. Half the range is the full-depth
-/// span, matching the feel scales used before the LFO subsystem.
+/// Fold a summed modulation offset into a parameter range: `offset` is expressed in ranges, so
+/// `1.0` (depth 100%) can reach either end. Values beyond the endpoints clip.
 pub fn fold(base: f32, offset: f32, min: f32, max: f32) -> f32 {
     let (lo, hi) = if min <= max { (min, max) } else { (max, min) };
     if !base.is_finite() {
         return lo;
     }
-    let span = (hi - lo) * 0.5;
+    let span = hi - lo;
     let value = base + if offset.is_finite() { offset * span } else { 0.0 };
     value.clamp(lo, hi)
 }
@@ -282,10 +288,45 @@ mod tests {
 
     #[test]
     fn fold_clamps_to_the_parameter_range() {
-        assert!((fold(0.25, 0.5, 0.0, 0.5) - 0.375).abs() < 1e-6);
-        assert!((fold(0.45, 1.0, 0.02, 1.0) - 0.94).abs() < 1e-6);
+        assert!((fold(0.25, 0.5, 0.0, 0.5) - 0.5).abs() < 1e-6);
+        assert_eq!(fold(0.45, 1.0, 0.02, 1.0), 1.0);
         assert_eq!(fold(0.45, -1.0, 0.02, 1.0), 0.02);
         assert_eq!(fold(f32::NAN, 1.0, 2.0, 8.0), 2.0);
+    }
+
+    #[test]
+    fn full_depth_reaches_both_ends_from_any_base() {
+        // Bipolar at 100% covers the whole range; from an off-centre base it clips at one end.
+        for base in [0.0f32, 0.12, 0.5, 0.65, 1.0] {
+            assert_eq!(fold(base, 1.0, 0.0, 1.0), 1.0, "base {base}");
+            assert_eq!(fold(base, -1.0, 0.0, 1.0), 0.0, "base {base}");
+        }
+        // Half depth is half the range, so the old feel is still reachable at 50%.
+        assert!((fold(0.25, 0.5, 0.0, 1.0) - 0.75).abs() < 1e-6);
+        // Unipolar only adds; unipolar negative only subtracts.
+        assert!((fold(0.3, 0.0, 0.0, 1.0) - 0.3).abs() < 1e-6);
+        assert_eq!(fold(0.3, 1.0, 0.0, 1.0), 1.0);
+        assert_eq!(fold(0.3, -1.0, 0.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn polarity_controls_the_sign_and_depth_two_is_the_maximum() {
+        let early = LfoClock { beat: 0.0, seconds: 0.0 };
+        let peak = LfoClock { beat: 0.25, seconds: 0.25 };
+        let trough = LfoClock { beat: 0.75, seconds: 0.75 };
+        let up = LfoSpec { wave: OscWave::Sine, freq_hz: 1.0, depth: 1.0, ..LfoSpec::default() };
+        let down = LfoSpec { polarity: LfoPolarity::UnipolarNegative, ..up };
+        let unipolar = LfoSpec { polarity: LfoPolarity::Unipolar, ..up };
+        assert!((lfo_signal(up, peak) - 1.0).abs() < 1e-6);
+        assert!((lfo_signal(up, trough) + 1.0).abs() < 1e-6);
+        assert!(lfo_signal(unipolar, trough).abs() < 1e-6);
+        assert!(lfo_signal(down, trough).abs() < 1e-6);
+        assert!((lfo_signal(down, peak) + 1.0).abs() < 1e-6);
+        assert!(lfo_signal(down, early) <= 0.0);
+        // 200% is the ceiling; deeper values clamp instead of wrapping.
+        let deep = LfoSpec { depth: 2.0, ..up };
+        assert!((lfo_signal(deep, peak) - 2.0).abs() < 1e-6);
+        assert!((lfo_signal(LfoSpec { depth: 9.0, ..up }, peak) - 2.0).abs() < 1e-6);
     }
 
     #[test]

@@ -4,6 +4,8 @@
 
 ### Added
 
+- Unipolar-negative LFO polarity (downward only) beside bipolar and unipolar-up.
+- LFO depth now runs 0–200%, where 100% is one full parameter range.
 - Per-step edit overlay: hit overrides, probability, accent, ratchets (1–4), step-wide
   microtiming, `CLR ALL`, and editor-local undo/redo. Edits are project state and are applied in
   display space, so they survive Rotate, Mirror and Generate.
@@ -19,6 +21,9 @@
 
 ### Fixed
 
+- LFO depth 100% now modulates the full parameter range; it used to cover only half, so
+  e.g. Swing at full depth never left 0–25% of its 0–50% range. The depth bands, hover
+  percentages and docs follow the same scale.
 - Slowcat lane 0 no longer tiles silence when the pattern is no longer than its first motif.
 - Documentation now matches the 1024-step default ceiling.
 
