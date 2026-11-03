@@ -22,7 +22,7 @@ nrum seq grew out of many other interests and projects. `_AlgoNemLody`, its dire
 
 ## Modes
 
-Modes are grouped rather than listed exhaustively. Full derivation and view geometry live in `src/sequence/` and `src/view.rs` respectively.
+Modes are grouped rather than listed exhaustively. Full derivation and view geometry live in `src/sequence/` and `src/view.rs` respectively; one starting point per mode is in [`docs/MODE_EXAMPLES.md`](docs/MODE_EXAMPLES.md).
 
 **Rhythmic structures**
 - Euclidean / Euclidean-Swing hybrid / Phase Shift (Reich) / Polyrhythm Stack / Well-Formed (Bresenham) / Phase Canon / Slowcat Rhythm / Weighted Syncopation.
