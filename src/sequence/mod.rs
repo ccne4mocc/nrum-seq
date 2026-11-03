@@ -918,6 +918,195 @@ mod tests {
     }
 
     #[test]
+    fn african_bell_lane_zero_is_a_rotation_of_the_12_step_figure() {
+        for n in [12usize, 24, 48] {
+            let pat = generate(&GenParams { kind: Mode::AfricanBell, steps: n, probability: 1.0, density: 1.0, ..GenParams::default() });
+            let hits = pat.hit[0][..n].iter().filter(|&&hit| hit).count();
+            assert_eq!(hits, n / 12 * 4, "the bell figure has four onsets per 12 steps, n={n}");
+            // Every lane must not collapse into a single structural column.
+            for i in 0..n {
+                assert!(!(0..TRACKS).all(|tr| pat.hit[tr][i]), "all lanes fire at step {i}");
+            }
+        }
+    }
+
+    #[test]
+    fn bernoulli_publishes_the_coin_flips_it_uses() {
+        for density in [0.0f32, 0.2, 0.65, 1.0] {
+            let pat = generate(&GenParams { kind: Mode::Bernoulli, steps: 32, density, probability: 1.0, ..GenParams::default() });
+            for i in 0..32 {
+                assert!((0.0..=1.0).contains(&pat.u[i]), "u[{i}]={}", pat.u[i]);
+                assert_eq!(pat.hit[0][i], pat.u[i] < density, "lane 0 does not follow its published draw");
+            }
+        }
+    }
+
+    #[test]
+    fn cantor_lane_zero_follows_the_two_level_membership_rule() {
+        // The generator samples at i/n, so boundaries can fall either side of a float compare.
+        // Check that the hits are exactly the cells its own membership rule accepts.
+        let n = 27usize;
+        let pat = generate(&GenParams { kind: Mode::Cantor, steps: n, density: 1.0, probability: 1.0, ..GenParams::default() });
+        for i in 0..n {
+            assert_eq!(pat.hit[0][i], cantor::in_cantor(i as f32 / n as f32, 2), "step {i}");
+        }
+        // Sanity-check the rule at values that are unambiguous.
+        assert!(!cantor::in_cantor(0.5, 2));
+        assert!(cantor::in_cantor(0.25, 2));
+        assert!(cantor::in_cantor(0.9, 2));
+    }
+
+    #[test]
+    fn cellular_rows_and_rule_updates_are_consistent() {
+        let p = GenParams { kind: Mode::Cellular, steps: 16, pulses: 3, phase: 0.0, ca_rule: 30, density: 0.5, ..GenParams::default() };
+        let pat = generate(&p);
+        for tr in 0..TRACKS {
+            let row = cellular::selected_row(&p, tr);
+            assert!(row < CA_ROWS, "lane {tr} selected row {row}");
+        }
+        // Row 1 must be rule 30 applied to the published row 0 on a ring.
+        for i in 0..16 {
+            let left = pat.ca[0][(i + 15) % 16] as u8;
+            let mid = pat.ca[0][i] as u8;
+            let right = pat.ca[0][(i + 1) % 16] as u8;
+            let expected = (30u8 >> ((left << 2) | (mid << 1) | right)) & 1 != 0;
+            assert_eq!(pat.ca[1][i], expected, "row 1 step {i}");
+        }
+    }
+
+    #[test]
+    fn euclidean_swing_keeps_the_euclidean_hits_and_marks_the_offbeats() {
+        let base = GenParams { kind: Mode::Euclidean, steps: 16, pulses: 5, density: 1.0, probability: 1.0, ..GenParams::default() };
+        let swung = GenParams { kind: Mode::EuclideanSwing, ..base };
+        let plain = generate(&base);
+        let swing = generate(&swung);
+        assert_eq!(plain.hit, swing.hit, "the swing variant changed the Euclidean line");
+        for tr in 0..TRACKS {
+            for i in 0..16 {
+                if swing.hit[tr][i] && i % 2 == 1 {
+                    assert!(swing.accent[tr][i] <= 0.80, "offbeat accent {} is not a swing accent", swing.accent[tr][i]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn genetic_density_controls_mutation_and_the_base_is_stable() {
+        let base = GenParams { kind: Mode::Genetic, steps: 16, density: 1.0, probability: 1.0, ..GenParams::default() };
+        let stable = generate(&base);
+        for i in 0..8 {
+            assert!(stable.hit[0][i], "base lane 0 should be on for the first half at i={i}");
+        }
+        for i in 8..16 {
+            assert!(!stable.hit[0][i], "base lane 0 should be off for the second half at i={i}");
+        }
+        // A tiny but non-zero density is the maximum mutation rate; zero density is the shared
+        // silence transform, not a Genetic-specific state.
+        let mutated = generate(&GenParams { density: 0.01, ..base });
+        assert_ne!(mutated.hit[0][..16], stable.hit[0][..16], "mutation did not change lane 0");
+        assert_eq!(mutated.hit, generate(&GenParams { density: 0.01, ..base }).hit, "mutation is not deterministic");
+    }
+
+    #[test]
+    fn lorenz_starts_with_a_bounded_hit_and_stays_deterministic() {
+        let p = GenParams { kind: Mode::Lorenz, steps: 64, density: 1.0, probability: 1.0, ..GenParams::default() };
+        let a = generate(&p);
+        let b = generate(&p);
+        assert_eq!(a.hit, b.hit);
+        assert!(a.hit[0][0], "the initial transient should sound");
+        for tr in 0..TRACKS {
+            assert!(a.accent[tr][..64].iter().all(|accent| accent.is_finite() && (0.0..=1.0).contains(accent)));
+            assert!(a.hit[tr][..64].iter().any(|hit| *hit), "lane {tr} is silent");
+        }
+    }
+
+    #[test]
+    fn markov_hits_only_the_lane_named_by_the_published_state() {
+        let pat = generate(&GenParams { kind: Mode::Markov, steps: 64, pulses: 8, density: 1.0, probability: 1.0, ..GenParams::default() });
+        for i in 0..64 {
+            let state = pat.state[i] as usize;
+            assert!(state <= TRACKS, "state {state} is outside the walk's alphabet");
+            for tr in 0..TRACKS {
+                if pat.hit[tr][i] {
+                    assert_eq!(state, tr + 1, "lane {tr} fired from state {state} at step {i}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn phase_canon_lanes_are_shifted_copies_of_the_base_train() {
+        let p = GenParams { kind: Mode::PhaseCanon, steps: 16, pulses: 4, density: 1.0, probability: 1.0, ..GenParams::default() };
+        let pat = generate(&p);
+        for tr in 0..TRACKS {
+            let shift = (tr * 16 / TRACKS) % 16;
+            for i in 0..16 {
+                let expected = ((i * 4) / 16) != (((i + 1) * 4) / 16);
+                if expected {
+                    assert!(pat.hit[tr][(i + shift) % 16], "lane {tr} is missing the shifted onset at {i}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reaction_diffusion_lane_zero_tracks_its_published_activator() {
+        for density in [0.25f32, 0.65, 1.0] {
+            let pat = generate(&GenParams { kind: Mode::ReactionDiffusion, steps: 32, density, probability: 1.0, ..GenParams::default() });
+            for i in 0..32 {
+                assert!((0.0..=1.0).contains(&pat.u[i]));
+                // a = 2u - 1, and the hit test is a >= 1 - density.
+                assert_eq!(pat.hit[0][i], pat.u[i] >= 1.0 - density / 2.0,
+                    "lane 0 does not follow the activator at density={density} i={i} u={} hit={}", pat.u[i], pat.hit[0][i]);
+            }
+        }
+    }
+
+    #[test]
+    fn slowcat_motif_lengths_are_bounded_and_every_lane_sounds() {
+        for steps in [7usize, 16, 64] {
+            let pat = generate(&GenParams { kind: Mode::Slowcat, steps, pulses: 5, density: 1.0, probability: 1.0, ..GenParams::default() });
+            for tr in 0..TRACKS {
+                let motif = slowcat::motif_len(tr, 5, steps);
+                assert!(motif >= 1 && motif <= steps, "lane {tr} motif={motif} steps={steps}");
+                assert!(pat.hit[tr][..steps].iter().any(|hit| *hit), "lane {tr} is silent at steps={steps}");
+            }
+        }
+    }
+
+    #[test]
+    fn sturmian_counts_follow_the_irrational_slope() {
+        for phase in [0.0f32, 0.25, 0.5, 1.0] {
+            let n = 64usize;
+            let pat = generate(&GenParams { kind: Mode::Sturmian, steps: n, phase, density: 1.0, probability: 1.0, ..GenParams::default() });
+            let alpha = (0.3 + 0.4 * phase) as f64;
+            let count = pat.hit[0][..n].iter().filter(|&&hit| hit).count();
+            let expected = (n as f64 * alpha).floor() as usize;
+            assert!(count == expected || count == expected + 1,
+                "phase={phase} count={count} expected≈{expected}");
+        }
+    }
+
+    #[test]
+    fn vuza_modulus_is_clamped_and_density_still_speaks() {
+        for (rule, modulus) in [(8u8, 8usize), (16, 16), (32, 32), (200, 32)] {
+            let pat = generate(&GenParams { kind: Mode::Vuza, steps: 32, ca_rule: rule, density: 1.0, probability: 1.0, ..GenParams::default() });
+            assert!(pat.hit[0][..modulus].iter().all(|hit| *hit), "rule={rule} modulus={modulus}");
+            let sparse = generate(&GenParams { kind: Mode::Vuza, steps: 32, ca_rule: rule, density: 0.01, probability: 1.0, ..GenParams::default() });
+            assert!(sparse.hit.iter().any(|lane| lane[..32].iter().any(|hit| *hit)), "modulus {modulus} went silent");
+        }
+    }
+
+    #[test]
+    fn every_mode_has_a_finite_help_line() {
+        for kind in Mode::all() {
+            let line = crate::help::math(&GenParams { kind, ..GenParams::default() });
+            assert!(!line.trim().is_empty(), "{kind:?} has no help line");
+            assert!(!line.contains("NaN"), "{kind:?} help contains NaN: {line}");
+        }
+    }
+
+    #[test]
     fn full_step_range_is_supported() {
         for kind in Mode::all() {
             let pat = generate(&GenParams { kind, steps: MAX_STEPS, pulses: 32, density: 0.8, ..GenParams::default() });

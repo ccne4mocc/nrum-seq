@@ -1,6 +1,6 @@
 use super::{set_hit, GenParams, Pattern, Rng, TRACKS};
 
-fn in_cantor(x: f32, depth: usize) -> bool {
+pub(super) fn in_cantor(x: f32, depth: usize) -> bool {
     let mut x = x;
     for _ in 0..depth {
         let t = (x*3.0).fract();
