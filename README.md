@@ -11,10 +11,12 @@ nrum seq grew out of many other interests and projects. `_AlgoNemLody`, its dire
 - Fixed-size 1–1024 step pattern; Settings sets a ceiling (64–1024, default 1024) and applies immediately.
 - Fixed-size audio scheduler with no allocation or locking; generation runs on the editor thread and snapshots parameters.
 - Real-time safe audio path: no file I/O, allocations, locks, or unbounded loops inside `Plugin::process()`.
-- Lane-independent hit generation; each lane has its own density profile, phase origin, and enable/note/velocity host parameter.
+- Lane-independent hit generation; each lane has its own density profile, phase origin, enable/note/velocity host parameter, and an optional per-lane generator mode.
+- Per-step editing: hit overrides, probability, accent, ratchets (1–4) and step-wide microtiming, with undo/redo and a `CLR ALL` reset. Edits are display-space and survive rotation, mirror and Generate.
 - Automatic regeneration and per-length randomization with a scope mask (Mode / Length / Rhythm / Tone / Feel).
 - One-loop MIDI export to a timestamped SMF in a user-chosen folder.
 - **Four runtime LFOs** in a 2×2 rack below the step matrix: waveform, Hz (0.01–10) or beat-synced speed, depth, phase, bipolar/unipolar polarity and per-LFO enable. Drag an LFO point onto any numeric parameter to link it; linked controls show a depth band plus a second animated value bar, and the matrix shows/removes links.
+- Built-in starting-point presets for house, broken beat, polyrhythm, deep and glitch material. Presets write ordinary host parameters.
 - Four colour themes: Neon (default), Sketch (light), Lava, Forest.
 - Technical logging toggle; when enabled, mode and parameter snapshots are appended to `~/nrum-seq.log` (`%USERPROFILE%\nrum-seq.log` on Windows).
 
@@ -86,6 +88,8 @@ The Windows bundle workflow is manual-only (`workflow_dispatch`) and GitHub-spec
 - Fixed UI size 860×740; no scaling preference beyond what Slint offers by default.
 - The plug-in generates MIDI rather than audio; it cannot be assigned to a bus and will not do anything without an instrument track.
 - Export MIDI outputs one loop and uses the plug-in process working directory, not the DAW project path.
+- Microtiming is step-wide and only positive delays are scheduled; per-lane timing and negative offsets are future work. Ratchets are capped at four.
+- Per-lane generator selection keeps the global mode's panel; there is no per-lane mode view.
 
 ## Project layout
 
