@@ -860,8 +860,8 @@ export component AppWindow inherits Window {
         if (key == 7) { return mode == 3 || mode == 16 || mode == 17 || mode == 32; }
         // probability: stochastic/chaos modes
         if (key == 8) { return mode == 20 || mode == 21 || mode == 22 || mode == 23 || mode == 24 || mode == 25 || mode == 26 || mode == 27 || mode == 28 || mode == 29 || mode == 30 || mode == 31 || mode == 32; }
-        // symmetry: crystallographic, sieve, and the cellular initial-state policy
-        if (key == 11) { return mode == 3 || mode == 5 || mode == 17; }
+        // symmetry: crystallographic, sieve, cellular initial state and L-system grammar
+        if (key == 11) { return mode == 3 || mode == 5 || mode == 12 || mode == 17; }
         return true;
     }
     pure function pulses-max(mode: int) -> float {
@@ -978,6 +978,29 @@ export component AppWindow inherits Window {
         "Tent map: x' = mu·min(x,1−x), started on the attractor after a transient. Density sets the slope, phase the initial x, and each lane fires on its highest normalized samples; the panel draws the return map.",
         "Henon map: the classic two-dimensional attractor, started near the origin with a transient and an escape guard. Density sets a, each lane fires on its largest x-moves, and the panel draws the attractor path."
     ];
+    pure function symmetry-label(mode: int) -> string {
+        if (mode == 3) { return "Initial state"; }
+        if (mode == 12) { return "Grammar"; }
+        return "Symmetry";
+    }
+    pure function symmetry-text(mode: int, value: float) -> string {
+        let v = Math.round(value);
+        if (mode == 3) {
+            if (v == 1) { return "Centre"; }
+            if (v == 2) { return "Stripes"; }
+            if (v == 3) { return "Solid + gap"; }
+            return "Random";
+        }
+        if (mode == 12) {
+            if (v == 1) { return "Family A"; }
+            if (v == 2) { return "Family B"; }
+            if (v == 3) { return "Family C"; }
+            if (v == 5) { return "Family D"; }
+            return "Auto";
+        }
+        return "\{v}";
+    }
+
     property <[Opt]> opts: [
         { label: "Steps", min: 1, max: root.max-steps, value: root.steps, text: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 1000) / 1000}", step: root.round-steps ? 1 : 0.01, number: root.round-steps ? "\{Math.round(root.steps)}" : "\{Math.round(root.steps * 1000) / 1000}", scale: 1 },
         { label: root.pulse-label(root.mode), min: 0, max: root.pulses-max(root.mode), value: Math.min(root.pulses, root.pulses-max(root.mode)), text: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", step: 1, number: "\{Math.round(Math.min(root.pulses, root.pulses-max(root.mode)))}", scale: 1 },
@@ -990,7 +1013,7 @@ export component AppWindow inherits Window {
         { label: "Probability", min: 0, max: 1, value: root.probability, text: "\{Math.round(root.probability * 100)}%", step: 0.01, number: "\{Math.round(root.probability * 100)}", scale: 0.01 },
         { label: "Velocity", min: 0.01, max: 1, value: root.velocity, text: "\{Math.round(root.velocity * 100)}%", step: 0.01, number: "\{Math.round(root.velocity * 100)}", scale: 0.01 },
         { label: root.regen-label(root.mode), min: 0, max: 256, value: root.regenerate-every, text: "\{Math.round(root.regenerate-every)}", step: 1, number: "\{Math.round(root.regenerate-every)}", scale: 1 },
-        { label: root.mode == 3 ? "Initial state" : "Symmetry", min: 1, max: 8, value: root.symmetry, text: root.mode == 3 ? (Math.round(root.symmetry) == 1 ? "Centre" : (Math.round(root.symmetry) == 2 ? "Stripes" : (Math.round(root.symmetry) == 3 ? "Solid + gap" : "Random"))) : "\{Math.round(root.symmetry)}", step: 1, number: "\{Math.round(root.symmetry)}", scale: 1 },
+        { label: root.symmetry-label(root.mode), min: 1, max: 8, value: root.symmetry, text: root.symmetry-text(root.mode, root.symmetry), step: 1, number: "\{Math.round(root.symmetry)}", scale: 1 },
         { label: "Randomize after lengths", min: 0, max: 256, value: root.randomize-after-lengths, text: "\{Math.round(root.randomize-after-lengths)}", step: 1, number: "\{Math.round(root.randomize-after-lengths)}", scale: 1 },
         { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", step: 0.01, number: "\{Math.round(root.swing * 300)}", scale: 1.0 / 300.0 },
         { label: "Gate", min: 0.02, max: 1, value: root.gate, text: "\{Math.round(root.gate * 100)}%", step: 0.01, number: "\{Math.round(root.gate * 100)}", scale: 0.01 }
