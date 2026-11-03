@@ -171,7 +171,7 @@ vendor/               vendored Slint/baseview adapter
 ## Credits and license
 
 - Author: `ccne4mocc / feN`
-- Copyright (C) 2026 `ccne4mocc / feN`
+- Copyright (C) 2026 ccne4mocc / feN
 - Derived from the `_AlgoNemLody` reference project.
 - License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
 
