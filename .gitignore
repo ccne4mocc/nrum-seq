@@ -5,6 +5,7 @@
 *.mid
 *.tar.gz
 *.zip
+.env
 .DS_Store
 Thumbs.db
 .idea/
