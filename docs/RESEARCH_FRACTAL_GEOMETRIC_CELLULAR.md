@@ -2,7 +2,7 @@
 
 Status: **research only — nothing in this document is implemented.** This is a shared reference
 for proofreading before the next mode wave. The companion document in nelody seq
-(`_Nelody/_Nelody/docs/RESEARCH_FRACTAL_GEOMETRIC_CELLULAR.md`) carries the same algorithm
+(`_Nelody/docs/RESEARCH_FRACTAL_GEOMETRIC_CELLULAR.md`) carries the same algorithm
 review with melodic mappings.
 
 ## 1. Scope and constraints
