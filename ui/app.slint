@@ -722,7 +722,7 @@ export component AppWindow inherits Window {
     in property <string> version;
     in property <[string]> preset-names;
     in property <float> steps: 16;
-    in property <float> max-steps: 1024;
+    in property <float> max-steps: 256;
     in property <bool> round-steps: true;
     // Grid cells the generator will fill, mirroring `cell_count_for`: snap rounds, free length
     // takes the ceiling. Header and bounds read this so they cannot disagree with the matrix.

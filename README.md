@@ -8,7 +8,7 @@ nrum seq grew out of many other interests and projects. `_AlgoNemLody`, its dire
 
 - Eight MIDI lanes on channel 10, with GM-style default notes (Kick 36, Snare 38, Closed Hat 42, Open Hat 46, Clap 39, Rim 37, Low Tom 45, Percussion 50).
 - 40 deterministic generator modes, each with a mode-specific visualization and mode-specific parameters.
-- Fixed-size 1–1024 step pattern; Settings sets a ceiling (64–1024, default 1024) and applies immediately.
+- Fixed-size 1–1024 step pattern; Settings sets a ceiling (64–1024, default 256) and applies immediately; long-horizon modes raise the loop and ceiling to their own floor when selected.
 - Fixed-size audio scheduler with no allocation or locking; generation runs on the editor thread and snapshots parameters.
 - Real-time safe audio path: no file I/O, allocations, locks, or unbounded loops inside `Plugin::process()`.
 - Lane-independent hit generation; each lane has its own density profile, phase origin, enable/note/velocity host parameter.

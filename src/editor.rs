@@ -46,8 +46,11 @@ const PRESETS: &[Preset] = &[
 fn apply_preset(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
     let Some(preset) = PRESETS.get(index.max(0) as usize) else { return; };
     set(c, &p.mode, preset.mode);
-    set(c, &p.steps, preset.steps.min(p.step_ceiling() as f32));
-    set(c, &p.pulses, preset.pulses.min(p.cell_count()));
+    // The preset's loop is a suggestion; the mode's functionality floor still wins.
+    apply_mode_shape(c, p, preset.mode, preset.steps);
+    let (steps, ceiling) = preset.mode.steps_for_mode(preset.steps, p.step_ceiling());
+    let cells = cell_count_for(steps, p.round_steps.value(), ceiling);
+    set(c, &p.pulses, preset.pulses.min(pulse_limit(preset.mode, cells)));
     set(c, &p.density, preset.density);
     set(c, &p.probability, preset.probability);
     set(c, &p.seed, preset.seed);
@@ -196,18 +199,37 @@ fn lfo_polarity_param(p: &DrumParams, slot: i32) -> &EnumParam<LfoPolarity> {
     match slot { 1 => &p.lfo1_polarity, 2 => &p.lfo2_polarity, 3 => &p.lfo3_polarity, _ => &p.lfo4_polarity }
 }
 
+/// Per-mode pulse ceiling; `pulses` means different things per mode.
+fn pulse_limit(mode: Mode, cells: i32) -> i32 {
+    match mode {
+        Mode::Cellular => 15,
+        Mode::Sieve => 2,
+        Mode::Hilbert => 5,
+        _ => cells,
+    }
+}
+
+/// Raise the loop and ceiling to a mode's step floor, then re-clamp everything that depends on
+/// the loop length. Never lowers a value; only user-initiated mode changes call this.
+fn apply_mode_shape(c: &Arc<dyn GuiContext>, p: &DrumParams, mode: Mode, steps: f32) {
+    let (steps, ceiling) = mode.steps_for_mode(steps, p.step_ceiling());
+    if ceiling != p.step_ceiling() { set(c, &p.max_steps, ceiling as i32); }
+    if (steps - p.steps.value()).abs() > 1e-6 { set(c, &p.steps, steps); }
+    let cells = cell_count_for(steps, p.round_steps.value(), ceiling);
+    let limit = pulse_limit(mode, cells);
+    if p.pulses.value() > limit { set(c, &p.pulses, limit); }
+    if p.rotate.value() >= cells { set(c, &p.rotate, cells - 1); }
+}
+
 /// One mode-selection path for the grouped list and the mode-header wheel.
 fn apply_mode(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
     let last = <Mode as Enum>::variants().len() as i32 - 1;
     let mode = Mode::from_index(index.clamp(0, last) as usize);
     set(c, &p.mode, mode);
-    let max_pulses = match mode {
-        Mode::Cellular => 15,
-        Mode::Sieve => 2,
-        Mode::Hilbert => 5,
-        _ => p.cell_count(),
-    };
-    if p.pulses.value() > max_pulses { set(c, &p.pulses, max_pulses); }
+    apply_mode_shape(c, p, mode, p.steps.value());
+    // The raised loop length is what the mode-specific counts must fit.
+    let (steps, ceiling) = mode.steps_for_mode(p.steps.value(), p.step_ceiling());
+    let max_pulses = pulse_limit(mode, cell_count_for(steps, p.round_steps.value(), ceiling));
     // Mode-specific default pulse count instead of inheriting the previous mode's value.
     let default_pulses = match mode {
         Mode::Cellular => 8,
@@ -230,29 +252,6 @@ fn apply_mode(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
     };
     if (p.density.value() - 0.65).abs() < 1e-4 { set(c, &p.density, default_density); }
     if p.phase.value().abs() < 1e-4 { set(c, &p.phase, default_phase); }
-    // Long-orbit/fractal modes start above the default 64-step ceiling; the user can lower it.
-    let wants_long = matches!(
-        mode,
-        Mode::Lorenz
-            | Mode::ReactionDiffusion
-            | Mode::Cantor
-            | Mode::Fibonacci
-            | Mode::Genetic
-            | Mode::Kuramoto
-            | Mode::Phyllotaxis
-            | Mode::Arnold
-            | Mode::Hilbert
-            | Mode::Ulam
-            | Mode::ThueMorse
-            | Mode::RudinShapiro
-            | Mode::Brownian
-            | Mode::LevyFlight
-            | Mode::TentMap
-            | Mode::HenonMap
-    );
-    if wants_long && p.max_steps.value() < 256 {
-        set(c, &p.max_steps, 256);
-    }
 }
 
 /// Editor-local undo stack for manual step edits. Host parameter changes are deliberately not
@@ -490,6 +489,12 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     if scope_enabled(p, scope::FEEL) {
         set(ctx, &p.probability, probability.clamp(0.0, 1.0));
         set(ctx, &p.velocity, velocity.clamp(0.01, 1.0));
+    }
+    // A randomized mode still needs its functionality floor; a drawn length that is already
+    // long enough is kept.
+    if scope_enabled(p, scope::MODE) || scope_enabled(p, scope::LENGTH) {
+        let steps = if scope_enabled(p, scope::LENGTH) { steps } else { p.steps.value() };
+        apply_mode_shape(ctx, p, mode_after, steps);
     }
 }
 

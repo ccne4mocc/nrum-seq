@@ -85,7 +85,8 @@ pub const TRACKS: usize = 8;
 pub const MAX_STEPS: usize = 1024;
 /// Lowest selectable ceiling; keeps untouched projects at the historical limit.
 pub const MIN_MAX_STEPS: usize = 64;
-pub const DEFAULT_MAX_STEPS: usize = 1024;
+/// Default ceiling. Long-horizon modes raise it themselves through `Mode::min_steps`.
+pub const DEFAULT_MAX_STEPS: usize = 256;
 pub const CA_ROWS: usize = 16;
 // Spelled out because `std::f64::consts::GOLDEN_RATIO` is unstable on older toolchains.
 #[allow(clippy::approx_constant)] // the std constant is newer than the supported baseline

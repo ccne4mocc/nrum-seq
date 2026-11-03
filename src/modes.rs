@@ -4,6 +4,7 @@
 //! shown by the host. Generators and panels match the same variants, so there is no second enum
 //! or index mapping to maintain. Only this file names the plug-in enum machinery.
 
+use crate::sequence::{MAX_STEPS, MIN_MAX_STEPS};
 use nice_plug::prelude::Enum;
 
 #[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
@@ -94,6 +95,42 @@ impl Mode {
         order[(pos + delta).clamp(0, order.len() as i32 - 1) as usize]
     }
 
+    /// Shortest loop that still shows the mode's defining structure, in steps. `None` means the
+    /// mode is complete at any length and selecting it must not touch the loop.
+    ///
+    /// This is a functionality floor for the panel and the algorithm, not a taste preset:
+    /// attractors need a dense path, word/staircase modes need more than one period, and the
+    /// fixed-figure modes need a whole bar of their own grid. It never caps a longer loop.
+    pub fn min_steps(self) -> Option<usize> {
+        match self {
+            // A 12-step bell figure twice, so the loop seam falls on a figure boundary.
+            Self::AfricanBell => Some(24),
+            // One full residue cycle, a readable orbit/path, or a motif rotation.
+            Self::Phyllotaxis | Self::Logistic | Self::Slowcat | Self::PhaseShift
+            | Self::PebbleBox | Self::Sieve | Self::Bernoulli | Self::PhaseCanon | Self::Vuza => Some(32),
+            // A long-horizon texture: attractor, walk, word window or population wave.
+            Self::LSystem | Self::Kuramoto | Self::ReactionDiffusion | Self::Lorenz
+            | Self::Fibonacci | Self::Sturmian | Self::Ulam | Self::ThueMorse
+            | Self::RudinShapiro | Self::Brownian | Self::LevyFlight | Self::TentMap
+            | Self::HenonMap | Self::Life => Some(64),
+            // Two levels of middle-third removal (3^4) at the widest lane depth.
+            Self::Cantor => Some(81),
+            _ => None,
+        }
+    }
+
+    /// Effective `(steps, max_steps)` after a mode change: raises the floor without ever lowering
+    /// a longer loop or a higher ceiling. Both values stay inside the host bounds.
+    pub fn steps_for_mode(self, steps: f32, max_steps: usize) -> (f32, usize) {
+        let Some(floor) = self.min_steps() else {
+            return (steps, max_steps);
+        };
+        let floor = floor.clamp(1, MAX_STEPS);
+        let ceiling = max_steps.clamp(MIN_MAX_STEPS, MAX_STEPS).max(floor).min(MAX_STEPS);
+        let steps = if steps.is_finite() { steps } else { 1.0 };
+        (steps.max(floor as f32).min(ceiling as f32), ceiling)
+    }
+
     /// Every mode, for test sweeps; production dispatch matches on the variant.
     #[cfg(test)]
     pub fn all() -> impl Iterator<Item = Mode> {
@@ -132,6 +169,54 @@ mod tests {
         for kind in Mode::all() {
             assert_eq!(order.iter().filter(|&&m| m == kind).count(), 1, "{kind:?} missing or duplicated");
         }
+    }
+
+    #[test]
+    fn only_modes_that_need_a_longer_loop_have_a_step_floor() {
+        // Selecting these must not change the loop length.
+        for mode in [
+            Mode::Euclidean, Mode::Eulerian, Mode::Cellular, Mode::Oscillator,
+            Mode::Crystallographic, Mode::Markov, Mode::RaisedCosine, Mode::ToussaintDistance,
+            Mode::WellFormed, Mode::Polyrhythm, Mode::Syncopation, Mode::EuclideanSwing,
+            Mode::Genetic, Mode::Arnold, Mode::Hilbert,
+        ] {
+            assert_eq!(mode.min_steps(), None, "{mode:?} must not force a longer loop");
+        }
+        for (mode, floor) in [
+            (Mode::AfricanBell, 24),
+            (Mode::Phyllotaxis, 32), (Mode::Logistic, 32), (Mode::Slowcat, 32),
+            (Mode::PhaseShift, 32), (Mode::PebbleBox, 32), (Mode::Sieve, 32),
+            (Mode::Bernoulli, 32), (Mode::PhaseCanon, 32), (Mode::Vuza, 32),
+            (Mode::LSystem, 64), (Mode::Kuramoto, 64), (Mode::ReactionDiffusion, 64),
+            (Mode::Lorenz, 64), (Mode::Fibonacci, 64), (Mode::Sturmian, 64),
+            (Mode::Ulam, 64), (Mode::ThueMorse, 64), (Mode::RudinShapiro, 64),
+            (Mode::Brownian, 64), (Mode::LevyFlight, 64), (Mode::TentMap, 64),
+            (Mode::HenonMap, 64), (Mode::Life, 64),
+            (Mode::Cantor, 81),
+        ] {
+            assert_eq!(mode.min_steps(), Some(floor), "{mode:?}");
+            assert!(floor <= crate::sequence::DEFAULT_MAX_STEPS, "{mode:?} floor spends the whole ceiling");
+        }
+        // Every mode is in exactly one of the two lists above.
+        assert_eq!(<Mode as Enum>::variants().len(), 40);
+    }
+
+    #[test]
+    fn floors_raise_without_ever_lowering() {
+        // A floor mode lifts a short loop and a low ceiling.
+        assert_eq!(Mode::Lorenz.steps_for_mode(16.0, 256), (64.0, 256));
+        assert_eq!(Mode::Lorenz.steps_for_mode(16.0, 64), (64.0, 64));
+        // The longest floor raises a 64-step ceiling just enough.
+        assert_eq!(Mode::Cantor.steps_for_mode(16.0, 64), (81.0, 81));
+        // Longer loops and higher ceilings are untouched.
+        assert_eq!(Mode::Kuramoto.steps_for_mode(128.0, 1024), (128.0, 1024));
+        // Modes without a floor are identity, including fractional loops.
+        assert_eq!(Mode::Euclidean.steps_for_mode(16.5, 256), (16.5, 256));
+        assert_eq!(Mode::Euclidean.steps_for_mode(8.0, 64), (8.0, 64));
+        // Broken values cannot escape the host bounds.
+        let (steps, ceiling) = Mode::Cantor.steps_for_mode(f32::NAN, 4096);
+        assert_eq!(ceiling, MAX_STEPS);
+        assert_eq!(steps, 81.0);
     }
 
     #[test]

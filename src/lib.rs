@@ -1716,12 +1716,12 @@ mod tests {
     }
 
     #[test]
-    fn the_effective_step_ceiling_defaults_to_1024() {
-        assert_eq!(DEFAULT_MAX_STEPS, 1024);
+    fn the_effective_step_ceiling_defaults_to_256() {
+        assert_eq!(DEFAULT_MAX_STEPS, 256);
         assert_eq!(MIN_MAX_STEPS, 64);
         let p = DrumParams::default();
-        assert_eq!(p.max_steps.value(), 1024);
-        assert_eq!(p.step_ceiling(), 1024);
+        assert_eq!(p.max_steps.value(), 256);
+        assert_eq!(p.step_ceiling(), 256);
     }
 
     #[test]
@@ -1886,11 +1886,11 @@ mod tests {
     }
 
     #[test]
-    fn max_steps_defaults_to_the_old_limit() {
+    fn max_steps_defaults_to_the_reduced_ceiling() {
         let p = DrumParams::default();
         assert_eq!(p.step_ceiling(), DEFAULT_MAX_STEPS);
         assert_eq!(p.max_steps.value(), DEFAULT_MAX_STEPS as i32);
-        // The default project must still behave exactly like the pre-1024 build.
+        // The loop length itself is unchanged; only the ceiling moved.
         assert_eq!(p.cell_count(), 16);
         assert_eq!(p.gen_params().steps, p.cell_count() as usize);
         assert!(p.gen_params().steps <= DEFAULT_MAX_STEPS);
