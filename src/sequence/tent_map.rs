@@ -6,8 +6,8 @@ pub(crate) fn mu_of(density: f32) -> f64 {
     1.0 + density.clamp(0.0, 1.0) as f64 * 0.99
 }
 
-/// Tent map `x' = mu * min(x, 1 - x)`. The orbit starts on the attractor after a transient, so a
-/// loop no longer opens on the old exponential ramp, and `variation` moves it.
+/// Tent map `x' = mu * min(x, 1 - x)`. The orbit starts on the attractor after a transient, and
+/// `variation` moves it.
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let n = p.steps.max(1);

@@ -1,9 +1,5 @@
-//! Live one-line math for the generator panel.
-//!
-//! The description next to each mode says what it does; this line says *how*, with the current
-//! parameter snapshot substituted in. Derived quantities come from the generators' own helpers
-//! (`lane_pulses`, `pulse_hits`, `raised_cosine_cutoff`, `motif_len`, …), so a
-//! displayed value cannot drift from the pattern that is actually playing.
+//! Live one-line math for the generator panel: the current parameter snapshot substituted into
+//! the generators' own helpers, so the display cannot drift from the pattern actually playing.
 
 use crate::modes::Mode;
 use nice_plug::prelude::Enum as _;
@@ -13,8 +9,7 @@ use crate::sequence::{
     MAX_STEPS, TRACKS,
 };
 
-/// Math line for the current snapshot. Deterministic, allocation-only, and called when the
-/// generation snapshot changes rather than every frame.
+/// Math line for the current snapshot; called when the generation snapshot changes.
 pub(crate) fn math(p: &GenParams) -> String {
     let n = p.steps.clamp(1, MAX_STEPS);
     let d = p.density.clamp(0.0, 1.0);

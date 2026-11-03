@@ -6,9 +6,8 @@ pub(crate) fn a_of(density: f32) -> f64 {
     1.0 + density.clamp(0.0, 1.0) as f64 * 0.4
 }
 
-/// Henon attractor: `x' = 1 - a*x^2 + y`, `y' = b*x`. The old start `(1.8*phase-0.9,
-/// 1.8*seed-0.9)` was often outside the basin, escaped the clamp and played one note forever.
-/// Start near the origin, discard a transient and scale x by the real attractor extent (+-1.3).
+/// Henon attractor: `x' = 1 - a*x^2 + y`, `y' = b*x`. Start near the origin, discard a transient
+/// and scale x by the real attractor extent (+-1.3) so the start stays inside the basin.
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let n = p.steps.max(1);

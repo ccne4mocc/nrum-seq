@@ -1,10 +1,8 @@
-//! The 39 generation modes, in one list.
+//! The 39 generation modes in one list.
 //!
-//! `Mode` is the host-visible enum: the stable `id` values are what a saved project stores and
-//! the `name` values are what the host shows. The generators and the panels match on the same
-//! variants, so there is one list and one order — no second enum and no index mapping to keep in
-//! sync. `src/sequence/` and `src/view.rs` use the plain data type; only this file names the
-//! plug-in enum machinery.
+//! `Mode` is the host-visible enum: `id` values are stable project state and `name` values are
+//! shown by the host. Generators and panels match the same variants, so there is no second enum
+//! or index mapping to maintain. Only this file names the plug-in enum machinery.
 
 use nice_plug::prelude::Enum;
 
@@ -51,14 +49,12 @@ pub enum Mode {
     #[id = "henon_map"] #[name = "Henon Map"] HenonMap,
 }
 
-/// The mode list as it is drawn: one grouped order shared by the dropdown and the mode wheel.
-/// Keep host indices alone — this only changes presentation. Adding a mode means appending it to
-/// the enum and to exactly one group here.
+/// The mode list as drawn: one grouped order shared by the dropdown and the wheel. Host indices
+/// stay untouched. Adding a mode means appending it to the enum and to one group here.
 ///
-/// Labels and order are shared with nelody seq's `ModeGroup`. Keep them identical in both projects:
-/// Rhythm, Stochastic, Chaos / Physics, Fractal, Cellular, Geometric, Number Theory,
-/// Music Theory, Acid. nrum seq has no acid modes, so that group is omitted rather than rendered
-/// empty. Within a group the host order is preserved.
+/// Labels and order are shared with nelody seq's `ModeGroup`: Rhythm, Stochastic, Chaos / Physics,
+/// Fractal, Cellular, Geometric, Number Theory, Music Theory, Acid. nrum seq omits the empty Acid
+/// group. Within a group the host order is preserved.
 pub const GROUPS: &[(&str, &[Mode])] = &[
     ("Rhythm", &[
         Mode::Euclidean, Mode::Oscillator, Mode::RaisedCosine, Mode::Slowcat,
@@ -85,9 +81,7 @@ pub const GROUPS: &[(&str, &[Mode])] = &[
 ];
 
 impl Mode {
-    /// Every mode in the order the list is drawn. The header wheel must step this order, not the
-    /// raw host index, or one notch from a mode lands on a different group far away in the
-    /// visible list.
+    /// Every mode in display order; the header wheel must step this, not the raw host index.
     pub fn display_order() -> Vec<Mode> {
         GROUPS.iter().flat_map(|(_, modes)| modes.iter().copied()).collect()
     }
@@ -99,8 +93,7 @@ impl Mode {
         order[(pos + delta).clamp(0, order.len() as i32 - 1) as usize]
     }
 
-    /// Every mode, for tests that sweep all of them. Production dispatch matches on the variant,
-    /// so this stays compiled out of the audio path.
+    /// Every mode, for test sweeps; production dispatch matches on the variant.
     #[cfg(test)]
     pub fn all() -> impl Iterator<Item = Mode> {
         (0..<Mode as Enum>::variants().len()).map(Mode::from_index)

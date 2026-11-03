@@ -22,8 +22,7 @@ slint::include_modules!();
 const WIDTH: u32 = 860;
 const HEIGHT: u32 = 760;
 
-/// Append one technical line to `nrum-seq.log` in the user's home directory. Called from
-/// the GUI update thread only; the audio path never touches the file system.
+/// Append one technical line to `nrum-seq.log`; GUI thread only, never the audio path.
 fn log_line(text: &str) {
     use std::io::Write;
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
@@ -69,13 +68,9 @@ struct SlintEditorHandle {
 unsafe impl Send for SlintEditorHandle {}
 impl Drop for SlintEditorHandle {
     fn drop(&mut self) {
-        // Editor closing is the last chance to persist, so bypass the debounce.
-        // Theme and host scale are read from live state *here*: a snapshot
-        // taken at spawn is stale by the time the user closes the editor, and writing it back
-        // would revert every change made during the session. No unit test covers this:
-        // nice-plug's `Param` trait is read-only outside a `GuiContext`, so a test cannot
-        // change the theme and observe what the close path writes. The fix is structural --
-        // there is no snapshot field left to go stale.
+        // Closing is the last chance to persist, so bypass the debounce. Read theme and scale
+        // from live state here: a spawn-time snapshot would revert every change made during the
+        // session. There is no snapshot field left to go stale.
         globals::save_now(&global_settings(
             &self.params,
             f32::from_bits(self.scale.load(Relaxed)),
@@ -95,11 +90,10 @@ fn set<P: Param>(ctx: &Arc<dyn GuiContext>, param: &P, value: P::Plain) {
     setter.end_set_parameter(param);
 }
 
-/// Slider and spin-box paths for the option table share this so clamping stays identical.
+/// Shared clamp for the slider and spin-box paths.
 fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
     let snap = p.round_steps.value();
-    // The ceiling is a host parameter, but host echo is asynchronous. Use the value being set
-    // for the same tick so the dependent steps/pulses/rotate limits cannot lag one edit behind.
+    // Host echo is asynchronous; use the value being set so dependent limits cannot lag a tick.
     if key == 14 {
         let cap = (value.round() as i32).clamp(MIN_MAX_STEPS as i32, MAX_STEPS as i32);
         set(c, &p.max_steps, cap);
@@ -109,9 +103,7 @@ fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
         if p.rotate.value() >= cells { set(c, &p.rotate, cells - 1); }
         return;
     }
-    // Setting `steps` reaches the host first and only shows up in `p.steps.value()` once the host
-    // echoes it back, so the bounds for pulses/rotate must come from the value being set, not
-    // from a read taken after (or before) the set.
+    // `p.steps.value()` lags until the host echoes the set, so derive bounds from the value being set.
     let cap = p.step_ceiling();
     let cells = if key == 0 { cell_count_for(value, snap, cap) } else { p.cell_count() };
     let max_pulses = match p.mode.value() {
@@ -122,8 +114,7 @@ fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
     };
     match key {
         0 => {
-            // Snap on: store a whole number. A raw slider position such as 16.37 would display
-            // as "16" while the stored value stayed fractional.
+            // Snap on: store a whole number so 16.37 cannot display as "16" while staying fractional.
             let v = value.clamp(1.0, cap as f32);
             set(c, &p.steps, if snap { v.round() } else { v });
             if p.pulses.value() > max_pulses { set(c, &p.pulses, max_pulses); }
@@ -184,8 +175,7 @@ fn apply_mode(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
         _ => p.cell_count(),
     };
     if p.pulses.value() > max_pulses { set(c, &p.pulses, max_pulses); }
-    // Mode-specific default pulse count, so a freshly selected mode lands on
-    // a sensible starting point instead of inheriting the previous mode's value.
+    // Mode-specific default pulse count instead of inheriting the previous mode's value.
     let default_pulses = match mode {
         Mode::Cellular => 8,
         Mode::Eulerian => 2,
@@ -194,8 +184,7 @@ fn apply_mode(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
         _ => 5,
     };
     if p.pulses.value() == 0 { set(c, &p.pulses, default_pulses.min(max_pulses)); }
-    // Mode-specific default density/phase so a freshly selected mode lands on
-    // a sensible starting point.
+    // Mode-specific default density/phase.
     let default_density = match mode {
         Mode::Bernoulli | Mode::Cantor => 0.3,
         Mode::Logistic | Mode::ReactionDiffusion => 0.7,
@@ -208,8 +197,7 @@ fn apply_mode(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
     };
     if (p.density.value() - 0.65).abs() < 1e-4 { set(c, &p.density, default_density); }
     if p.phase.value().abs() < 1e-4 { set(c, &p.phase, default_phase); }
-    // Modes that read a long orbit or fractal benefit from more than the
-    // default 64-step ceiling. Raise the ceiling once, and let the user lower it.
+    // Long-orbit/fractal modes start above the default 64-step ceiling; the user can lower it.
     let wants_long = matches!(
         mode,
         Mode::Lorenz
@@ -258,8 +246,7 @@ struct ModRect {
     seq: u32,
 }
 
-/// Newest visible control under the pointer. Registration order resolves overlapping controls
-/// after a mode change reflows the parameter column.
+/// Newest visible control under the pointer; registration order resolves overlaps after a reflow.
 fn mod_target_at(rects: &[ModRect], x: f32, y: f32) -> Option<i32> {
     rects
         .iter()
@@ -376,24 +363,20 @@ static MOD_REG_SEQ: AtomicU32 = AtomicU32::new(1);
 /// True when the RANDOMIZE scope allows this group bit.
 fn scope_enabled(p: &DrumParams, bit: i32) -> bool { p.randomize_scope.value() & bit != 0 }
 
-/// Randomize the active algorithm controls through nice-plug's parameter setter,
-/// so the host, the custom UI, and the generator all observe the same values.
+/// Randomize through nice-plug's parameter setter so host, UI and generator agree.
 fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let nonce = RANDOMIZE_NONCE.fetch_add(1, Relaxed);
     let variation = p.variation.fetch_add(1, Relaxed).wrapping_add(nonce);
     let mut rng = Rng::new(p.seed.value(), variation, 0xA1_60_D2_0A_5EED);
 
-    // Draw the whole set in a fixed order, then apply only the groups the scope allows: the
-    // stream does not skip draws when a group is disabled, so enabling a group never changes
-    // what another group received. Pulse/rotate bounds still follow the mode and length that
-    // survive the scope, so a written count is always in range.
+    // Draw the whole set in fixed order, then apply only allowed groups: enabling a group must
+    // not change what another group received. Bounds follow the mode and length that survive.
     let mode = Mode::from_index(rng.below(<Mode as Enum>::variants().len()));
     let ceiling = p.step_ceiling();
     let cells = 8 + rng.below(ceiling - 7); // 8..=ceiling
     // Keep randomize on the grid; fractional spacing stays a deliberate user choice.
     let steps = cells as f32;
-    // Bounds follow the values that will actually be in force, so a written pulse or rotate
-    // count is never out of range for the mode and length that survive the scope.
+    // Bounds follow the values in force after the scope, so written counts stay in range.
     let mode_after = if scope_enabled(p, scope::MODE) { mode } else { p.mode.value() };
     let cells_after = if scope_enabled(p, scope::LENGTH) { cells } else { p.cell_count().max(1) as usize };
     let pulse_limit = match mode_after {
@@ -486,9 +469,8 @@ fn open_folder(path: &Path) {
 }
 
 fn push_view(ui: &AppWindow, v: &View) {
-    // Update rows in place when the count is unchanged: replacing the model resets the
-    // repeater, and a reset element does not tween. Pebble Box relies on `animate x, y`, and
-    // in-place rows also stop every other panel from recreating its nodes each step.
+    // Update rows in place when the count is unchanged: replacing the model resets the repeater
+    // and breaks Pebble Box's `animate x, y`.
     let model = ui.get_view_nodes();
     if model.row_count() == v.nodes.len() {
         for (i, n) in v.nodes.iter().enumerate() {
@@ -509,15 +491,13 @@ fn push_view(ui: &AppWindow, v: &View) {
 
 impl Editor for SlintEditor {
     fn spawn(&self, parent: ParentWindowHandle, context: Arc<dyn GuiContext>) -> Box<dyn std::any::Any + Send> {
-        // User-global preferences load before the host's project state is shown, so the theme
-        // follows the user rather than whatever the project last stored.
+        // Load user-global preferences before showing project state so the theme follows the user.
         let stored = globals::load();
         // A previous editor instance may have left a key or a focus flag behind.
         self.shared.text_focus.store(false, Relaxed);
         if let Ok(mut queue) = self.shared.key_queue.lock() { queue.clear(); }
         let scale = stored.scale.filter(|s| *s > 0.0).unwrap_or_else(|| f32::from_bits(self.scale.load(Relaxed)));
-        // A plugin has no host API for the project path, so the default is the process working
-        // directory. The editor shows the absolute path and the user can type another one.
+        // No host API for the project path; default to the working directory, which the user can edit.
         let midi_dir = Arc::new(Mutex::new(
             stored
                 .midi_dir
@@ -533,8 +513,7 @@ impl Editor for SlintEditor {
         let update_midi_dir = midi_dir.clone();
         let mod_rects = Arc::new(Mutex::new(Vec::<ModRect>::new()));
         let setup_mod_rects = mod_rects.clone();
-        // Keep the host factor in the atomic even when the host never calls
-        // `set_scale_factor`: the close path reads it, and an unset value used to drop it.
+        // Keep the host factor even when `set_scale_factor` is never called; the close path reads it.
         if scale > 0.0 && self.scale.load(Relaxed) == 0 { self.scale.store(scale.to_bits(), Relaxed); }
         if let Some(theme) = stored.theme {
             // `from_index` falls back to the first variant, so a corrupt file cannot panic.
@@ -552,8 +531,7 @@ impl Editor for SlintEditor {
         let (setup_params, setup_ctx) = (self.params.clone(), context.clone());
         let setup_shared = self.shared.clone();
         let setup_scale = self.scale.clone();
-        // `spawn` returns before any closure runs, and the closures must be `'static`, so the
-        // shared state is cloned out here rather than captured through `&self`.
+        // `spawn` returns before closures run and they must be `'static`, so clone shared state here.
         let setup = move |h: &slint_baseview::SlintWindowHandler<AppWindow>, _w: &mut slint_baseview::Window| {
             let ui = h.component();
             let folder = setup_midi_dir.lock().map(|d| d.clone()).unwrap_or_default();
@@ -742,8 +720,7 @@ impl Editor for SlintEditor {
                     }
                 });
             }
-            // Constant UI data: waveform names and the author's contact details come from Rust,
-            // so the picker and the Credits panel cannot drift from the metadata.
+            // Waveform names and contact details come from Rust, so they cannot drift from metadata.
             ui.set_wave_names(ModelRc::new(VecModel::from(
                 OscWave::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
@@ -756,8 +733,7 @@ impl Editor for SlintEditor {
                 Rate::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
             ui.set_version(SharedString::from(env!("CARGO_PKG_VERSION")));
-            // One grouped order, shared with the header wheel. Names are pushed from the enum so
-            // the Slint array cannot drift out of index order.
+            // One grouped order shared with the header wheel; names are pushed from the enum.
             ui.set_mode_names(ModelRc::new(VecModel::from(
                 Mode::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
             )));
@@ -804,8 +780,7 @@ impl Editor for SlintEditor {
 
         let cache = Arc::new(Mutex::new(Cache { gen_key: None, pattern: Pattern::default(), view_key: None }));
         let (update_params, update_shared, update_cache, update_context) = (self.params.clone(), self.shared.clone(), cache, context.clone());
-        // The update closure outlives `&self`, so it reaches the scale through the atomic
-        // rather than by borrowing the editor.
+        // The update closure outlives `&self`, so it reads the scale through the atomic.
         let update_scale_cell = self.scale.clone();
         let last_randomize_request = AtomicU32::new(update_shared.randomize_request.load(Relaxed));
         // `u32::MAX` forces the first tick to publish whatever track name is already known.
@@ -848,14 +823,12 @@ impl Editor for SlintEditor {
                 palette.set_text(rgb(colors[10])); palette.set_text_muted(rgb(colors[11])); palette.set_border(rgb(colors[12]));
                 palette.set_cell_off(rgb(colors[13])); palette.set_on_accent(rgb(colors[14]));
                 ui.set_theme_index(theme_index);
-                // Theme is user-global, so persist it outside the project as it changes.
-                // Both fields are known here, so no read is needed.
+                // Theme is user-global; persist it outside the project as it changes.
                 globals::save(&global_settings(p, update_scale, &update_midi_dir));
             }
             let ceiling = p.step_ceiling() as f32;
             ui.set_max_steps(ceiling);
-            // A project may contain a Steps value left above a newly lowered ceiling. Show the
-            // value the generator will actually use instead of a number the matrix contradicts.
+            // Show the Steps value the generator will use, even if the project stored one above the ceiling.
             ui.set_steps(p.steps.value().min(ceiling));
             ui.set_round_steps(p.round_steps.value());
             ui.set_pulses(p.pulses.value() as f32);
@@ -1042,14 +1015,12 @@ impl Editor for SlintEditor {
         globals::save(&s);
         true
     }
-    /// Claim a host-stolen editing key only while a text field has focus; every other key, and
-    /// every key outside a text field, stays with the host so its shortcuts keep working.
+    /// Claim a host-stolen editing key only while a text field has focus; leave host shortcuts alone.
     fn on_virtual_key_from_host(&self, key_code: VirtualKeyCode, is_down: bool, modifiers: Modifiers) -> bool {
         if !self.shared.text_focus.load(Relaxed) { return false; }
         let Some(key) = keys::edit_key(key_code, modifiers) else { return false };
         if let Ok(mut queue) = self.shared.key_queue.lock() {
-            // A held key repeats at most a few dozen times a second and the tick drains it every
-            // frame; the cap only guards against a window that has stopped ticking.
+            // A held key repeats a few dozen times a second; the cap guards a stalled tick.
             if queue.len() < 64 { queue.push((key, is_down)); }
         }
         true

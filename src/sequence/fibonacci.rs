@@ -1,8 +1,6 @@
 use super::{frac, set_hit, GenParams, Pattern, TRACKS, PHI_INV};
 
-/// Sturmian slope for a density: `density * 1/phi`, so density 1.0 is exactly the golden slope and
-/// yields the Fibonacci word. The old slope was `density * (0.5 + 0.05*lane)`, which at full
-/// density started at 0.5 (an alternating word) and never produced the golden word at all.
+/// Sturmian slope for a density: `density * 1/phi`, so density 1.0 yields the Fibonacci word.
 pub(crate) fn alpha(density: f32) -> f64 {
     (density.clamp(0.05, 1.0) as f64 * PHI_INV).clamp(0.05, PHI_INV)
 }
@@ -16,12 +14,10 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     let base_alpha = alpha(p.density);
     let base = frac(p.seed as f64 + p.phase as f64 + p.variation as f64 * PHI_INV);
     for tr in 0..TRACKS {
-        // Lane 0 keeps the exact golden slope. The others detune it slightly and shift the
-        // phase, so the kit hears interlocking Sturmian words instead of one word on eight
-        // drums (which stacked every lane at short loop lengths).
+        // Lane 0 keeps the exact golden slope; the others detune and shift phase so the kit
+        // hears interlocking Sturmian words instead of one word on eight drums.
         let a = (base_alpha * (1.0 - 0.03 * tr as f64)).clamp(0.03, 0.95);
-        // Phase is measured in steps, so space the lanes by a fraction of the loop rather than
-        // by a fraction of one step.
+        // Phase is measured in steps, so space lanes by a fraction of the loop.
         let phase = base + tr as f64 * n as f64 / TRACKS as f64;
         let mut prev = (phase * a).floor() as i64;
         let mut any = false;

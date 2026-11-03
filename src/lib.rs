@@ -23,16 +23,14 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Theme {
-    // The host id stays `aurora` so existing projects and automation keep their palette slot;
-    // only the display name and the colours changed.
+    // Keep the stable host id so existing projects and automation keep this palette slot.
     #[id = "aurora"] #[name = "Sketch"] Sketchbook,
     #[id = "neon"] #[name = "Neon"] Neon,
     #[id = "lava"] #[name = "Lava"] Lava,
     #[id = "forest"] #[name = "Forest"] Forest,
 }
 impl Theme {
-    /// Accent1/accent2/accent3/playhead/background1/background2/background3, then the
-    /// surface/control/hover/text/muted/border/cell-off/on-accent UI tokens.
+    /// Accent/playhead/background colours followed by the UI surface/text/border tokens.
     fn colors(self) -> [[u8; 3]; 15] {
         match self {
             Self::Sketchbook => [
@@ -131,8 +129,7 @@ pub enum OscWave {
     #[id = "noise"] #[name = "Noise"] Noise,
 }
 
-/// LFO speed domain. New projects default to Hz; the beat domain remains available for
-/// tempo-locked movement.
+/// LFO speed domain: free-running Hz or tempo-locked beats.
 #[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum LfoRateMode {
     #[id = "hz"] #[name = "Hz"] Hz,
@@ -156,7 +153,7 @@ pub mod scope {
     pub const PHASE: i32 = 1 << 5;
     pub const ACID: i32 = 1 << 6;
     pub const FEEL: i32 = 1 << 7;
-    /// Everything: the default, and what RANDOMIZE did before the scope existed.
+    /// Every group; the default.
     pub const ALL: i32 = MODE | LENGTH | RHYTHM | TONE | CLOCK | PHASE | ACID | FEEL;
 }
 
@@ -167,11 +164,9 @@ pub struct DrumParams {
     #[persist = "variation"]
     pub variation: AtomicU32,
     #[id = "mode"] pub mode: EnumParam<Mode>,
-    /// Pattern length in steps. Whole-number when `round_steps` is on; fractional values
-    /// create a loop that no longer aligns with the step grid.
+    /// Pattern length in steps; fractional values wrap between grid cells.
     #[id = "steps"] pub steps: FloatParam,
-    /// User-selected ceiling for `steps`/`pulses`/`rotate`, 64–1024. The Pattern arrays always
-    /// have room for the highest value, so changing this takes effect immediately.
+    /// Ceiling for `steps`/`pulses`/`rotate`, 64–1024. Pattern arrays always hold the maximum.
     #[id = "max_steps"] pub max_steps: IntParam,
     /// Snap the pattern length to whole steps. Off allows fractional step spacing.
     #[id = "round_steps"] pub round_steps: BoolParam,
@@ -193,8 +188,7 @@ pub struct DrumParams {
     #[id = "theme"] pub theme: EnumParam<Theme>,
     #[id = "rate"] pub rate: EnumParam<Rate>,
     #[id = "gate"] pub gate: FloatParam,
-    /// Delays every second step by this fraction of a step. 0 is straight; 1/3 gives
-    /// triplet feel. Applied in the beat domain so NoteOff follows the onset.
+    /// Delays every second step by this fraction of a step (1/3 = triplet), in the beat domain.
     #[id = "swing"] pub swing: FloatParam,
     // --- LFO modulation (runtime overlay; links are persisted, values are host parameters) --
     #[id = "lfo1_enabled"] pub lfo1_enabled: BoolParam,
@@ -269,8 +263,7 @@ pub struct DrumParams {
     #[id = "perc_velocity"] pub perc_velocity: FloatParam,
 }
 
-/// Format an LFO frequency in Hz. kHz is not offered: the speed field is either Hz or a
-/// beat-synced rate.
+/// Format an LFO frequency in Hz; the speed field is either Hz or a beat-synced rate.
 fn format_hz(value: f32) -> String {
     if !value.is_finite() {
         return "0.00 Hz".to_string();
@@ -425,8 +418,7 @@ pub(crate) struct ScheduleValues {
 }
 
 impl DrumParams {
-    /// Effective ceiling from the host parameter. The range already enforces it, but host state
-    /// from an older build can be out of range, and the audio thread should not trust either.
+    /// Effective ceiling, clamped against stale host state.
     fn step_ceiling(&self) -> usize {
         self.max_steps.value().clamp(MIN_MAX_STEPS as i32, MAX_STEPS as i32) as usize
     }
@@ -444,8 +436,7 @@ impl DrumParams {
         GenParams {
             kind: self.mode.value(),
             steps: cells as usize,
-            // With snapping on the loop is exactly `cells` long. Passing the raw value through
-            // made a slider drag to e.g. 16.37 (displayed as "16") wrap mid-cell and drift.
+            // Snap to `cells`; passing the raw value through would wrap mid-cell and drift.
             length: if self.round_steps.value() { cells } else { raw },
             pulses: self.pulses.value() as usize,
             rotate: self.rotate.value() as usize,
@@ -663,17 +654,15 @@ impl DrumParams {
 }
 
 /// Grid cells a raw `steps` value covers under the user-selected ceiling. Free function so
-/// tests exercise the real rule: an inlined copy inside the test silently outlived the
-/// previous `MAX_STEPS` reduction, because comparing a formula against itself cannot fail.
+/// tests exercise the real rule instead of comparing an inlined copy against itself.
 fn cell_count_for(raw: f32, snap: bool, ceiling: usize) -> i32 {
     let cap = ceiling.clamp(MIN_MAX_STEPS, MAX_STEPS) as f32;
     let raw = raw.clamp(1.0, cap);
     (if snap { raw.round() } else { raw.ceil() }).clamp(1.0, cap) as i32
 }
 
-/// Lock-free signals shared between the audio scheduler and the editor.
-/// Auto-randomization is requested on the audio thread at a beat boundary and
-/// applied through nice-plug's ParamSetter on the editor thread.
+/// Lock-free signals shared between the audio scheduler and the editor. Auto-randomization is
+/// requested on the audio thread and applied through `ParamSetter` on the editor thread.
 pub struct Shared {
     pub current_step: AtomicI32,
     pub randomize_request: AtomicU32,
@@ -688,19 +677,17 @@ pub struct Shared {
     pub lfo_phase: [AtomicU32; LFO_COUNT],
     /// True while the host transport or free-run clock is advancing the LFOs.
     pub lfo_running: AtomicBool,
-    /// Name of the DAW track hosting this instance, empty when the host does not say.
-    /// Written only on the host main thread (`initialize` and `track_context_changed`) and read
-    /// by the editor. The editor must not ask the wrapper's `GuiContext::track_name()` itself:
-    /// the CLAP wrapper answers that by calling into the host from the calling thread, and the
-    /// editor tick runs on the window thread, not the CLAP main thread.
+    /// Name of the DAW track, empty when the host does not say. Written on the host main thread
+    /// (`initialize` / `track_context_changed`). The editor must not call
+    /// `GuiContext::track_name()` itself: the CLAP wrapper answers from the calling thread, and
+    /// the editor tick is not the CLAP main thread.
     pub track_name: Mutex<String>,
     /// Bumped whenever `track_name` changes, so the editor only re-reads it when needed.
     pub track_rev: AtomicU32,
     /// True while a text field in the editor has keyboard focus. Published by the editor tick,
     /// read by `Editor::on_virtual_key_from_host` to decide whether to claim a host-stolen key.
     pub text_focus: AtomicBool,
-    /// Host-forwarded editing keys waiting to be replayed into the UI (`true` = pressed).
-    /// Filled on the host thread, drained by the editor tick. Never touched by `process()`.
+    /// Host-forwarded editing keys (`true` = pressed); filled on the host thread, drained by the editor.
     pub key_queue: Mutex<Vec<(keys::EditKey, bool)>>,
 }
 impl Default for Shared {
@@ -763,18 +750,15 @@ fn regeneration_cycle_at(step_index: i64, loop_length: f64, every: i64, last: Op
     if cycle > 0 && cycle.rem_euclid(every) == 0 && last != Some(cycle) { Some(cycle) } else { None }
 }
 
-/// Grid cell for step `k` in a loop of `length` steps. A whole-number length is the identity
-/// `k.rem_euclid(n)`; a fractional one wraps mid-cell, so each cycle starts a fraction of a
-/// step later and the pattern drifts against the grid.
+/// Grid cell for step `k` in a loop of `length` steps. Fractional lengths wrap mid-cell, so each
+/// cycle starts later and the pattern drifts against the grid.
 fn step_index(k: i64, length: f64) -> i64 {
     if length >= 1.0 && length.fract() == 0.0 { k.rem_euclid(length as i64) } else { (k as f64).rem_euclid(length).floor() as i64 }
 }
 
-/// Where the step cursor resumes in this block. A carried cursor is only trusted while it is
-/// plausibly "the next step" for the current block: the lower bound drops a cursor the clock has
-/// already passed, and the upper bound drops one that is far ahead, which happens when `rate`
-/// changes to a slower value (the cursor counts steps of the *old* rate, so e.g. step 400 at 1/16
-/// is beat 100 but step 400 at 1/4 is beat 400, silencing the plug-in for ~300 beats).
+/// Where the step cursor resumes in this block. A carried cursor is trusted only when it is
+/// plausibly next: one the clock has passed is dropped, as is one far ahead after a slower rate
+/// change (step 400 at 1/16 is beat 100, but at 1/4 it is beat 400).
 fn resume_cursor(carried: Option<i64>, jumped: bool, start: f64, end: f64, spb: f64) -> i64 {
     let lo = (start * spb - 1.0).ceil() as i64;
     let hi = (end * spb + 1.0).ceil() as i64;
@@ -905,18 +889,15 @@ impl Plugin for NrumSeq {
         let n_samples = buffer.samples();
         let transport = context.transport();
         let playing = transport.playing;
-        // The beat clock must track the host's tempo exactly. Clamping it to a musical range
-        // would desynchronise our `expected_beat` prediction from the authoritative
-        // `pos_beats`, and the transport-jump detector below would then fire on our own drift
-        // rather than on a real seek. Only reject degenerate values that would divide by zero.
+        // Track the host tempo exactly; clamping it would desynchronise `expected_beat` from
+        // `pos_beats` and make the jump detector fire on our own drift. Only reject zero/non-finite.
         let bpm = transport.tempo.filter(|t| t.is_finite() && *t > 0.0).unwrap_or(120.0);
         self.shared.tempo_bits.store((bpm as f32).to_bits(), Relaxed);
         let beats_per_sample = (bpm / 60.0) / self.sample_rate.max(1.0);
         let block_beats = n_samples as f64 * beats_per_sample;
         let start = if playing {
             self.free_beat = 0.0;
-            // Hosts that omit the position would otherwise pin every block to beat 0, replaying
-            // step 0 forever and tripping the jump detector; keep counting on our own clock.
+            // Hosts that omit the position would pin every block to beat 0; keep our own clock.
             Some(transport.pos_beats().or(self.expected_beat).unwrap_or(0.0))
         } else if p.free_run.value() { Some(self.free_beat) } else { None };
         let Some(start) = start else {
@@ -936,8 +917,7 @@ impl Plugin for NrumSeq {
                 .store(modulation::lfo_phase(p.lfo_spec(slot), clock_start).to_bits(), Relaxed);
         }
 
-        // Base parameters drive change detection. The actual pattern key includes the LFO
-        // snapshot at this beat; LFO-only movement is sampled at loop boundaries below.
+        // Base parameters drive change detection; LFO-only movement is sampled at loop boundaries.
         let base_key = p.gen_params();
         if self.last_base_key != Some(base_key) {
             let initial_key = p.gen_params_at(clock_start);
@@ -952,8 +932,7 @@ impl Plugin for NrumSeq {
         }
 
         let end = start + block_beats;
-        // A jump is a discontinuity, so tolerance is block-relative: hosts that report
-        // pos_beats quantised to the sample grid, or that resync between blocks, are not jumps.
+        // Block-relative tolerance: sample-grid quantisation and inter-block resync are not jumps.
         let jump_tolerance = 0.02_f64.max(block_beats * 2.0);
         let transport_jump = self.expected_beat.map(|e| (start - e).abs() > jump_tolerance).unwrap_or(false);
         if transport_jump {
@@ -971,9 +950,7 @@ impl Plugin for NrumSeq {
         let spb = p.rate.value().steps_per_beat();
         let step_len = 1.0 / spb;
         let s1 = end * spb;
-        // Swing delays alternate steps past their unswung position, so a step can fall
-        // beyond this block's end. The cursor is carried across blocks rather than
-        // re-derived from the host position, otherwise a deferred step would be skipped.
+        // A swung step can fall beyond this block; carry the cursor instead of re-deriving it.
         let schedule_start = p.schedule_at(clock_start);
         let every = schedule_start.regenerate_every.max(0) as i64;
         let randomize_every = schedule_start.randomize_after.max(0) as i64;
@@ -1012,8 +989,7 @@ impl Plugin for NrumSeq {
                     self.last_randomize_cycle = Some(cycle);
                 }
 
-                // Pattern-shaping LFO links are sampled once per loop. Derive the cycle from the
-                // loop length in force at this step so a Steps change cannot skip a boundary.
+                // Sample pattern-shaping LFO links once per loop, using the current loop length.
                 let mod_cycle = (k as f64 / self.loop_length).floor() as i64;
                 let mod_due = p.has_generation_links() && self.last_mod_cycle != Some(mod_cycle);
                 let regen_cycle = regeneration_cycle_at(k, self.loop_length, every, self.last_regen_cycle);
@@ -1027,15 +1003,13 @@ impl Plugin for NrumSeq {
                     self.pattern = generate(&next_key);
                     self.loop_length = next_key.length as f64;
                     self.last_key = Some(next_key);
-                    // Regenerate-after-N bumps `variation`; refresh the base snapshot too or the
-                    // next block would see a false manual change and generate a second time.
+                    // Regenerate-after-N bumps `variation`; refresh the base snapshot to avoid a false manual change.
                     self.last_base_key = Some(p.gen_params());
                     self.last_mod_cycle = Some((k as f64 / self.loop_length).floor() as i64);
                     self.shared.pattern_beat.store(nominal_beat.to_bits(), Relaxed);
                 }
 
-                // Regeneration can change the step count; clamp the active index to
-                // the new generated length before updating the playhead or reading hits.
+                // Regeneration can change the step count; clamp the active index before reading hits.
                 let idx = step_index(k, self.loop_length) as usize;
                 let idx = idx.min(self.pattern.steps.saturating_sub(1));
                 self.shared.current_step.store(idx as i32, Relaxed);
@@ -1055,8 +1029,7 @@ impl Plugin for NrumSeq {
                 k += 1;
             }
         }
-        // Carry the unplayed step into the next block; a swung step may not have been
-        // reached before this block ended.
+        // Carry the unplayed step into the next block; a swung step may not have been reached.
         self.next_step = Some(k);
         ProcessStatus::Normal
     }
@@ -1139,8 +1112,7 @@ mod tests {
     }
 
 
-    /// The waveform names and ids are host state: the picker reads `variants()`, the help line
-    /// reads `ids()`, and the generator only knows a count. All three must agree.
+    /// Waveform names and ids are host state; the picker, help line and generator must agree.
     #[test]
     fn every_oscillator_wave_is_named_indexed_and_stable() {
         let names = OscWave::variants();
@@ -1486,8 +1458,7 @@ fn walk_block(start: f64, block_beats: f64, swing: f64, cursor: Option<i64>) -> 
 
     #[test]
     fn snapped_loop_length_is_always_whole() {
-        // Regression: `length` was the raw float even with snapping on, so a slider value of
-        // 16.37 gave a 16-cell pattern in a 16.37-step loop that drifted every cycle.
+        // Regression: snapping must store the rounded length, not the raw slider float.
         let p = DrumParams::default();
         let g = p.gen_params();
         assert!(p.round_steps.value());

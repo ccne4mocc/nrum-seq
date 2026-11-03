@@ -1,22 +1,17 @@
-//! Pebble box: eight pebbles (one per lane) bounce in a box tilted by `phase`. A shaker impulse
-//! kicks a rotating third of them each pulse; a pebble fires its lane when it strikes a wall harder
-//! than the density-derived impact threshold, and the wall is recorded for the panel. Gravity is
-//! the mode-scoped `ca_rule` control. The per-step positions are recorded so the panel can animate
-//! the same simulation the audio thread schedules.
+//! Pebble box: eight pebbles bounce in a box tilted by `phase`. A shaker impulse kicks a rotating
+//! third each pulse; a hard-enough wall strike fires the lane and records the wall. Gravity is
+//! `ca_rule`; per-step positions let the panel animate the scheduled simulation.
 use super::{set_hit, GenParams, Pattern, Rng, TRACKS};
 
-/// Gravity range in box-heights per step², mapped from the mode-scoped Gravity control
-/// (`ca_rule`, 0-255). Small next to a shaker kick: the impulses drive the motion, gravity only
-/// curves it, so the impact threshold tracks the impulses instead of the falls.
+/// Gravity range in box-heights per step², from `ca_rule` (0-255). Impulses drive the motion;
+/// gravity only curves it.
 const GRAVITY_MIN: f32 = 0.01;
 const GRAVITY_RANGE: f32 = 2.15;
-/// Kick speed upward, in box-heights per step. The lowest value clears the density-0.65
-/// threshold (1.47) even after gravity decelerates the climb.
+/// Kick speed upward in box-heights per step; the lowest value clears the density-0.65 threshold.
 const KICK_MIN: f32 = 2.4;
 const KICK_RANGE: f32 = 1.8;
 
-/// Gravity in box-heights per step², from the mode-scoped Gravity control (`ca_rule`). Shared
-/// with the help line and the panel arrow, so both track the simulation's own mapping.
+/// Gravity in box-heights per step², shared with the help line and panel arrow.
 pub(crate) fn gravity(ca_rule: u8) -> f32 {
     GRAVITY_MIN + (ca_rule as f32 / 255.0) * GRAVITY_RANGE
 }
@@ -33,8 +28,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     for tr in 0..TRACKS {
         pos[tr] = (0.12 + rng.unit() * 0.76, 0.12 + rng.unit() * 0.76);
         vel[tr] = ((rng.unit() - 0.5) * 0.8, -(0.3 + rng.unit() * 0.9));
-        // Heavily damped: a secondary bounce must fall under the lowest threshold, otherwise
-        // every pebble keeps firing for several steps and occasional all-eight columns appear.
+        // Heavily damped so a secondary bounce falls under the lowest threshold.
         bounce[tr] = 0.40 + rng.unit() * 0.15;
     }
 
@@ -52,11 +46,9 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         if i % stride == 0 {
             let impulse = i / stride;
             for tr in 0..TRACKS {
-                // Rotating third of the pebbles per impulse: all eight never leave the floor
-                // together, so a shaker hit cannot stack every lane on one step.
+                // Rotating third per impulse, so a shaker hit cannot stack every lane on one step.
                 if tr % 3 != impulse % 3 { continue; }
-                // Kick up, never down: a pebble resting on the floor must leave it, not be
-                // hammered into the wall it is already touching.
+                // Kick up, never down: a resting pebble must leave the floor.
                 let speed = KICK_MIN + rng.unit() * KICK_RANGE;
                 vel[tr].1 = -speed;
                 vel[tr].0 += (rng.unit() - 0.5) * 1.6;

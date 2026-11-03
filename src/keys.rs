@@ -1,13 +1,10 @@
-//! Keys a host steals before the editor sees them, and how to hand them back.
+//! Keys a VST3 host steals before the editor sees them. Some hosts (REAPER is the usual example)
+//! run their shortcut table ahead of the plug-in window, so Space and Backspace never reach a
+//! focused text field. nice-plug reports those presses through `Editor::on_virtual_key_from_host`;
+//! claiming one makes the host skip its accelerator.
 //!
-//! Some VST3 hosts (REAPER is the usual example) run their own shortcut table ahead of the
-//! plug-in window: Space toggles transport and Backspace deletes media even while a text field
-//! has focus. nice-plug reports those presses through `Editor::on_virtual_key_from_host`; if the
-//! editor claims them the host skips its accelerator. The editor therefore claims a key only
-//! while a Slint text field has focus, and replays it into Slint on the window thread.
-//!
-//! This module is the pure part: which host keys are editing keys, and which Slint key each
-//! one becomes. The CLAP wrapper has no such hook, so this is VST3-only behaviour.
+//! This module is the pure mapping from host key to Slint edit key. The CLAP wrapper has no such
+//! hook, so this is VST3-only behaviour.
 
 use nice_plug::prelude::{Modifiers, VirtualKeyCode};
 use slint::platform::Key;
@@ -44,11 +41,8 @@ impl EditKey {
     }
 }
 
-/// Map a host virtual key to an editing key, or `None` to leave it with the host.
-///
-/// Chords with Command/Control/Alt stay with the host: they are shortcuts (undo, save, ...),
-/// not text editing. Shift alone is allowed through; Slint tracks selection on its own state, so
-/// Shift+Arrow moves the caret without extending the selection.
+/// Map a host virtual key to an editing key, or `None` to leave it with the host. Command,
+/// Control and Alt chords stay with the host; Shift alone is allowed through.
 pub(crate) fn edit_key(code: VirtualKeyCode, modifiers: Modifiers) -> Option<EditKey> {
     if modifiers.intersects(Modifiers::COMMAND | Modifiers::CONTROL | Modifiers::ALT) {
         return None;

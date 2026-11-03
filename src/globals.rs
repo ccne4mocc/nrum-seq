@@ -1,9 +1,5 @@
-//! User-global settings, stored outside the DAW project.
-//!
-//! nice-plug already persists every parameter plus `#[persist]` fields with the host's
-//! project, so this file only holds preferences that should follow the user across every
-//! project: the colour theme, the host scale factor and the MIDI export folder.
-//! Everything musical stays in the project state.
+//! User-global settings stored outside the DAW project: theme, host scale and MIDI export folder.
+//! nice-plug persists musical parameters and `#[persist]` fields with the project itself.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -25,11 +21,8 @@ pub(crate) struct GlobalSettings {
     pub midi_dir: Option<String>,
 }
 
-/// `$XDG_CONFIG_HOME/nrum-seq/settings.json`, falling back to
-/// `$HOME/.config/nrum-seq/settings.json`, or `%APPDATA%` on Windows. Returns `None`
-/// when no config directory can be determined — a host launched with neither `HOME` nor
-/// `XDG_CONFIG_HOME`, e.g. under a bare systemd unit. Settings then simply do not persist
-/// across sessions rather than failing the editor.
+/// `$XDG_CONFIG_HOME/nrum-seq/settings.json`, `$HOME/.config/nrum-seq/settings.json`, or
+/// `%APPDATA%` on Windows. Returns `None` when no config directory is resolvable.
 fn config_path() -> Option<PathBuf> {
     #[cfg(windows)]
     let base = std::env::var_os("APPDATA").map(PathBuf::from);
@@ -41,8 +34,7 @@ fn config_path() -> Option<PathBuf> {
     Some(base?.join("nrum-seq").join("settings.json"))
 }
 
-/// Human-readable location shown in Settings; uneditable so users can find the file without
-/// guessing where the host's environment points.
+/// Human-readable location shown in Settings.
 pub(crate) fn config_path_display() -> String {
     config_path()
         .map(|p| p.display().to_string())
@@ -56,16 +48,13 @@ pub(crate) fn load() -> GlobalSettings {
         .unwrap_or_default()
 }
 
-/// Write only if `DEBOUNCE_MS` has passed since the last *write*. Failures are silent:
-/// a read-only home directory should not break editing a pattern.
+/// Write only if `DEBOUNCE_MS` has passed since the last write; failures are silent.
 pub(crate) fn save(settings: &GlobalSettings) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    // Load first, store only when actually writing. Storing before the check made this a
-    // throttle: every call restarted the window, so a burst of changes wrote on a fixed
-    // cadence instead of once the user stopped changing things.
+    // Store only when actually writing; storing before the check turns the debounce into a throttle.
     if now.saturating_sub(LAST_WRITE.load(std::sync::atomic::Ordering::Relaxed)) < DEBOUNCE_MS {
         return;
     }
@@ -117,8 +106,7 @@ mod tests {
 
     #[test]
     fn an_out_of_range_theme_cannot_panic() {
-        // `Theme::from_index` falls back to the first variant, which is Sketchbook (host id
-        // `aurora`).
+        // `Theme::from_index` falls back to Sketchbook (host id `aurora`).
         assert_eq!(PluginTheme::from_index(9), PluginTheme::Sketchbook);
         assert_eq!(PluginTheme::from_index(0), PluginTheme::Sketchbook);
     }
@@ -127,9 +115,7 @@ mod tests {
     fn config_path_is_exactly_the_expected_file_under_the_config_home() {
         // Only meaningful when a config home is actually resolvable.
         let Some(path) = config_path() else { return };
-        // The old assertion only checked the path *contained* the app name, which any path
-        // would pass; pin the actual location. On Linux that is `$XDG_CONFIG_HOME` or
-        // `$HOME/.config`, so this fails loudly if settings ever start landing elsewhere.
+        // Pin the actual location so settings cannot silently land elsewhere.
         let expected_home: Option<PathBuf> = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .filter(|p| !p.as_os_str().is_empty())

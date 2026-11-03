@@ -3,21 +3,18 @@ use super::{set_hit, GenParams, Pattern, TRACKS, PHI, PHI_INV, GOLDEN_ANGLE};
 /// Phase offset between lanes, in turns. Every lane runs the same rotation, one lane apart.
 const LANE_OFFSET: f64 = 0.137;
 
-/// Steps the generator ran with. `generate` clamps the snapshot before dispatch, so the panel
-/// has to clamp the same way to draw the same arithmetic.
+/// Steps the generator ran with; the panel clamps it the same way.
 pub(crate) fn steps_of(p: &GenParams) -> usize {
     p.steps.clamp(1, super::MAX_STEPS)
 }
 
-/// Pulses the generator ran with. `generate` clamps the pulse count to the pattern length for
-/// every mode but the cellular automaton, and the phyllotaxis rule is one of those.
+/// Pulses the generator ran with, clamped to the pattern length like `generate`.
 fn pulses_of(p: &GenParams) -> usize {
     p.pulses.min(steps_of(p)).max(1)
 }
 
-/// The primary rule's phase for a step, in turns: the golden rotation advanced by 1/φ per step,
-/// plus the lane's own offset. `primary_phase` and `primary_angle` differ only in the wrap, so
-/// the panel can draw the unwrapped spiral and still test the wrapped value.
+/// The primary rule's phase in turns: the golden rotation by 1/φ per step plus the lane offset.
+/// `primary_phase` and `primary_angle` differ only in the wrap.
 pub(crate) fn primary_angle(i: usize, lane: usize, p: &GenParams) -> f64 {
     i as f64 * PHI_INV + p.seed as f64 + p.phase as f64 + lane as f64 * LANE_OFFSET
 }
@@ -27,8 +24,7 @@ pub(crate) fn primary_phase(i: usize, lane: usize, p: &GenParams) -> f64 {
     primary_angle(i, lane, p).rem_euclid(1.0)
 }
 
-/// The secondary rule's phase for a step, in turns: a second, slower rotation by 1/φ³. The lane
-/// term sits inside the bracket, so it is scaled with it.
+/// The secondary rule's phase in turns: a slower rotation by 1/φ³, with the lane term scaled in.
 pub(crate) fn secondary_angle(i: usize, lane: usize, p: &GenParams) -> f64 {
     (i as f64 + lane as f64 * PHI_INV + p.phase as f64 * steps_of(p) as f64) * GOLDEN_ANGLE
         / (std::f64::consts::TAU * PHI)
@@ -39,8 +35,7 @@ pub(crate) fn secondary_phase(i: usize, lane: usize, p: &GenParams) -> f64 {
     secondary_angle(i, lane, p).rem_euclid(1.0)
 }
 
-/// Trigger window of a lane, on the same 0..1 scale as the phases. This is the generator's own
-/// threshold, so the panel's lit wedge is the wedge the generator used.
+/// Trigger window of a lane, on the same 0..1 scale as the phases.
 pub(crate) fn lane_threshold(p: &GenParams, lane: usize) -> f64 {
     let steps = steps_of(p);
     let pulse_ratio = (pulses_of(p) as f32 / steps as f32).clamp(0.02, 0.95);
@@ -48,8 +43,7 @@ pub(crate) fn lane_threshold(p: &GenParams, lane: usize) -> f64 {
         .clamp(0.02, 0.98) as f64
 }
 
-/// Which rules fired a step: bit 0 = primary rotation, bit 1 = secondary rotation. The panel
-/// lights the band of the spiral that actually triggered.
+/// Which rules fired: bit 0 = primary rotation, bit 1 = secondary rotation.
 pub(crate) fn rules_fired(i: usize, lane: usize, p: &GenParams) -> u8 {
     let threshold = lane_threshold(p, lane);
     let mut rules = 0u8;
@@ -58,8 +52,8 @@ pub(crate) fn rules_fired(i: usize, lane: usize, p: &GenParams) -> u8 {
     rules
 }
 
-/// Golden-ratio / phyllotaxis sequence. Two irrational rotations decide each step: the primary
-/// golden rotation by 1/φ, and a second, slower one by 1/φ³ that adds a sparse family of onsets.
+/// Golden-ratio / phyllotaxis sequence: a primary rotation by 1/φ plus a sparse secondary
+/// rotation by 1/φ³.
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     for tr in 0..TRACKS {
@@ -84,8 +78,7 @@ mod tests {
 
     #[test]
     fn the_panel_helpers_reproduce_the_generators_arithmetic() {
-        // The panel draws these phases, so they must be the ones the hit test uses. Recompute the
-        // generator's original expressions and compare.
+        // The panel draws these phases, so recompute the generator's expressions and compare.
         let p = params(16, 5, 0.65);
         for lane in 0..TRACKS {
             for i in 0..16 {
@@ -126,8 +119,7 @@ mod tests {
     #[test]
     fn the_lanes_do_not_share_a_phase_origin() {
         let p = params(16, 5, 0.65);
-        // Each lane is the previous one shifted by exactly one lane offset, so all eight
-        // origins are distinct even though the offsets wrap around the circle.
+        // Each lane shifts by one lane offset, so all eight origins are distinct.
         for lane in 1..TRACKS {
             let d = primary_angle(0, lane, &p) - primary_angle(0, lane - 1, &p);
             assert!((d - 0.137).abs() < 1e-12, "primary lane {lane} offset {d}");

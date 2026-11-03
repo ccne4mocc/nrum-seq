@@ -1,8 +1,7 @@
 //! Standard MIDI File export for the current pattern.
 //!
-//! This runs only on the editor thread; `process()` never builds or writes a file. The writer
-//! deliberately uses no MIDI crate: one format-0 track with note events and a tempo meta event is
-//! small enough to encode directly and keeps the audio path dependency-free.
+//! Editor thread only; `process()` never builds or writes a file. One format-0 track with note
+//! events and a tempo meta event is small enough to encode directly, with no MIDI crate.
 
 use crate::sequence::{Pattern, MAX_STEPS, TRACKS};
 
@@ -21,8 +20,7 @@ pub(crate) struct ExportSettings {
     pub bpm: f64,
     /// Clock rate in steps per beat (4 = 1/16).
     pub steps_per_beat: f64,
-    /// Exact loop length in steps. Fractional lengths wrap mid-cell, so this can be shorter
-    /// than the whole-number cell count in `Pattern::steps`.
+    /// Exact loop length in steps; fractional lengths can be shorter than `Pattern::steps`.
     pub loop_steps: f64,
     pub gate: f64,
     pub swing: f64,

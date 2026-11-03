@@ -13,8 +13,7 @@ pub(crate) fn sigma(density: f32) -> f32 {
 }
 
 /// Reflected Brownian walk. `phase` is the starting position (0 = the middle), not a drift; the
-/// old drift term pulled the default walk to the floor. The largest steps become onsets and each
-/// lane walks from its own phase.
+/// largest steps become onsets and each lane walks from its own phase.
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let n = p.steps.max(1);

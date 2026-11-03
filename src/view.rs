@@ -30,9 +30,8 @@ fn mv(s: &mut String, x: f32, y: f32) { let _ = write!(s, "M{:.1} {:.1} ", x, y)
 fn ln(s: &mut String, x: f32, y: f32) { let _ = write!(s, "L{:.1} {:.1} ", x, y); }
 fn line(s: &mut String, a: (f32, f32), b: (f32, f32)) { mv(s, a.0, a.1); ln(s, b.0, b.1); }
 
-/// Thumbnail paths for the oscillator/LFO picker, one per waveform in `OscWave` order. The icon
-/// viewbox is 100x40 and every path samples the generator's own `oscillator_value`, so a picker
-/// cannot advertise a shape the generator does not play.
+/// Thumbnail paths for the oscillator/LFO picker, one per waveform in `OscWave` order. Each path
+/// samples the generator's own `oscillator_value`, so the picker cannot advertise a shape it does not play.
 pub fn wave_icon_paths() -> Vec<String> {
     (0..oscillator_wave_count)
         .map(|wave| {
@@ -61,17 +60,15 @@ fn arc(s: &mut String, r: f32, from: f32, to: f32) {
 fn aggregate_hit(p: &Pattern, i: usize) -> bool { (0..TRACKS).any(|t| p.hit[t][i]) }
 
 /// Generator step that produced display slot `i`: the inverse of the rotation and mirror applied
-/// by `sequence::generate`. Views that redraw generator geometry (residue classes, word weights,
-/// spiral coordinates) must index through this or they drift from the notes after Generate,
-/// Rotate or Mirror.
+/// by `sequence::generate`. Views that redraw generator geometry must index through this or they
+/// drift from the notes after Generate, Rotate or Mirror.
 fn src_index(params: &GenParams, pat: &Pattern, i: usize, n: usize) -> usize {
     let j = if params.mirror { n - 1 - i } else { i };
     (j + n - pat.rotation % n) % n
 }
 
 /// Rank cutoff of lane 0 for the oscillator panel, read from the generator's published `hit` and
-/// `orbit`. Hits are the top-ranked samples, so it is the lowest hit; with `invert` they are the
-/// samples below it, so it is the highest hit.
+/// `orbit`. Hits are the top-ranked samples; with `invert` the cutoff is the highest hit.
 fn oscillator_cutoff(p: &Pattern, n: usize, invert: bool) -> f32 {
     let hits = (0..n).filter(|&i| p.hit[0][i]).map(|i| p.orbit[i]);
     if invert { hits.fold(0.0, f32::max) } else { hits.fold(1.0, f32::min) }
@@ -130,8 +127,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             let max_r = 92.0;
             let sec_r = 40.0;
             let shift = p.rotation % n;
-            // Generator step -> display slot. Mirror runs after rotation, so it reverses the
-            // rotated slot; ignoring it made the rosette point at the wrong hits.
+            // Generator step -> display slot. Mirror runs after rotation, so it reverses the slot.
             let slot_of = |g: usize| {
                 let rotated = (g + shift) % n;
                 if params.mirror { (2 * n - 1 - rotated) % n } else { rotated }
@@ -202,8 +198,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
         Mode::Cellular => {
             let cw = 184.0 / n as f32;
             let ch = 172.0 / CA_ROWS as f32;
-            // Each lane reads its own generation, so mark every lane's row rather than the one
-            // the old `pulses % CA_ROWS` guess pointed at.
+            // Each lane reads its own generation, so mark every lane's row.
             let lane_rows: [usize; TRACKS] = std::array::from_fn(|tr| cellular_row(params, tr));
             for row in 0..CA_ROWS {
                 for i in 0..n {
@@ -224,9 +219,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::Oscillator => {
-            // Draw the generator's published lane-0 curve (`orbit`), which is already rotated
-            // into display slots, so the picture matches the onsets after Generate. The old
-            // panel re-derived the waveform from the parameters and ignored `rotation`.
+            // Draw the generator's published lane-0 curve (`orbit`), already rotated into display
+            // slots, so the picture matches the onsets after Generate.
             let x_at = |i: usize| 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
             let y_at = |value: f32| 176.0 - value * 130.0;
             mv(&mut v.edges, 12.0, 105.0); ln(&mut v.edges, 198.0, 105.0);
@@ -234,11 +228,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let (x, y) = (x_at(i), y_at(p.orbit[i]));
                 if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
             }
-            // The rank cutoff lane 0 actually applied, read from the generator's own outputs
-            // (`hit[0]` + `orbit`), not re-derived. Hits are the top-ranked samples, so the
-            // cutoff is the lowest hit; with Invert on they are the samples below it, so it is
-            // the highest hit. With Hit Probability below 100% a dropped onset can move the
-            // line slightly.
+            // The rank cutoff lane 0 actually applied, read from `hit[0]` and `orbit`, not
+            // re-derived. With Invert the cutoff is the highest hit; a dropped onset can move it slightly.
             let cutoff = oscillator_cutoff(p, n, params.invert);
             let threshold_y = y_at(cutoff);
             mv(&mut v.edges, 12.0, threshold_y); ln(&mut v.edges, 198.0, threshold_y);
@@ -270,8 +261,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::RaisedCosine => {
-            // The generator's own envelope and cutoff, so the drawn curve is the curve that
-            // produced the hits. Orbit lane 0's envelope because that is the one it publishes.
+            // The generator's own envelope and cutoff, so the drawn curve produced the hits.
             mv(&mut v.edges, 12.0, 180.0); ln(&mut v.edges, 198.0, 180.0);
             let hits = crate::sequence::pulse_hits(params.pulses, params.density, 0, n);
             let phase = crate::sequence::raised_cosine_phase(params.seed, params.phase);
@@ -320,9 +310,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 16.0); ln(&mut v.hand, x, 196.0); }
         }
         Mode::ToussaintDistance => {
-            // Distance circle: one ring per lane. Every onset sits at its *actual* step angle on
-            // the lane's ring, with a radial spoke to the rim and a tick for each grid step, so
-            // the two inter-onset gaps read directly against the step grid.
+            // Distance circle: one ring per lane, every onset at its actual step angle, with a
+            // radial spoke and a tick per grid step so inter-onset gaps read against the grid.
             circle(&mut v.edges, C, C, 100.0);
             for i in 0..n {
                 let (x0, y0) = polar(94.0, i as f32 / n as f32);
@@ -349,9 +338,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             if let Some(i) = play { let (x, y) = polar(100.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
         }
         Mode::WellFormed => {
-            // One band per lane: the Bresenham remainder climbs from the lane's baseline and
-            // resets at each onset, so the two inter-onset lengths are visible as the slope
-            // changes. Stacked bands keep eight lanes from collapsing into one sawtooth pile.
+            // One band per lane: the Bresenham remainder climbs from the baseline and resets at
+            // each onset, so inter-onset lengths show as slope changes.
             let band = 182.0 / TRACKS as f32;
             for tr in 0..TRACKS {
                 let baseline = 14.0 + (tr as f32 + 1.0) * band - 2.0;
@@ -374,12 +362,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 12.0); ln(&mut v.hand, x, 196.0); }
         }
         Mode::LSystem => {
-            // The grammar's own output: the A/B word it rewrote to, drawn as a two-line strip
-            // (A above, B below), and under it, per lane, the gate the generator actually
-            // rolled against — threshold x grammar weight x metrical weight.
-            //
-            // The old panel inferred a "nesting depth" by scanning runs of hits, which is a
-            // shape the generator never computes.
+            // The grammar's own A/B word as a two-line strip, then per lane the gate the
+            // generator rolled against: threshold x grammar weight x metrical weight.
             let cw = 184.0 / n as f32;
             let ch = 152.0 / TRACKS as f32;
             // The word the grammar produced, one symbol per step.
@@ -407,9 +391,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 8.0); ln(&mut v.hand, x, 192.0); }
         }
         Mode::PhaseShift => {
-            // Every lane is the same motif at a different circular offset, so draw the motif
-            // itself on one ring per lane: eight congruent outlines rotated against each other.
-            // The old first-onset spokes showed only the offsets and hid the shared rhythm.
+            // Every lane is the same motif at a different circular offset: draw eight congruent
+            // outlines rotated against each other.
             let labels = ["K", "S", "CH", "OH", "CL", "RM", "T", "P"];
             let mut outer = 0.0;
             for tr in 0..TRACKS {
@@ -430,7 +413,6 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                         label: if first { labels[tr].into() } else { String::new() },
                     });
                 }
-                // Close the polygon so each lane reads as one rotated copy of the motif.
                 if let Some((x, y)) = first_point { ln(&mut v.lines, x, y); }
             }
             if let Some(i) = play {
@@ -472,9 +454,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 20.0); ln(&mut v.hand, x, 192.0); }
         }
         Mode::Logistic => {
-            // Return map: the parabola is y = r·x·(1−x) for the density's r, and the samples are
-            // the orbit's (x[n], x[n+1]) pairs connected in order. The old centre cross was not
-            // an axis at all; the actual axes sit at the plot origin.
+            // Return map: y = r·x·(1−x) for the density's r, with orbit samples (x[n], x[n+1])
+            // connected in order. The axes sit at the plot origin.
             let (bx, by, w, hgt) = (18.0, 147.0, 174.0, 125.0);
             mv(&mut v.edges, bx, by); ln(&mut v.edges, bx + w, by);
             mv(&mut v.edges, bx, by); ln(&mut v.edges, bx, 22.0);
@@ -486,9 +467,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let py = by - y * hgt;
                 if s == 0 { mv(&mut v.edges, px, py); } else { ln(&mut v.edges, px, py); }
             }
-            // Dots on the parabola: every orbit sample is an (x, r·x·(1−x)) iteration. Reading the
-            // successor from the next display slot broke at the rotation seam and under mirror,
-            // where display order is no longer generator order.
+            // Dots on the parabola: every orbit sample is an (x, r·x·(1−x)) iteration. The
+            // successor comes from generator order, not display order.
             for i in 0..n {
                 let xv = p.orbit[i];
                 let x = bx + xv * w;
@@ -496,7 +476,6 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let hit = aggregate_hit(p, i);
                 v.nodes.push(Node { x, y, r: if hit { 4.8 } else { 2.4 }, on: true, cur: play == Some(i), label: String::new() });
             }
-            // Slim orbit trace in the lower half.
             for i in 0..n {
                 let ox = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
                 let oy = 185.0 - p.orbit[i] * 32.0;
@@ -549,10 +528,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             ln(&mut v.lines, tip.0 + px, tip.1 + py);
         }
         Mode::Sieve => {
-            // The sieve's own lattice: one row per residue class. The two union terms are lit
-            // cyan; the subtracted class is amber, because those cells are removed. Under them,
-            // the full sieve the lane reads, rotated into display slots like the hits. Evaluated
-            // per cell rather than through the 64-bit mask, so 1024-step patterns stay exact.
+            // One row per residue class: union terms cyan, the subtracted class amber. Below,
+            // the full sieve in display slots, evaluated per cell so 1024-step patterns stay exact.
             let cls = crate::sequence::sieve_classes(params);
             for (row, &(m, r)) in cls.iter().enumerate() {
                 let y = 34.0 + row as f32 * 26.0;
@@ -593,8 +570,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::Kuramoto => {
-            // The bank itself: eight phase pointers on one circle, each on the phase the
-            // generator published for this step. Low coupling spreads them; high coupling
+            // Eight phase pointers on one circle. Low coupling spreads them; high coupling
             // bunches them into a rotating column. Trails show where each lane has been.
             let frame = play.unwrap_or(0).min(n - 1);
             let radius = 88.0;
@@ -677,9 +653,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::Hilbert => {
-            // The curve shown is the generator's own: order from Pulses, quarter turns from
-            // Phase, and the same sampling/lane mapping. The path is rotated too, otherwise the
-            // sampled points would leave the drawn curve.
+            // The generator's own curve: order from Pulses, quarter turns from Phase, same
+            // sampling and lane mapping. Rotate the path with the points.
             let order = params.pulses.clamp(1, 5) as u32;
             let grid = 1usize << order;
             let turns = crate::sequence::hilbert_turns(params.phase);
@@ -715,9 +690,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             }
         }
         Mode::Ulam => {
-            // The generator publishes the spiral coordinates it actually used. The old panel
-            // reconstructed a different spiral from the step index, so the picture and the
-            // primes could disagree.
+            // The generator publishes the spiral coordinates it actually used.
             mv(&mut v.edges, 2.0, 2.0); ln(&mut v.edges, P - 2.0, 2.0); ln(&mut v.edges, P - 2.0, P - 2.0); ln(&mut v.edges, 2.0, P - 2.0); ln(&mut v.edges, 2.0, 2.0);
             let at = |i: usize| (3.0 + p.orbit[i] * (P - 6.0), P - 3.0 - p.theta[i] * (P - 6.0));
             let mut prev: Option<(f32, f32)> = None;
@@ -851,7 +824,6 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     v.nodes.push(Node { x, y, r: 1.8, on: false, cur: false, label: String::new() });
                 }
             }
-            // threshold line
             let prob = (params.density.clamp(0.0, 1.0) * params.probability.clamp(0.0, 1.0)).clamp(0.0, 1.0);
             let ty = 12.0 + (1.0 - prob) * (P - 24.0);
             line(&mut v.lines, (8.0, ty), (P - 8.0, ty));
@@ -897,10 +869,8 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 }
                 cur_intervals = next;
             }
-            // onsets on surviving points
             for i in 0..n {
                 let x = x_of(i, n);
-                // cantor membership test
                 let mut t = i as f32 / n as f32;
                 let mut member = true;
                 for _ in 0..6 {
@@ -962,8 +932,7 @@ mod tests {
     }
 
     /// The panel must draw the curve the generator ranked, after rotation: every lane-0 onset
-    /// sits at or above the drawn cutoff and every other step at or below it. Re-deriving the
-    /// waveform from the parameters ignored `rotate` and put the curve out of step with the hits.
+    /// sits at or above the drawn cutoff and every other step at or below it.
     #[test]
     fn oscillator_panel_follows_the_rotated_ranked_curve() {
         for (invert, mirror) in [(false, false), (true, false), (false, true), (true, true)] {
@@ -1030,8 +999,7 @@ mod tests {
 
     #[test]
     fn phyllotaxis_panel_stays_bounded_at_long_patterns() {
-        // The old panel drew one primary and one secondary node for every step of every lane:
-        // 16k rectangles at 1024 steps. The sampled rosette must stay small and still light.
+        // The sampled rosette must stay small: a node per lane per step would reach 16k nodes.
         let g = GenParams {
             kind: Mode::Phyllotaxis,
             steps: MAX_STEPS,

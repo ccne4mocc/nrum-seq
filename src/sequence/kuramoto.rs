@@ -1,10 +1,8 @@
-//! Kuramoto coupled lanes. Eight phase oscillators, one per lane, coupled to their immediate
-//! neighbours on a ring. Each lane advances by its own detuned rate plus the mean pull of its
-//! neighbours; a step scores highest when a lane's phase crosses a whole turn.
+//! Kuramoto coupled lanes: eight phase oscillators on a ring. Each advances by its detuned rate
+//! plus the mean pull of its neighbours; a step scores when a phase crosses a whole turn.
 //!
-//! Coupling comes from `osc_rate`, the frequency spread from `phase`, the target onset count
-//! from `pulses` and the usual density weighting from `density`. Low coupling leaves the lanes
-//! drifting against each other; high coupling locks them into a rotating column.
+//! `osc_rate` sets coupling, `phase` the frequency spread, `pulses` the onset count and `density`
+//! the usual weighting. Low coupling drifts; high coupling locks into a rotating column.
 
 use super::{set_hit, top_k, GenParams, Pattern, DENSITY_PROFILE, MAX_STEPS, TRACKS};
 use std::f64::consts::TAU;
@@ -32,8 +30,7 @@ fn detune(p: &GenParams, lane: usize) -> f64 {
     1.0 + spread * 2.0 * x
 }
 
-/// Order parameter of one step's phases: 1 = the whole bank points one way, 0 = spread evenly.
-/// Shared with the panel, which draws the mean vector as its playhead.
+/// Order parameter: 1 = whole bank aligned, 0 = spread evenly. Shared with the panel's playhead.
 pub(crate) fn order(phases: &[u8; TRACKS]) -> (f32, f32) {
     let (mut x, mut y) = (0.0f32, 0.0f32);
     for &phase in phases {
@@ -65,16 +62,14 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
             let prev = theta[tr];
             let left = theta[(tr + TRACKS - 1) % TRACKS];
             let right = theta[(tr + 1) % TRACKS];
-            // Nearest-neighbour ring coupling: two `sin` calls per lane, bounded and cheap
-            // enough for one block even at 64 steps.
+            // Nearest-neighbour ring coupling: two `sin` calls per lane, bounded per block.
             let pull = (left - prev).sin() + (right - prev).sin();
             theta[tr] = prev + TAU * rate * detune(p, tr) + k / TRACKS as f64 * pull;
             let turns = theta[tr] / TAU;
             let before = prev / TAU;
             let phase = turns.rem_euclid(1.0) as f32;
             out.phases[i][tr] = (phase * 255.0).round().clamp(0.0, 255.0) as u8;
-            // A crossing is the generator's real trigger; steps that miss a crossing are
-            // ranked by how close the lane came, so the count stays exact at any length.
+            // A crossing triggers; missed steps rank by proximity so the count stays exact.
             score[tr][i] = if turns.floor() > before.floor() { 1.0 } else { 0.5 + 0.45 * (1.0 - phase) };
         }
     }
@@ -128,8 +123,7 @@ mod tests {
             let (x, y) = order(&pat.phases[i]);
             (x * x + y * y).sqrt()
         };
-        // Mid-pattern: by the last step an unlocked bank with an integer pulse ratio has
-        // wrapped back near its starting phases, which hides the drift.
+        // Mid-pattern: an integer pulse ratio wraps back near the start by the last step.
         let (free_r, locked_r) = (strength_at(&free, 32), strength_at(&locked, 32));
         assert!(locked_r > free_r + 0.1,
             "coupling did not lock the bank: free={free_r} locked={locked_r}");

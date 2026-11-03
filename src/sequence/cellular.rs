@@ -1,7 +1,6 @@
 use super::{enabled_threshold, set_hit, GenParams, Pattern, Rng, CA_ROWS, TRACKS};
 
-/// Generation a lane reads. Exported so the panel marks the same rows the hits came from instead
-/// of restating the formula.
+/// Generation a lane reads; the panel marks the same rows the hits came from.
 pub(crate) fn selected_row(p: &GenParams, tr: usize) -> usize {
     if p.steps <= 1 {
         0
@@ -15,9 +14,8 @@ pub(crate) fn selected_row(p: &GenParams, tr: usize) -> usize {
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let mut rng = Rng::new(p.seed, p.variation, 0xCA30_0001);
-    // Seed the first row at `density`, then force a gap unless the ring is so short that a
-    // gap would leave nothing. A solid row has neighbourhood 111 everywhere, which rule 30
-    // maps to 0, so the automaton would die at generation 1 and silence every lane.
+    // Seed at `density`, then force a gap unless the ring is too short: a solid row maps to 0
+    // under rule 30 and would silence every lane.
     let mut live = 0usize;
     for i in 0..p.steps {
         out.ca[0][i] = rng.unit() < p.density.clamp(0.0, 1.0);
@@ -34,16 +32,13 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         }
     }
     for tr in 0..TRACKS {
-        // With one step the ring wraps onto itself and generations 1..CA_ROWS collapse,
-        // leaving only row 0 usable. `selected_row` clamps to it.
+        // With one step generations 1..CA_ROWS collapse; `selected_row` clamps to row 0.
         let selected = selected_row(p, tr);
         let threshold = enabled_threshold(p, tr);
         let mut local = Rng::new(p.seed, p.variation, 0xCA80_0000 + tr as u64);
         for i in 0..p.steps {
             let cell = out.ca[selected][i];
-            // With one step the ring wraps onto itself, so generations 1..CA_ROWS are all
-            // copies of generation 0 and the row either is or is not lit. Take it as-is
-            // rather than letting a stochastic gate silence a one-step pattern.
+            // Generations 1..CA_ROWS are copies of row 0; take the row as-is rather than gate it.
             let hit = if p.steps == 1 { cell } else { cell && local.unit() < (0.45 + threshold * 0.55) };
             set_hit(&mut out, tr, i, hit, if cell { 1.0 } else { 0.6 });
         }

@@ -4,18 +4,15 @@ const CAP: usize = 1024;
 const A: u8 = 0;
 const B: u8 = 1;
 
-/// Finite Fibonacci-style L-system. Symbols are expanded with a bounded fixed buffer, then
-/// interpreted as a rhythm grammar: A favours low/downbeat voices, B favours upper/offbeat voices.
-/// The rule family changes with seed/variation, so each regeneration can explore a related grammar.
+/// Finite Fibonacci-style L-system, expanded in a bounded buffer and read as a rhythm grammar:
+/// A favours low/downbeat voices, B upper/offbeat ones. Seed/variation select the rule family.
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let mut symbols = [A; CAP];
     let mut len = 1usize;
     let family = ((p.seed.clamp(0.0, 0.999_999) * 4.0) as usize + p.variation as usize) % 4;
 
-    // Parallel rewrites. Every production is finite and the maximum symbol buffer is fixed.
-    // Fibonacci growth needs 16 passes to reach 1024 symbols; 12 stopped at 377, so a longer
-    // loop repeated the word (`symbols[i % len]`) instead of extending it.
+    // Parallel rewrites in a fixed buffer. Fibonacci growth needs 16 passes to reach 1024 symbols.
     for _ in 0..16 {
         if len >= p.steps { break; }
         let mut next = [A; CAP];
@@ -40,8 +37,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         len = next_len;
     }
 
-    // The word the grammar produced, repeated across the pattern. Published so the panel draws
-    // the rewrite instead of inferring a shape from the hits.
+    // The word the grammar produced, published so the panel draws the rewrite itself.
     for i in 0..p.steps {
         out.lsym[i] = symbols[i % len];
     }
@@ -58,8 +54,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     out
 }
 
-/// The trigger threshold of a lane. `pulses` is clamped to the pattern length exactly as the
-/// generator clamps it before dispatch.
+/// The trigger threshold of a lane; pulses are clamped as in `generate`.
 pub(crate) fn lane_threshold(p: &GenParams, lane: usize) -> f32 {
     let steps = p.steps.max(1);
     let pulses = p.pulses.min(steps);
@@ -74,8 +69,7 @@ pub(crate) fn preferred_symbol(lane: usize) -> u8 {
     if lane <= 1 || lane == 6 { A } else { B }
 }
 
-/// How much the grammar favours a symbol in a lane: the preferred one counts fully, the other
-/// is damped.
+/// Grammar preference for a symbol in a lane; the non-preferred symbol is damped.
 pub(crate) fn grammar_weight(symbol: u8, lane: usize) -> f32 {
     if symbol == preferred_symbol(lane) { 1.0 } else { 0.55 }
 }
@@ -98,8 +92,7 @@ mod tests {
 
     #[test]
     fn the_published_word_is_the_word_the_generator_played() {
-        // The panel draws `lsym`; if it disagreed with the word the hits came from, the picture
-        // would show a different grammar than the one sounding.
+        // The panel draws `lsym`, which must match the word the hits came from.
         let p = GenParams { kind: Mode::LSystem, steps: 32, pulses: 6, density: 0.7, probability: 1.0, ..GenParams::default() };
         let pat = generate(&p);
         assert!(pat.lsym.iter().all(|&s| s == A || s == B), "the word must be A/B only");

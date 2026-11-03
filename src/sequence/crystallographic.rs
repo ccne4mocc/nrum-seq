@@ -5,15 +5,13 @@ use super::{set_hit, GenParams, Pattern, Rng, TRACKS, MAX_STEPS};
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let order = p.symmetry.clamp(1, 8);
-    // A one-slot cell maps every step onto the same motif value, so the lane becomes a solid
-    // wall or a silent one (and at the default 7-step / order-4 setting it was a wall). When
-    // the symmetry order leaves no room for a cell, let the motif cover the whole pattern.
+    // A one-slot cell maps every step onto the same value; when the symmetry order leaves no
+    // room for a cell, let the motif cover the whole pattern.
     let unit = if p.steps / order >= 2 { p.steps / order } else { p.steps.max(1) };
     for tr in 0..TRACKS {
         let pulse_ratio = (p.pulses.max(1) as f32 / p.steps as f32).clamp(0.02, 0.95);
-        // Density scales the cutoff directly rather than multiplying into it. Multiplying
-        // pushed the threshold onto its clamp floor, so the first non-zero density setting
-        // released a dozen hits at once instead of a couple.
+        // Density scales the cutoff directly; multiplying into it pinned the threshold to its
+        // clamp floor and released a dozen hits at the first non-zero setting.
         let threshold = (pulse_ratio * (0.55 + 0.45 * p.density.clamp(0.0, 1.0))
             * (0.4 + 0.6 * super::DENSITY_PROFILE[tr])).clamp(0.0, 1.0);
         let mut rng = Rng::new(p.seed, p.variation, 0xC7A1_0000 + tr as u64);
@@ -21,9 +19,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         for i in 0..unit {
             motif[i] = rng.unit() < threshold;
         }
-        // A random unit cell can come out empty, which tiles silence across the whole lane:
-        // at the default 4-slot cell that silenced the kick on ~40% of seeds. A non-zero
-        // threshold has to speak, so force one deterministic onset.
+        // An empty random cell tiles silence across the lane; a non-zero threshold must speak.
         if threshold > 0.0 && !motif[..unit].iter().any(|&hit| hit) {
             motif[rng.below(unit)] = true;
         }

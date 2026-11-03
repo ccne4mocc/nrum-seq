@@ -16,9 +16,6 @@ fn is_prime(n: usize) -> bool {
 /// each prime cell to a lane from its diagonal (`x - y`). The spiral starts at
 /// `1 + round(64*phase) + 5*variation`, so phase and Generate move the primes onto other
 /// diagonals, as in Ulam's own spirals started at 17 or 41.
-///
-/// The old version was not a spiral at all: it tested the primality of the step index and the
-/// panel drew a different spiral of its own. The coordinates below are the ones the hits use.
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let n = p.steps.max(1);

@@ -188,8 +188,7 @@ component OptSlider inherits Rectangle {
             }
         }
         moved => { if (ta.pressed) { root.changed(root.opt.min + Math.clamp(ta.mouse-x / ta.width, 0, 1) * (root.opt.max - root.opt.min)); } }
-        // Wheel editing is active only while this control is hovered. Snap to the
-        // parameter's step grid first, then move exactly one step per wheel notch.
+        // Snap to the parameter's step grid, then move one step per wheel notch.
         scroll-event(e) => {
             if (e.delta-y != 0px) {
                 root.changed(Math.clamp(root.opt.min + Math.round((root.opt.value - root.opt.min) / root.opt.step + (e.delta-y > 0px ? 1 : -1)) * root.opt.step, root.opt.min, root.opt.max));
@@ -250,7 +249,6 @@ component OptSlider inherits Rectangle {
     }
 }
 // Slint's SpinBox is <int>-only, so this carries fractional values such as 16.5 steps.
-// Text entry plus arrow keys plus wheel, with no pixel-density limit on the value.
 component NumBox inherits Rectangle {
     in property <string> label;
     in property <float> value: 0;
@@ -282,8 +280,7 @@ component NumBox inherits Rectangle {
     border-radius: 4px;
     background: Theme.control; border-width: 1px; border-color: Theme.border;
     horizontal-stretch: 1;
-    // True while the number field has keyboard focus; the root reads it so Rust can decide
-    // whether a key the host tried to keep is meant for typing.
+    // True while the number field has focus, so Rust can keep host shortcuts out of typing.
     out property <bool> editing: input.has-focus;
 
     function clamp-value(v: float) -> float {
@@ -329,12 +326,10 @@ component NumBox inherits Rectangle {
         Text { text: "+"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
         up-touch := TouchArea { clicked => { root.nudge(1); } }
     }
-    // Wheel nudges anywhere on the control. Declared before `input` so it sits underneath the
-    // text field: clicks and typing still reach the TextInput, and since TextInput has no
-    // scroll handler the wheel falls through to this area.
+    // Wheel nudges anywhere on the control. Declared before `input` so clicks and typing still
+    // reach the TextInput; with no scroll handler there, the wheel falls through to this area.
     wheel := TouchArea {
-        // Keep the wheel area off the two buttons: this TouchArea is declared after them, so a
-        // full-width one would sit on top and swallow every button click.
+        // Keep the wheel area off the buttons; a full-width TouchArea here would swallow clicks.
         x: 0px; y: 0px; width: parent.width - 34px; height: parent.height;
         scroll-event(e) => {
             if (e.delta-y != 0px) {
@@ -483,7 +478,7 @@ component LfoCell inherits Rectangle {
     }
     height: 28px;
     HorizontalLayout {
-        // 2px keeps the 30x28 drag points inside the 822px rack width.
+        // 2px keeps the 28x26 drag points inside the 822px rack width.
         spacing: 2px;
         Rectangle {
             width: 28px; height: 28px; background: transparent;
@@ -563,8 +558,8 @@ component ModePanel inherits Rectangle {
     in property <string> edges: "M0 0";
     in property <string> lines: "M0 0";
     in property <string> hand: "M0 0";
-    // view.rs builds every panel in a 210-unit space. The paths scale through the viewbox;
-    // the node rectangles are scaled by hand so dots and labels grow with the box.
+    // view.rs builds every panel in a 210-unit space; paths scale through the viewbox and node
+    // rectangles are scaled by hand so dots and labels grow with the box.
     property <float> px-per-unit: 1.4285714;   // 300px square drawing / 210-unit geometry
     property <length> draw-offset-x: 30px;      // letterbox the square drawing in the wider card
     width: 360px; height: 300px;
@@ -573,8 +568,7 @@ component ModePanel inherits Rectangle {
     Path { x: root.draw-offset-x; y: 0px; width: 300px; height: 300px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.lines; fill: transparent; stroke: Theme.c3; stroke-width: 1.4px; }
     Path { x: root.draw-offset-x; y: 0px; width: 300px; height: 300px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.hand; fill: transparent; stroke: Theme.hi; stroke-width: 2px; }
     for n in root.nodes: Rectangle {
-        // Pebble-box positions change every step; the tween reads as motion. Other panels'
-        // nodes are static, so the animation never shows there.
+        // Pebble-box positions change every step; static panels never show the tween.
         animate x, y { duration: 120ms; }
         x: root.draw-offset-x + (n.x - n.r) * root.px-per-unit; y: (n.y - n.r) * root.px-per-unit;
         width: n.r * 2 * root.px-per-unit; height: n.r * 2 * root.px-per-unit;
@@ -585,7 +579,7 @@ component ModePanel inherits Rectangle {
     }
 }
 
-// Dropdown list overlay (nelody seq-style). Anchored to its triggering field by the caller.
+// Dropdown list overlay, anchored to its triggering field by the caller.
 component DropdownList inherits Rectangle {
     in property <[string]> options;
     in property <int> current;
@@ -658,8 +652,7 @@ component ModeDropdown inherits Rectangle {
 
 export component AppWindow inherits Window {
     title: "nrum seq";
-    // Fixed layout size: the window never resizes (a live resize glitched the GL surface),
-    // so the host cannot be fought over it.
+    // Fixed layout size: the window never resizes, so the host cannot fight over it.
     in property <length> base-width: 860px;
     in property <length> base-height: 760px;
     preferred-width: root.base-width; preferred-height: root.base-height;
@@ -669,12 +662,10 @@ export component AppWindow inherits Window {
     in property <float> steps: 16;
     in property <float> max-steps: 1024;
     in property <bool> round-steps: true;
-    // The grid cells the generator will fill, mirroring `cell_count_for`: snap rounds, free
-    // length takes the ceiling. Header and bounds read this so they cannot disagree with the
-    // matrix when the host leaves a fractional value stored while snapping is on.
+    // Grid cells the generator will fill, mirroring `cell_count_for`: snap rounds, free length
+    // takes the ceiling. Header and bounds read this so they cannot disagree with the matrix.
     property <int> cells: root.round-steps ? Math.round(root.steps) : Math.ceil(root.steps);
-    // Fixed step width. Growing the pattern scrolls the matrix instead of shrinking cells into
-    // sub-pixel slivers; the label column stays put while only the cells scroll.
+    // Fixed step width: growing the pattern scrolls the matrix instead of shrinking cells.
     property <length> matrix-cell-width: root.cells < 64 ? Math.max(14px, 780px / root.cells) : 14px;
     in-out property <int> current-step: 0;
     in-out property <bool> follow-step: true;
@@ -799,8 +790,7 @@ export component AppWindow inherits Window {
     in-out property <length> scope-menu-x: 0px;
     in-out property <length> scope-menu-y: 0px;
     in-out property <bool> settings-open: false;
-    // Settings slide in from the right edge of the fixed 860px layout; see the panel at the
-    // bottom of this component.
+    // Settings slide in from the right edge of the fixed 860px layout.
     in-out property <length> settings-x: root.base-width;
     changed settings-open => {
         root.settings-x = root.settings-open ? root.base-width - 300px : root.base-width;
@@ -843,8 +833,8 @@ export component AppWindow inherits Window {
     callback set-midi-folder(string);
     callback export-midi();
 
-    // Only expose mode-specific controls the selected mode actually uses, and label them with
-    // what they mean in that mode. `GenParams` still carries every field; this is presentation.
+    // Expose only the controls the selected mode uses, labelled for that mode; `GenParams` still
+    // carries every field.
     pure function shows-param(mode: int, key: int) -> bool {
         // pulses: hidden for modes that never read p.pulses
         if (key == 1) { return !(mode == 20 || mode == 21 || mode == 23 || mode == 24 || mode == 25 || mode == 26 || mode == 27 || mode == 29 || mode == 32); }
@@ -994,13 +984,11 @@ export component AppWindow inherits Window {
         { label: "Gate", min: 0.02, max: 1, value: root.gate, text: "\{Math.round(root.gate * 100)}%", step: 0.01, number: "\{Math.round(root.gate * 100)}", scale: 0.01 }
     ];
 
-    // Everything lives inside one fixed 860x760 coordinate space. The window never resizes;
-    // the matrix scrolls fixed-width cells instead of shrinking them, so nothing reflows.
+    // One fixed 860x760 coordinate space; the matrix scrolls fixed-width cells, so nothing reflows.
     Rectangle {
         width: root.base-width; height: root.base-height;
 
-        // Faint graph paper belongs to the Sketch palette; the other themes keep the flat
-        // gradient. It sits below the layout so only the gaps between cards show it.
+        // Faint graph paper for Sketch; it sits below the layout so only gaps between cards show it.
         Rectangle {
             visible: root.theme-index == 0;
             for i in 38: Rectangle { y: (i + 1) * 20px; height: 1px; background: Theme.border.with-alpha(0.16); }
@@ -1057,8 +1045,7 @@ export component AppWindow inherits Window {
             Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : Theme.control; Text { text: "⚙"; color: settings-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TouchArea { clicked => { root.settings-open = !root.settings-open; } } }
         }
         HorizontalLayout {
-            // 300px leaves room for the two- or three-sentence description plus the live math
-            // line without squeezing the option sliders.
+            // 300px fits the description and live math line without squeezing the sliders.
             height: 300px; spacing: 10px;
             ModePanel { nodes: root.view-nodes; edges: root.view-edges; lines: root.view-lines; hand: root.view-hand; }
             VerticalLayout {
@@ -1088,8 +1075,7 @@ export component AppWindow inherits Window {
                 VerticalLayout {
                     spacing: 0px;
                     Text { text: root.mode-help[root.mode]; color: Theme.text; font-size: 13px; wrap: word-wrap; }
-                    // Live formula with the current snapshot substituted; pushed by Rust from the
-                    // same helpers the generator calls, so it cannot drift from what is playing.
+                    // Live formula with the current snapshot, pushed from the generator's own helpers.
                     Text { text: root.mode-math; color: Theme.text-muted; font-size: 11px; wrap: word-wrap; }
                 }
                 Rectangle { height: 2px; }
@@ -1153,8 +1139,7 @@ export component AppWindow inherits Window {
                 horizontal-scrollbar-policy: as-needed;
                 viewport-width: root.cells * root.matrix-cell-width;
                 viewport-x <=> root.matrix-x;
-                // User drags/wheel disable following; the follow write lands exactly on
-                // `follow-x()`, so a stray programmatic callback cannot turn it off.
+                // User drags/wheel disable following; the follow write lands on `follow-x()`.
                 scrolled() => {
                     if (Math.abs(root.matrix-x - root.follow-x()) > 2px) { root.follow-step = false; }
                 }
@@ -1349,13 +1334,9 @@ export component AppWindow inherits Window {
         selected(i) => { root.set-mode(i); root.mode-menu-open = false; }
     }
 
-    // parked off-screen when closed, so the closing animation can play too; a bare
-    // `if settings-open` would make it vanish instead of sliding out.
-    // Tied to the animated position, not to the boolean: the scrim stays live while the panel
-    // is still travelling out, and is absent once it is parked, so it cannot swallow clicks
-    // meant for the editor underneath.
-    // Keep the LFO rack outside the settings scrim so it can still be dragged onto the
-    // Max Steps field while Settings is open.
+    // Parked off-screen when closed so the closing animation can play. Tie the scrim to the
+    // animated position, not the boolean, so it cannot swallow clicks while the panel travels out.
+    // Keep the LFO rack outside the scrim so links can still be dragged onto Max Steps.
     if root.settings-x < root.base-width: Rectangle {
         x: 0px; y: 0px; width: root.base-width; height: root.base-height - 105px;
         background: #00000066;
@@ -1378,8 +1359,7 @@ export component AppWindow inherits Window {
             Text { text: "CONFIG FILE"; color: Theme.text-muted; font-size: 9px; }
             Text { text: root.settings-path; color: Theme.text-muted; font-size: 8px; wrap: word-wrap; }
             Text { text: "STEP SPACING"; color: Theme.text-muted; font-size: 9px; }
-            // Turning rounding off lets the loop wrap between grid cells, so the pattern
-            // drifts against the step grid instead of landing on it.
+            // Turning rounding off lets the loop wrap between grid cells and drift against the grid.
             Rectangle {
                 height: 26px; border-radius: 4px;
                 background: root.round-steps ? Theme.c1.with-alpha(0.8) : (round-touch.has-hover ? Theme.control-hover : Theme.control);
@@ -1397,8 +1377,7 @@ export component AppWindow inherits Window {
             }
             Text { text: "PATTERN LIMIT"; color: Theme.text-muted; font-size: 9px; }
             max-steps-box := NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; mod-target: 15; changed(v) => { root.set-opt(14, v); } }
-            // The Pattern arrays are allocated for 1024 steps up front, so changing the ceiling
-            // never requires a host or plug-in restart.
+            // Pattern arrays are allocated for 1024 steps up front, so ceiling changes need no restart.
             Text { text: "Max steps applies immediately; no restart is needed."; color: Theme.text-muted; font-size: 9px; }
             Text { text: "TECHNICAL SUPPORT"; color: Theme.text-muted; font-size: 9px; }
             Rectangle {
@@ -1408,7 +1387,6 @@ export component AppWindow inherits Window {
                 logging-touch := TouchArea { clicked => { root.toggle-logging(); } }
             }
             Text { text: "Writes mode and parameter snapshots to nrum-seq.log in your home folder."; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
-            // RANDOMIZE SCOPE removed (redundant)
             Text { text: "MIDI EXPORT"; color: Theme.text-muted; font-size: 9px; }
             Rectangle {
                 height: 26px; border-radius: 4px;
@@ -1424,8 +1402,7 @@ export component AppWindow inherits Window {
             Text { text: root.export-status; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
             // Push the contact block to the bottom of the panel; the controls stay top-aligned.
             Rectangle { vertical-stretch: 1; }
-            // Credit rows are flush: the outer layout keeps the gap above the block, while
-            // this nested layout removes the inter-row spacing inside it.
+            // Credit rows are flush; this nested layout removes the inter-row spacing.
             VerticalLayout {
                 spacing: 0px;
                 Text { text: "CREDITS / CONTACT"; color: Theme.text-muted; font-size: 9px; }
@@ -1439,8 +1416,7 @@ export component AppWindow inherits Window {
         }
     }
     }
-    // Outside-click catcher for the dropdowns; declared before them so it cannot cover the
-    // popup rows.
+    // Outside-click catcher for the dropdowns; declared before them so it cannot cover popup rows.
     if root.clock-menu-open || root.wave-menu-open || root.scope-menu-open: Rectangle {
         x: 0px; y: 0px; width: root.base-width; height: root.base-height;
         background: #00000008;

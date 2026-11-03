@@ -41,8 +41,7 @@ mod levy_flight;
 mod tent_map;
 mod henon_map;
 
-// The panel draws these algorithms' own curves and cutoffs rather than restating their
-// formulas, so these re-exports exist for `crate::view` alone.
+// Re-exports for `crate::view`, which draws the algorithms' own curves and cutoffs.
 pub(crate) use arnold::coupling as arnold_coupling;
 pub(crate) use brownian::sigma as brownian_sigma;
 pub(crate) use cellular::selected_row as cellular_row;
@@ -53,8 +52,7 @@ pub(crate) use levy_flight::{step_min as levy_step_min, tail_alpha as levy_alpha
 pub(crate) use logistic::{r_of as logistic_r, x0 as logistic_x0};
 pub(crate) use oscillator::WAVE_COUNT as oscillator_wave_count;
 pub(crate) use tent_map::mu_of as tent_mu;
-// The LFO picker samples the same waveform the oscillator generator uses, so the icon and the
-// modulation shape cannot drift. The panel itself reads the generator's published `orbit`.
+// The LFO picker samples the oscillator generator's waveform, so icon and modulation shape agree.
 pub(crate) use oscillator::value as oscillator_value;
 pub(crate) use phyllotaxis::{
     lane_threshold as phyllotaxis_threshold, primary_phase as phyllotaxis_primary,
@@ -64,8 +62,7 @@ pub(crate) use raised_cosine::{
     cutoff as raised_cosine_cutoff, envelope as raised_cosine_envelope, phase_offset as raised_cosine_phase,
 };
 pub(crate) use slowcat::motif_len as slowcat_motif_len;
-// Help text shows these derived quantities, so it reads them from the generators instead of
-// restating the formula.
+// Help text reads derived quantities from the generators instead of restating formulas.
 pub(crate) use euclidean::lane_pulses as euclidean_lane_pulses;
 pub(crate) use lsystem::{
     lane_threshold as lsystem_threshold,
@@ -77,21 +74,17 @@ pub(crate) use kuramoto::{
     coupling as kuramoto_coupling, order as kuramoto_order, rate as kuramoto_rate,
 };
 
-// The mode enum is the host parameter type, shared with the generators: one list of modes,
-// one order, no mapping table to keep in sync.
+// The mode enum is the shared host parameter type: one list, one order, no mapping table.
 use crate::modes::Mode;
 
 pub const TRACKS: usize = 8;
-/// Hard capacity for every fixed-size pattern array. The host exposes a smaller, user-selected
-/// `max_steps` ceiling (64 by default); 1024 is the largest value that ceiling can reach.
+/// Hard capacity for every pattern array; the host's `max_steps` ceiling can reach 1024.
 pub const MAX_STEPS: usize = 1024;
-/// Lowest selectable ceiling. It is the historical limit, so an untouched project behaves
-/// exactly as it did before the ceiling became adjustable.
+/// Lowest selectable ceiling; keeps untouched projects at the historical limit.
 pub const MIN_MAX_STEPS: usize = 64;
 pub const DEFAULT_MAX_STEPS: usize = 1024;
 pub const CA_ROWS: usize = 16;
-// Spelled out: `std::f64::consts::GOLDEN_RATIO` is unstable on older toolchains, which made the
-// documented "Rust 1.88 or newer" baseline wrong.
+// Spelled out because `std::f64::consts::GOLDEN_RATIO` is unstable on older toolchains.
 #[allow(clippy::approx_constant)] // the std constant is newer than the supported baseline
 const PHI: f64 = 1.618_033_988_749_894;
 const PHI_INV: f64 = PHI - 1.0;
@@ -103,8 +96,7 @@ pub struct GenParams {
     pub kind: Mode,
     /// Number of grid cells the generators fill. Always a whole number.
     pub steps: usize,
-    /// Loop length in steps. Equal to `steps` for whole-step patterns; fractional values
-    /// make the loop wrap part-way through a cell, so successive cycles shift by the remainder.
+    /// Loop length in steps; fractional values wrap part-way through a cell.
     pub length: f32,
     /// Main pulse/generation control; its exact interpretation is mode dependent.
     pub pulses: usize,
@@ -120,8 +112,7 @@ pub struct GenParams {
     pub phase: f32,
     /// Oscillator cycles per pattern.
     pub osc_rate: f32,
-    /// Waveform index for the oscillator mode; the count lives in `oscillator::WAVE_COUNT` and
-    /// the names in the `OscWave` host enum.
+    /// Waveform index; the count lives in `oscillator::WAVE_COUNT`, names in `OscWave`.
     pub osc_wave: usize,
     pub ca_rule: u8,
     /// 1..8 unit-cell symmetry order.
@@ -162,17 +153,15 @@ pub struct Pattern {
     pub u: [f32; MAX_STEPS],
     /// L-System symbol per step: 0 = A, 1 = B. The word the grammar actually produced.
     pub lsym: [u8; MAX_STEPS],
-    /// Steps the finished pattern was rotated by. The rotation happens after the mode ran, so
-    /// display slot `i` holds the generator's step `(i + steps - rotation) % steps`; the panel
-    /// uses this to draw the geometry that actually produced each onset.
+    /// Steps the finished pattern was rotated by. Display slot `i` holds generator step
+    /// `(i + steps - rotation) % steps`, which the panels use to draw the geometry that produced each onset.
     pub rotation: usize,
     /// Pebble-box positions, normalized 0-255 as `[x0, y0, x1, y1, …]` per step.
     pub pebbles: [[u8; TRACKS * 2]; MAX_STEPS],
     /// Wall a pebble struck this step: 0 = none, 1 = left, 2 = right, 3 = top, 4 = bottom.
     /// The frame records the end of the step, so this is what tells the panel *where* it hit.
     pub impact: [[u8; TRACKS]; MAX_STEPS],
-    /// Kuramoto phase per lane per step, normalized 0-255. The panel draws these as pointers,
-    /// so it shows the same bank the scheduler ranked instead of re-integrating it.
+    /// Kuramoto phase per lane per step, normalized 0-255; the panel draws these as pointers.
     pub phases: [[u8; TRACKS]; MAX_STEPS],
 }
 
@@ -224,25 +213,22 @@ pub(super) fn enabled_threshold(p: &GenParams, track: usize) -> f32 {
     (p.density.clamp(0.0, 1.0) * DENSITY_PROFILE[track]).clamp(0.0, 1.0)
 }
 
-/// Onset count for the "pulse count scaled by density" modes. Every lane asks for
-/// `pulses + tr % 3` onsets and density decides how many of those survive.
+/// Onset count for "pulse count scaled by density" modes: `pulses + tr % 3`, thinned by density.
 #[inline]
 pub(crate) fn pulse_hits(pulses: usize, density: f32, tr: usize, n: usize) -> usize {
     let requested = if pulses == 0 { 0 } else { (pulses + tr % 3).min(n) };
     ((requested as f32 * density.clamp(0.0, 1.0)).round() as usize).min(n)
 }
 
-/// Circular modular distance of `pos` in a k-over-n word: the Bresenham remainder that both
-/// the well-formed and the Toussaint onset tests are built from, and the curve the well-formed
-/// panel plots.
+/// Circular modular distance of `pos` in a k-over-n word: the Bresenham remainder behind the
+/// well-formed and Toussaint onset tests, and the curve the well-formed panel plots.
 #[inline]
 pub(crate) fn modular_distance(pos: usize, k: usize, n: usize) -> usize {
     (pos * k) % n.max(1)
 }
 
-/// Onset test for the anchored E(k,n) word: onset j sits at floor(j*n/k) from the lane's
-/// phase origin, so a step hits when its circular distance to the next onset is under k.
-/// Shared by the Euclidean and well-formed generators so the two cannot drift apart.
+/// Onset test for the anchored E(k,n) word: onset j sits at floor(j*n/k) from the lane's phase
+/// origin. Shared by the Euclidean and well-formed generators.
 #[inline]
 pub(super) fn anchored_onset(pos: usize, k: usize, n: usize) -> bool {
     (n - modular_distance(pos, k, n)) % n < k
@@ -265,9 +251,8 @@ pub(super) fn set_hit(out: &mut Pattern, track: usize, step: usize, hit: bool, a
     if hit { out.state[step] = (track + 1) as u8; }
 }
 
-/// Mark the `k` highest scores, breaking ties by earlier step. The sort is in place over a fixed
-/// stack array, so this stays allocation-free on the audio path. Replaces the old O(n²) rank
-/// scan, which became too expensive once the ceiling reached 1024 steps.
+/// Mark the `k` highest scores, breaking ties by earlier step. In-place over a fixed stack array,
+/// so it stays allocation-free on the audio path.
 pub(super) fn top_k(scores: &[f32; MAX_STEPS], n: usize, k: usize, hits: &mut [bool; MAX_STEPS]) {
     hits[..n].fill(false);
     if k == 0 || n == 0 { return; }
@@ -278,18 +263,15 @@ pub(super) fn top_k(scores: &[f32; MAX_STEPS], n: usize, k: usize, hits: &mut [b
     for &(_, i) in &ranked[..k] { hits[i] = true; }
 }
 
-/// Triangle-wave reflection into `0..=1`, exact for any displacement. Iterative reflection loops
-/// need the step to be smaller than the range and pin a long jump to the wall.
+/// Triangle-wave reflection into `0..=1`, exact for any displacement.
 pub(super) fn fold01(x: f64) -> f64 {
     let m = x.rem_euclid(2.0);
     if m <= 1.0 { m } else { 2.0 - m }
 }
 
 /// Mark `k` steps, spread evenly over the structural ones first. `primary[i]` flags the steps the
-/// algorithm itself calls onsets (Thue-Morse 1s, sieve members, prime cells). Fewer than `k`:
-/// take every primary step. More: pick `k` evenly spaced among them. Ranking by an arbitrary
-/// tie-break leaves the end of the loop empty, which is the defect this replaces.
-/// Allocation-free: fixed stack arrays only.
+/// algorithm calls onsets. Fewer than `k`: take every primary step. More: pick `k` evenly spaced
+/// among them. Allocation-free: fixed stack arrays only.
 pub(super) fn select_spread(primary: &[bool; MAX_STEPS], n: usize, k: usize, hits: &mut [bool; MAX_STEPS]) {
     hits[..n].fill(false);
     let k = k.min(n);
@@ -310,8 +292,7 @@ pub(super) fn select_spread(primary: &[bool; MAX_STEPS], n: usize, k: usize, hit
     if k > m { mark(k - m, false, hits); }
 }
 
-/// Exact onset count for a lane from the shared pulse/density profile. Used by the walk and map
-/// modes whose onsets are the largest steps of one orbit.
+/// Exact onset count for a lane from the shared pulse/density profile.
 #[inline]
 pub(crate) fn lane_wanted(pulses: usize, density: f32, lane: usize, n: usize) -> usize {
     let scaled = pulses.min(n) as f32 * density.clamp(0.0, 1.0) * (0.5 + DENSITY_PROFILE[lane]);
@@ -399,9 +380,8 @@ pub fn generate(p: &GenParams) -> Pattern {
         for tr in 0..TRACKS { out.hit[tr][..steps].fill(false); }
         out.impact[..steps].fill([0; TRACKS]);
     }
-    // Rotation includes probability drops, the mode's own accent data, and auxiliary view data.
-    // Variation also rotates by one or more steps, so closed-form modes can actually regenerate
-    // differently.
+    // Rotation includes probability drops, accents and auxiliary view data. Variation also rotates,
+    // so closed-form modes can regenerate differently.
     let shift = ((q.rotate % steps) + (q.variation as usize % steps)) % steps;
     out.rotation = shift;
     if shift != 0 {
@@ -436,9 +416,8 @@ pub fn generate(p: &GenParams) -> Pattern {
             for row in 0..CA_ROWS { out.ca[row].swap(i, j); }
         }
     }
-    // The stable downbeat/backbeat accent shape is applied *after* rotation, so it stays tied to
-    // the step grid (and therefore the beat) instead of travelling with the rotated pattern;
-    // each mode's own accent data, already rotated above, is multiplied in.
+    // Apply the downbeat/backbeat shape after rotation so it stays tied to the beat grid; the
+    // mode's own accents are already rotated above.
     let mode_accents = out.accent;
     accents(&mut out, &q);
     for tr in 0..TRACKS {
@@ -453,9 +432,8 @@ mod tests {
     use super::*;
     use std::alloc::{GlobalAlloc, Layout, System};
 
-    // Counting allocator: invariant #1 requires `generate()` to run on the audio thread
-    // without allocating, and reading the code cannot prove that. Thread-local so the
-    // parallel test harness cannot leak its own allocations into the count.
+    // Counting allocator for invariant #1. Thread-local so parallel tests cannot leak allocations
+    // into the count.
     std::thread_local! {
         static ALLOCS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     }
@@ -476,8 +454,7 @@ mod tests {
 
     #[test]
     fn generation_never_allocates() {
-        // Everything below runs inside one `try_with` so the counter is read on this thread
-        // only; `ALLOCS.with` outside the closure would register the access itself.
+        // One `try_with` so the counter is read on this thread only.
         ALLOCS.with(|c| {
             c.set(0);
             for kind in Mode::all() {
@@ -539,8 +516,7 @@ mod tests {
 
     #[test]
     fn raised_cosine_hits_track_the_requested_pulse_count() {
-        // Regression: the generator once gated hits behind an unrelated modulo term, collapsing
-        // every onset into one contiguous arc and ignoring `pulses`.
+        // Regression: hits must not be gated by an unrelated modulo term.
         for steps in [1usize, 7, 16, 17, 32, 63, 64] {
             for pulses in [0usize, 1, 2, 3, 5, 8, 16, 32, 64] {
                 for density in [0.0f32, 0.07, 0.25, 0.5, 0.65, 1.0] {
@@ -602,9 +578,7 @@ mod tests {
 
     #[test]
     fn rotation_reorders_every_per_step_view_array() {
-        // The view arrays are the generator's published geometry. If only `hit` follows the
-        // rotation, every panel drawn from `theta`/`u` (Arnold, Hilbert, Ulam, Bernoulli,
-        // Reaction-Diffusion) points at the wrong step after Generate or a variation bump.
+        // The view arrays are the generator's published geometry; they must follow rotation too.
         let n = 17usize;
         for kind in Mode::all() {
             let p = GenParams { kind, density: 0.82, probability: 1.0, steps: n, pulses: 7, rotate: 0, ..GenParams::default() };
@@ -801,8 +775,7 @@ mod tests {
 
     #[test]
     fn oscillator_hits_exactly_the_requested_count_for_every_waveform() {
-        // Regression: ties at the cutoff were all kept, so a square wave lit every high step and
-        // a symmetric sine lit pairs, regardless of `pulses`.
+        // Regression: ties at the cutoff must not defeat the requested pulse count.
         for wave in 0..oscillator::WAVE_COUNT {
             for steps in [1usize, 2, 7, 16, 21, 32, 64] {
                 for pulses in [1usize, 2, 3, 5, 8, 21, 64] {
@@ -822,8 +795,7 @@ mod tests {
 
     #[test]
     fn euclidean_is_exact_evenly_spaced_and_anchored_on_step_zero() {
-        // Regression: the bucket form put the first onset at the end of its bucket, so E(4,16)
-        // played on 3,7,11,15 and a "four on the floor" kick missed the downbeat.
+        // Regression: E(4,16) must include the downbeat, not start at step 3.
         for steps in [1usize, 2, 7, 8, 16, 17, 31, 64] {
             for pulses in 1..=steps.min(24) {
                 let p = GenParams { kind: Mode::Euclidean, steps, pulses, density: 1.0, probability: 1.0, ..GenParams::default() };
@@ -832,8 +804,7 @@ mod tests {
                     let want = ((pulses as f32 * (0.35 + DENSITY_PROFILE[tr]) + 0.5).floor() as usize).min(steps);
                     let pos: Vec<usize> = (0..steps).filter(|&i| pat.hit[tr][i]).collect();
                     assert_eq!(pos.len(), want, "steps={steps} pulses={pulses} lane={tr}");
-                    // Lane 0 keeps the downbeat; the other lanes start on their own phase
-                    // origin so they cannot all land on step 0.
+                    // Lane 0 keeps the downbeat; other lanes start on their own phase origin.
                     if tr == 0 && want > 0 { assert_eq!(pos[0], 0, "not anchored: steps={steps} pulses={pulses} {pos:?}"); }
                     if pos.len() > 1 {
                         let mut gaps: Vec<usize> = pos.windows(2).map(|w| w[1] - w[0]).collect();
@@ -847,8 +818,7 @@ mod tests {
         let pat = generate(&GenParams { kind: Mode::Euclidean, steps: 16, pulses: 16, density: 0.3, probability: 1.0, ..GenParams::default() });
         let kick: Vec<usize> = (0..16).filter(|&i| pat.hit[0][i]).collect();
         assert_eq!(kick, vec![0, 4, 8, 12]);
-        // Regression: every lane used to anchor at step 0, so one step of every pattern (and
-        // every variation, which only rotates) carried all eight drums.
+        // Regression: lanes must not all anchor at step 0.
         let pat = generate(&GenParams { kind: Mode::Euclidean, steps: 16, pulses: 5, density: 0.65, probability: 1.0, ..GenParams::default() });
         let full: Vec<usize> = (0..16).filter(|&i| (0..TRACKS).all(|tr| pat.hit[tr][i])).collect();
         assert!(full.is_empty(), "all lanes fire together at {full:?}");
@@ -856,9 +826,8 @@ mod tests {
 
     #[test]
     fn no_mode_stacks_every_lane_on_most_variations() {
-        // A shared phase anchor (Euclidean) or a shared trigger (Logistic, RaisedCosine) put
-        // all eight lanes on one step in *every* variation: rotation moved the column but never
-        // removed it. An occasional coincidence is fine; a structural one is not.
+        // A shared phase anchor or trigger must not put all eight lanes on one step in every
+        // variation; an occasional coincidence is fine, a structural one is not.
         for kind in Mode::all() {
             for steps in [7usize, 16, 32] {
                 for density in [0.5f32, 0.65] {
@@ -904,8 +873,7 @@ mod tests {
 
     #[test]
     fn crystallographic_cell_is_never_empty_at_positive_density() {
-        // A random unit cell could come out empty and tile silence across the lane; at the
-        // default cell size that silenced the kick on ~40% of seeds.
+        // A random unit cell must not tile silence across the lane.
         for seed in [0.0f32, 0.13, 0.271, 0.5, 0.86, 1.0] {
             for steps in [4usize, 7, 16, 32] {
                 for symmetry in [1usize, 4, 8] {
@@ -930,8 +898,7 @@ mod tests {
         }
     }
 
-    /// AGENTS.md requires this check by name: every mode must still sound at one step and at full
-    /// density. It was missing from the suite, and the logistic map failed it at two steps.
+    /// AGENTS.md requires every mode to sound at one step and at full density.
     #[test]
     fn every_mode_produces_hits_at_one_step_and_at_full_density() {
         for kind in Mode::all() {
@@ -947,7 +914,7 @@ mod tests {
 
     #[test]
     fn eulerian_circuit_seam_does_not_double_the_rest() {
-        // Degree 1 is the plain ring 0,1,..,8,0. Repeating the closed circuit played rest twice.
+        // Degree 1 is the plain ring 0,1,..,8,0; do not repeat the closed circuit.
         let pat = generate(&GenParams { kind: Mode::Eulerian, steps: 64, pulses: 0, density: 1.0, probability: 1.0, ..GenParams::default() });
         // pulses == 0 silences hits but the walk itself is still recorded in `state`.
         for i in 0..63 { assert!(!(pat.state[i] == 0 && pat.state[i + 1] == 0), "double rest at {i}: {:?}", &pat.state[..64]); }
@@ -955,7 +922,7 @@ mod tests {
 
     #[test]
     fn metric_accents_stay_on_the_grid_when_the_pattern_rotates() {
-        // Cellular hits all carry mode accent 1.0, so their final accent is the metric shape alone.
+        // Cellular hits carry mode accent 1.0, so their final accent is the metric shape alone.
         let base = GenParams { kind: Mode::Cellular, steps: 16, pulses: 3, density: 0.9, probability: 1.0, ..GenParams::default() };
         let a = generate(&base);
         let b = generate(&GenParams { rotate: 5, ..base });

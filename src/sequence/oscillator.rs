@@ -1,15 +1,10 @@
 use super::{set_hit, top_k, GenParams, Pattern, TRACKS};
 
-/// Number of waveform shapes the oscillator mode offers. The host enum in `lib.rs` mirrors this
-/// count and order; the test in `lib.rs` pins the two together, and that test is also where the
-/// stable host ids are listed.
+/// Number of waveform shapes; the host enum in `lib.rs` mirrors this count and order.
 pub(crate) const WAVE_COUNT: usize = 8;
 
-/// Waveform value in 0..=1 at a normalized phase. Shared with the panel so the drawn curve is
-/// the curve the generator ranked.
-///
-/// The shape decides *where* the onsets land: the generator keeps the highest-scoring steps, so a
-/// different curve moves the hits to a different part of the cycle.
+/// Waveform value in 0..=1 at a normalized phase, shared with the panel. The generator keeps the
+/// highest-scoring steps, so the shape decides where onsets land.
 pub(crate) fn value(wave: usize, phase: f32) -> f32 {
     let phase = (phase as f64).rem_euclid(1.0) as f32;
     match wave % WAVE_COUNT {

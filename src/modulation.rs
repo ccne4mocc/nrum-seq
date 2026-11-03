@@ -1,15 +1,14 @@
 //! LFO signal model and modulation target metadata.
 //!
-//! Pure, Slint-free and allocation-free. `process()` and the editor preview use the same
-//! functions, so a drawn modulation value cannot drift from the scheduler.
+//! Pure, Slint-free and allocation-free. `process()` and the editor preview share these
+//! functions, so drawn modulation values cannot drift from the scheduler.
 
 use crate::{LfoPolarity, LfoRateMode, OscWave};
 use nice_plug::prelude::Enum;
 
 pub const LFO_COUNT: usize = 4;
 
-/// Highest free-running LFO frequency. The speed field is Hz-only; kHz is deliberately not
-/// offered because the scheduler samples LFOs per event, not at audio rate.
+/// Highest free-running LFO frequency. The scheduler samples LFOs per event, not at audio rate.
 pub const LFO_MAX_HZ: f32 = 10.0;
 
 /// A user-editable numeric parameter that an LFO may modulate.
@@ -142,8 +141,7 @@ impl LfoClock {
     }
 }
 
-/// Everything one LFO needs to evaluate its phase. `Copy` so the audio thread can build it
-/// without allocation.
+/// Everything one LFO needs to evaluate its phase; `Copy` so the audio thread need not allocate.
 #[derive(Clone, Copy, Debug)]
 pub struct LfoSpec {
     pub enabled: bool,

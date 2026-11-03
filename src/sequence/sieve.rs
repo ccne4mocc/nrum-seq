@@ -1,10 +1,6 @@
-//! Xenakis sieve. A step is a sieve member when it belongs to either of two residue classes
-//! and to neither of a third: `M = (m₁,r₁) ∪ (m₂,r₂) \ (m₃,r₃)`.
-//!
-//! `ca_rule` picks the three moduli, `symmetry` and `phase` pick the residues, `pulses` says
-//! how many union terms are active (0 silences, 1 = one class, ≥2 = both) and density decides
-//! how many members survive. Each lane reads the same sieve shifted around the ring, which is
-//! what makes the kit interlock instead of stacking.
+//! Xenakis sieve: `M = (m₁,r₁) ∪ (m₂,r₂) \ (m₃,r₃)`. `ca_rule` picks the moduli, `symmetry`
+//! and `phase` the residues, `pulses` the active union terms and `density` how many members
+//! survive. Each lane reads the same sieve shifted around the ring, so the kit interlocks.
 
 use super::{select_spread, set_hit, GenParams, Pattern, DENSITY_PROFILE, MAX_STEPS, TRACKS};
 
@@ -67,15 +63,13 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
                 members += 1;
             }
         }
-        // A short pattern can miss a sparse sieve entirely. `select_spread` then marks the
-        // non-members evenly, so a one-step pattern still sounds and the lanes still differ.
+        // A short pattern can miss a sparse sieve; `select_spread` marks non-members evenly.
         let candidates = if members > 0 { members } else { n };
         let wanted = (candidates as f32 * d * (0.35 + DENSITY_PROFILE[tr])).round() as usize;
         let wanted = wanted.min(candidates);
         if wanted == 0 { continue; }
 
-        // Spread the kept members evenly instead of ranking them by an arbitrary jitter, which
-        // clustered the surviving onsets at the start of the loop.
+        // Spread kept members evenly instead of ranking by arbitrary jitter.
         select_spread(&primary, n, wanted, &mut out.hit[tr]);
         for i in 0..n {
             if !out.hit[tr][i] { continue; }

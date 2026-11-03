@@ -11,8 +11,7 @@ pub(crate) fn step_min(density: f32) -> f32 {
 }
 
 /// One Levy step length: Pareto `s_min * U^(-1/alpha)`, so `P(S > s) = (s_min/s)^alpha`.
-/// Capped at eight ranges to keep f32 precision. The old `U^(1/tail)` was bounded and bunched
-/// towards the maximum, so the "flight" was steadier than a random walk.
+/// Capped at eight ranges to keep f32 precision.
 pub(crate) fn step_len(u: f32, density: f32) -> f32 {
     let alpha = tail_alpha(density) as f64;
     ((step_min(density) as f64) * (u.max(1e-6) as f64).powf(-1.0 / alpha)).min(8.0) as f32
