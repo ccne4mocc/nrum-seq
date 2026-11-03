@@ -164,6 +164,7 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::LevyFlight => format!("n={n}: Pareto α={:.2}, min step {:.3}, folded walk; largest jumps per lane become onsets", crate::sequence::levy_alpha(d), crate::sequence::levy_step_min(d)),
         Mode::TentMap => format!("n={n}: tent x'={:.3}·min(x,1−x), 32-step transient; highest normalized samples per lane become onsets", crate::sequence::tent_mu(d)),
         Mode::HenonMap => format!("n={n}: Hénon a={:.3}, b=0.3, start near the origin, 64-step transient; largest |Δx| per lane become onsets", crate::sequence::henon_a(d)),
+        Mode::Life => format!("n={n}: 16×8 torus, rule preset {} (ca_rule mod 5), {} warm-up generations; density seeds the grid, a lane row with live cells fires and accent follows population", p.ca_rule % 5, p.pulses.min(64)),
     };
     if fractional {
         format!("{line}; loop length={length:.4} steps (grid cells={n}, no rounding)")

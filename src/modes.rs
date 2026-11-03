@@ -47,6 +47,7 @@ pub enum Mode {
     #[id = "levy_flight"] #[name = "Levy Flight"] LevyFlight,
     #[id = "tent_map"] #[name = "Tent Map"] TentMap,
     #[id = "henon_map"] #[name = "Henon Map"] HenonMap,
+    #[id = "life"] #[name = "Life-like CA"] Life,
 }
 
 /// The mode list as drawn: one grouped order shared by the dropdown and the wheel. Host indices
@@ -69,7 +70,7 @@ pub const GROUPS: &[(&str, &[Mode])] = &[
         Mode::Arnold, Mode::TentMap, Mode::HenonMap,
     ]),
     ("Fractal", &[Mode::Cantor]),
-    ("Cellular", &[Mode::Cellular]),
+    ("Cellular", &[Mode::Cellular, Mode::Life]),
     ("Geometric", &[
         Mode::Eulerian, Mode::Phyllotaxis, Mode::Crystallographic, Mode::Hilbert, Mode::Ulam,
     ]),

@@ -861,11 +861,11 @@ export component AppWindow inherits Window {
         // osc_rate: oscillator, pebble, kuramoto
         if (key == 6) { return mode == 4 || mode == 16 || mode == 18; }
         // ca_rule: cellular, pebble, sieve, vuza
-        if (key == 7) { return mode == 3 || mode == 16 || mode == 17 || mode == 32; }
+        if (key == 7) { return mode == 3 || mode == 16 || mode == 17 || mode == 32 || mode == 39; }
         // probability: stochastic/chaos modes
         if (key == 8) { return mode == 20 || mode == 21 || mode == 22 || mode == 23 || mode == 24 || mode == 25 || mode == 26 || mode == 27 || mode == 28 || mode == 29 || mode == 30 || mode == 31 || mode == 32; }
         // symmetry: crystallographic, sieve, cellular initial state and L-system grammar
-        if (key == 11) { return mode == 3 || mode == 5 || mode == 12 || mode == 17; }
+        if (key == 11) { return mode == 3 || mode == 5 || mode == 12 || mode == 17 || mode == 39; }
         return true;
     }
     pure function pulses-max(mode: int) -> float {
@@ -906,6 +906,7 @@ export component AppWindow inherits Window {
         if (mode == 36) { return "Tail alpha"; }
         if (mode == 37) { return "Slope (mu)"; }
         if (mode == 38) { return "Map (a)"; }
+        if (mode == 39) { return "Warm-up generations"; }
         return "Density";
     }
     pure function phase-label(mode: int) -> string {
@@ -980,11 +981,13 @@ export component AppWindow inherits Window {
         "Brownian walk: eight reflected random walks with Gaussian steps. Density sets the step size, phase sets the start position, and each lane fires on its largest steps; the panel shows lane 0's path and step sizes.",
         "Levy flight: a heavy-tailed walk built from Pareto steps. Density sets the tail index (more density means heavier jumps); each lane fires on its largest jumps and the panel shows the walk and step sizes.",
         "Tent map: x' = mu·min(x,1−x), started on the attractor after a transient. Density sets the slope, phase the initial x, and each lane fires on its highest normalized samples; the panel draws the return map.",
-        "Henon map: the classic two-dimensional attractor, started near the origin with a transient and an escape guard. Density sets a, each lane fires on its largest x-moves, and the panel draws the attractor path."
+        "Henon map: the classic two-dimensional attractor, started near the origin with a transient and an escape guard. Density sets a, each lane fires on its largest x-moves, and the panel draws the attractor path.",
+        "Life-like CA: a 16x8 torus runs one generation per step under Life, HighLife, Seeds, Day & Night or a dense survival rule. Pulses sets warm-up generations, density seeds the grid, and a lane fires when its row has live cells; accent follows population."
     ];
     pure function symmetry-label(mode: int) -> string {
         if (mode == 3) { return "Initial state"; }
         if (mode == 12) { return "Grammar"; }
+        if (mode == 39) { return "Initial shape"; }
         return "Symmetry";
     }
     pure function symmetry-text(mode: int, value: float) -> string {
@@ -993,6 +996,12 @@ export component AppWindow inherits Window {
             if (v == 1) { return "Centre"; }
             if (v == 2) { return "Stripes"; }
             if (v == 3) { return "Solid + gap"; }
+            return "Random";
+        }
+        if (mode == 39) {
+            if (v == 1) { return "Centre"; }
+            if (v == 2) { return "Stripes"; }
+            if (v == 3) { return "Sparse"; }
             return "Random";
         }
         if (mode == 12) {

@@ -13,6 +13,7 @@
   parameters.
 - Lane labels show MIDI note numbers.
 - Eight-lane phyllotaxis rosettes with a per-theme lane palette.
+- Life-like cellular automaton mode (index 39): a 16×8 torus with Life, HighLife, Seeds, Day & Night and a dense survival rule, plus selectable initial shapes.
 - Cellular initial-state policies, L-system grammar-family selection and four Markov transition bias fields.
 - CI workflow for Linux, macOS and Windows, plus a release checklist and host verification matrix.
 

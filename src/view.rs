@@ -1,7 +1,7 @@
 //! Pure GUI geometry. Keep this free of Slint and plug-in types so every view can be tested.
 use crate::sequence::{
-    cellular_row, oscillator_value, oscillator_wave_count, GenParams, Pattern, MAX_STEPS, TRACKS,
-    CA_ROWS,
+    cellular_row, life_cols, life_rows, oscillator_value, oscillator_wave_count, GenParams, Pattern,
+    MAX_STEPS, TRACKS, CA_ROWS,
 };
 use crate::modes::Mode;
 use std::f32::consts::TAU;
@@ -189,6 +189,26 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let r = max_r * ((g as f32 + 1.0) / n as f32).sqrt();
                 let (x, y) = polar(r, crate::sequence::phyllotaxis_primary(g, 0, params) as f32);
                 mv(&mut v.hand, C, C); ln(&mut v.hand, x, y);
+            }
+        }
+        Mode::Life => {
+            let cw = 184.0 / life_cols as f32;
+            let ch = 172.0 / life_rows as f32;
+            // A visible frame keeps the panel readable even when every cell is dead.
+            let x0 = 13.0; let y0 = 18.0;
+            let x1 = x0 + cw * life_cols as f32; let y1 = y0 + ch * life_rows as f32;
+            mv(&mut v.edges, x0, y0); ln(&mut v.edges, x1, y0); ln(&mut v.edges, x1, y1);
+            ln(&mut v.edges, x0, y1); ln(&mut v.edges, x0, y0);
+            for row in 0..life_rows {
+                for col in 0..life_cols {
+                    let on = p.ca[row][col];
+                    v.nodes.push(Node {
+                        x: 13.0 + (col as f32 + 0.5) * cw,
+                        y: 18.0 + (row as f32 + 0.5) * ch,
+                        r: (cw.min(ch) * 0.38).max(1.6),
+                        on, cur: false, label: String::new(), lane: u8::MAX,
+                    });
+                }
             }
         }
         Mode::Cellular => {

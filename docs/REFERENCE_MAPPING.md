@@ -64,8 +64,9 @@ The `Mode` enum in `src/modes.rs`, `Mode::GROUPS` (the one display order used by
 | 36 | Levy Flight | Lane-0 folded walk trace and jump-size stems |
 | 37 | Tent Map | Return map `y = mu·min(x,1−x)` plus orbit dots |
 | 38 | Henon Map | Attractor path from the published `orbit`/`theta` |
+| 39 | Life-like CA | 16×8 torus grid, live cells per lane row |
 
-Indices 8–38 all draw their own panel. There is no shared step-lattice fallback: a mode whose
+Indices 8–39 all draw their own panel. There is no shared step-lattice fallback: a mode whose
 structure is not a grid shows that structure instead. Each panel reads the generator's own
 formula or published state through an exported helper; if a panel's constants cannot be traced
 to a `Pattern` field or a generator helper, the panel is drawing a decoration, not the algorithm.
@@ -136,6 +137,7 @@ the generator's own use of `GenParams` is the behavioural source of truth.
 | Levy Flight | Target onsets, Tail alpha, Seed, Start position |
 | Tent Map | Target onsets, Slope (mu), Seed, Initial x |
 | Henon Map | Target onsets, Map (a), Seed, Start offset |
+| Life-like CA | Warm-up generations, Density, Seed, Rule preset, Initial shape |
 
 Mode-scoped reuse is deliberate: `ca_rule` is the cellular rule, Pebble Box's gravity and the
 Sieve moduli; `symmetry` selects Crystallographic cells and Sieve residues; `osc_rate` is

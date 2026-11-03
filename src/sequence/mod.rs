@@ -40,6 +40,7 @@ mod brownian;
 mod levy_flight;
 mod tent_map;
 mod henon_map;
+mod life;
 
 // Re-exports for `crate::view`, which draws the algorithms' own curves and cutoffs.
 pub(crate) use arnold::coupling as arnold_coupling;
@@ -70,6 +71,7 @@ pub(crate) use lsystem::{
 };
 pub(crate) use pebble::gravity as pebble_gravity;
 pub(crate) use sieve::{classes as sieve_classes, member as sieve_member};
+pub(crate) use life::{HEIGHT as life_rows, WIDTH as life_cols};
 pub(crate) use kuramoto::{
     coupling as kuramoto_coupling, order as kuramoto_order, rate as kuramoto_rate,
 };
@@ -364,6 +366,7 @@ fn run_mode(q: &GenParams) -> Pattern {
         Mode::LevyFlight => levy_flight::generate(q),
         Mode::TentMap => tent_map::generate(q),
         Mode::HenonMap => henon_map::generate(q),
+        Mode::Life => life::generate(q),
     }
 }
 
@@ -436,7 +439,7 @@ fn generate_impl(p: &GenParams, edits: Option<&EditView>) -> Pattern {
             }
         }
     }
-    if q.density <= 0.0 || (q.kind != Mode::Cellular && q.pulses == 0) {
+    if q.density <= 0.0 || (q.kind != Mode::Cellular && q.kind != Mode::Life && q.pulses == 0) {
         for tr in 0..TRACKS { out.hit[tr][..steps].fill(false); }
         out.impact[..steps].fill([0; TRACKS]);
     }
@@ -762,7 +765,7 @@ mod tests {
         for kind in Mode::all() {
             let zero_density = generate(&GenParams { kind, density: 0.0, ..GenParams::default() });
             assert!(zero_density.hit.iter().all(|lane| lane[..zero_density.steps].iter().all(|hit| !hit)), "{kind:?} at zero density");
-            if kind != Mode::Cellular {
+            if kind != Mode::Cellular && kind != Mode::Life {
                 let zero_pulses = generate(&GenParams { kind, pulses: 0, ..GenParams::default() });
                 assert!(zero_pulses.hit.iter().all(|lane| lane[..zero_pulses.steps].iter().all(|hit| !hit)), "{kind:?} at zero pulses");
             }
