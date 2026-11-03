@@ -1,6 +1,9 @@
 # Migration from nih-plug to nice-plug
 
-Target: `AlexCharlton/nice-plug`, pinned to commit `50fed0e` (2026-05-29), `default-features = false, features = ["vst3"]`.
+Target: `ccne4mocc/nice-plug`, pinned to commit `65c87588` (2026-11-03),
+`default-features = false, features = ["vst3"]`. This fork is based on `AlexCharlton/nice-plug`
+`50fed0e` and adds bounded state loading, parameter rescans after state load, and tolerant VST3
+activation before `setupProcessing()` (for Carla discovery).
 Migrated from nih-plug `de42101`. Rust 1.88+ (nice-plug itself needs 1.87, edition 2024; nih-plug needed 1.80).
 
 ## Why a git pin and not crates.io
@@ -22,7 +25,7 @@ replaced the editor with a `baseview 0.4` `SpawnedEditor`/`HostCallbacks` model,
 - Crate layout: core traits/types moved into `nice-plug-core`; `nice-plug` holds the wrappers and macros.
 - Minimum Rust 1.80 -> 1.87; the framework uses edition 2024 (this project stays on 2021).
 - VST3 wrapper rewritten on the `vst3` crate (MIT OR Apache-2.0) instead of `vst3-sys` (GPLv3). nih-plug's README says VST3 builds had to comply with GPLv3 because of those bindings; nice-plug's README does not carry that statement. This project is GPL-3.0-or-later regardless. Not legal advice.
-- Because the VST3 wrapper is new code, host behaviour can differ even though the plug-in API is the same. Only CLAP has been exercised here.
+- Because the VST3 wrapper is new code, host behaviour can differ even though the plug-in API is the same. CLAP and VST3 both pass Carla discovery; only CLAP is exercised by `clap-validator`.
 - `assert_no_alloc` -> `nice-assert-no-alloc` (feature name `assert_process_allocs` is unchanged).
 - `nih_plug_vizia` no longer exists (this project uses Slint). `nice-plug-egui` and `nice-plug-iced` remain.
 - baseview comes from crates.io; a `nice-plug` 0.4.x editor API is a separate, incompatible line (see above).
