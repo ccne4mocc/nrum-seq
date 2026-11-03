@@ -16,7 +16,9 @@ Run this against a clean checkout of the release commit. Record host/API/OS resu
 
 ## 2. Automated validation
 
-- [ ] `clap-validator validate target/bundled/nrum-seq.clap` passes, if available.
+- [ ] `clap-validator validate target/bundled/nrum-seq.clap` passes, if available. The three
+      `state-reproducibility-*` failures and `state-invalid-random` crash currently reproduce on
+      the pre-edit baseline; resolve or document them before claiming state compatibility.
 - [ ] `pluginval` passes on the VST3, if available.
 - [ ] `carla-discovery-native CLAP target/bundled/nrum-seq.clap` reports the expected name,
       label, category and extensions.

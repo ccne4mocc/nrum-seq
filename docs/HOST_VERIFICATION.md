@@ -17,7 +17,7 @@ combination. Everything else is **untested**, even when the plug-in bundles and 
 |---|---|---|
 | Carla CLAP discovery | **pass** | `carla-discovery-native CLAP target/bundled/nrum-seq.clap` reports name `nrum seq`, label `com.nrumseq.nrumseq`, category `utility`, and the expected CLAP extensions (`clap.gui`, `clap.params`, `clap.latency`, …). |
 | Carla VST3 discovery | **fail** | `carla-discovery-native VST3 target/bundled/nrum-seq.vst3` hits `Carla assertion failure: "res == V3_OK"` in `carla-discovery.cpp`. This may be Carla's scanner rather than the plug-in; it is not evidence that the VST3 is broken. |
-| CLAP validator | **not run** | `clap-validator` is not installed on the test machine. Run it before release. |
+| CLAP validator | **partial** | `clap-validator 0.4.1`: 29 passed, 11 skipped, 3 `state-reproducibility-*` failed, and `state-invalid-random` crashed with an absurd allocation from random JSON. The same failures reproduce on commit `8d7257c` without the edit-overlay changes, so they are framework/state-handling issues, not regressions from this work. |
 | VST3 validator | **not run** | `pluginval` is not installed on the test machine. |
 
 ## Manual host matrix
@@ -57,3 +57,10 @@ clap-validator validate target/bundled/nrum-seq.clap
 Use the unguarded release build for validation. The `assert_process_allocs` feature aborts when
 nice-plug's own wrapper logs malformed host events from the audio thread; that is framework
 behaviour, not this plug-in's code.
+
+## State compatibility warning
+
+The CLAP state tests fail on the pre-edit baseline as well. Until the framework state path is
+investigated, do not claim CLAP project/preset state compatibility. Verify save/load manually in
+REAPER and Bitwig, and treat `state-invalid-random` as an upstream hardening issue. VST3 state
+loading has not been isolated from this.

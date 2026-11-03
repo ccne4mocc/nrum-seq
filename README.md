@@ -83,6 +83,9 @@ The Windows bundle workflow is manual-only (`workflow_dispatch`) and GitHub-spec
 ## Limitations
 
 - Not release-certified; needs thorough host smoke-testing (CLAP and VST3 hosts).
+- `clap-validator` currently reports three `state-reproducibility-*` failures and a
+  `state-invalid-random` crash on the unchanged baseline; CLAP project/preset state compatibility
+  is therefore unverified.
 - Windows builds are cross-compilable and load correctly under Wine/REAPER (see Build below), but have never been run on a real Windows system; REAPER bridge mode for the VST3 editor is known to fail there.
 - macOS build is not configured.
 - Fixed UI size 860×740; no scaling preference beyond what Slint offers by default.
