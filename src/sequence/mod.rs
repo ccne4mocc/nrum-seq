@@ -75,6 +75,7 @@ pub(crate) use kuramoto::{
 };
 
 // The mode enum is the shared host parameter type: one list, one order, no mapping table.
+use crate::edits::{EditView, HIT_OFF, HIT_ON};
 use crate::modes::Mode;
 
 pub const TRACKS: usize = 8;
@@ -123,6 +124,8 @@ pub struct GenParams {
     pub invert: bool,
     /// Reverse the step order after generation.
     pub mirror: bool,
+    /// Revision of the manual edit overlay in this snapshot; part of the cache key.
+    pub edit_rev: u32,
 }
 
 impl Default for GenParams {
@@ -131,6 +134,7 @@ impl Default for GenParams {
             kind: Mode::Euclidean, steps: 16, length: 16.0, pulses: 5, rotate: 0,
             density: 0.65, probability: 1.0, velocity: 1.0, seed: 0.271, phase: 0.0, osc_rate: 2.0,
             osc_wave: 0, ca_rule: 30, symmetry: 4, variation: 0, invert: false, mirror: false,
+            edit_rev: 0,
         }
     }
 }
@@ -357,7 +361,23 @@ fn run_mode(q: &GenParams) -> Pattern {
 }
 
 
+/// Plain generation without manual edits. Kept for tests and callers that do not carry an
+/// overlay; production paths use [`generate_with`].
+#[allow(dead_code)]
 pub fn generate(p: &GenParams) -> Pattern {
+    generate_impl(p, None)
+}
+
+
+/// Generate with a manual edit overlay. The overlay is applied in display space, after rotation
+/// and mirror, so an edit stays on the step the user clicked. Probability overrides are applied
+/// at the same point as the global probability, which lets a higher override restore a hit the
+/// global value would have dropped.
+pub fn generate_with(p: &GenParams, edits: &EditView) -> Pattern {
+    generate_impl(p, Some(edits))
+}
+
+fn generate_impl(p: &GenParams, edits: Option<&EditView>) -> Pattern {
     let steps = p.steps.clamp(1, MAX_STEPS);
     let mut q = *p;
     q.steps = steps;
@@ -367,12 +387,24 @@ pub fn generate(p: &GenParams) -> Pattern {
     q.osc_wave %= oscillator::WAVE_COUNT;
     let mut out = run_mode(&q);
     out.steps = steps;
+    // Rotation includes probability drops, accents and auxiliary view data. Variation also rotates,
+    // so closed-form modes can regenerate differently. Computed before probability so a display
+    // space probability override can be mapped back to the generator step.
+    let shift = ((q.rotate % steps) + (q.variation as usize % steps)) % steps;
+    let display_slot = |g: usize| {
+        let rotated = (g + shift) % steps;
+        if q.mirror { (2 * steps - 1 - rotated) % steps } else { rotated }
+    };
     // Probability is applied after the algorithm so it behaves consistently across modes.
     for tr in 0..TRACKS {
         for i in 0..steps {
             if out.hit[tr][i] {
+                let probability = edits
+                    .and_then(|e| e.probability_at(tr, display_slot(i)))
+                    .unwrap_or(q.probability)
+                    .clamp(0.0, 1.0);
                 let mut rng = Rng::new(q.seed, q.variation, 0xBABA_0000 + (tr * MAX_STEPS + i) as u64);
-                if rng.unit() >= q.probability.clamp(0.0, 1.0) { out.hit[tr][i] = false; out.impact[i][tr] = 0; }
+                if rng.unit() >= probability { out.hit[tr][i] = false; out.impact[i][tr] = 0; }
             }
         }
     }
@@ -380,9 +412,6 @@ pub fn generate(p: &GenParams) -> Pattern {
         for tr in 0..TRACKS { out.hit[tr][..steps].fill(false); }
         out.impact[..steps].fill([0; TRACKS]);
     }
-    // Rotation includes probability drops, accents and auxiliary view data. Variation also rotates,
-    // so closed-form modes can regenerate differently.
-    let shift = ((q.rotate % steps) + (q.variation as usize % steps)) % steps;
     out.rotation = shift;
     if shift != 0 {
         let old_hit = out.hit; let old_acc = out.accent; let old_state = out.state;
@@ -422,6 +451,23 @@ pub fn generate(p: &GenParams) -> Pattern {
     accents(&mut out, &q);
     for tr in 0..TRACKS {
         for i in 0..steps { out.accent[tr][i] = (out.accent[tr][i] * mode_accents[tr][i]).clamp(0.05, 1.0); }
+    }
+    // Manual edits are display-space and win over the algorithm and the metric accents.
+    if let Some(edits) = edits {
+        for tr in 0..TRACKS {
+            for i in 0..steps {
+                let hit = match edits.hit[tr][i] {
+                    HIT_ON => true,
+                    HIT_OFF => false,
+                    _ => out.hit[tr][i],
+                };
+                out.hit[tr][i] = hit;
+                if let Some(accent) = edits.accent_at(tr, i) {
+                    out.accent[tr][i] = if hit { accent } else { 0.0 };
+                }
+                if !hit { out.impact[i][tr] = 0; }
+            }
+        }
     }
     out
 }
@@ -1095,6 +1141,60 @@ mod tests {
             let sparse = generate(&GenParams { kind: Mode::Vuza, steps: 32, ca_rule: rule, density: 0.01, probability: 1.0, ..GenParams::default() });
             assert!(sparse.hit.iter().any(|lane| lane[..32].iter().any(|hit| *hit)), "modulus {modulus} went silent");
         }
+    }
+
+    #[test]
+    fn an_empty_edit_overlay_is_identical_to_the_plain_generator() {
+        for kind in Mode::all() {
+            for rotate in [0usize, 3] {
+                for mirror in [false, true] {
+                    let p = GenParams { kind, steps: 17, pulses: 7, density: 0.82, probability: 0.67, rotate, mirror, ..GenParams::default() };
+                    let plain = generate(&p);
+                    let edited = generate_with(&p, &crate::edits::EditView::default());
+                    assert_eq!(plain.hit, edited.hit, "{kind:?} rotate={rotate} mirror={mirror}");
+                    assert_eq!(plain.accent, edited.accent, "{kind:?} rotate={rotate} mirror={mirror}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hit_overrides_are_applied_in_display_space() {
+        let p = GenParams { kind: Mode::Euclidean, steps: 16, pulses: 3, density: 1.0, probability: 1.0, rotate: 5, ..GenParams::default() };
+        let plain = generate(&p);
+        let mut edits = crate::edits::EditView::default();
+        // Force display step 3 on every lane and display step 0 off on every lane.
+        for tr in 0..TRACKS {
+            edits.hit[tr][3] = crate::edits::HIT_ON;
+            edits.hit[tr][0] = crate::edits::HIT_OFF;
+        }
+        let edited = generate_with(&p, &edits);
+        for tr in 0..TRACKS {
+            assert!(edited.hit[tr][3], "lane {tr}: forced hit at display step 3 was lost");
+            assert!(!edited.hit[tr][0], "lane {tr}: forced rest at display step 0 was lost");
+        }
+        assert_ne!(plain.hit, edited.hit, "the overlay did not change anything");
+    }
+
+    #[test]
+    fn a_probability_override_can_restore_a_hit_the_global_value_drops() {
+        let p = GenParams { kind: Mode::Oscillator, steps: 16, pulses: 16, density: 1.0, probability: 0.0, ..GenParams::default() };
+        let mut edits = crate::edits::EditView::default();
+        edits.probability[0][0] = 254; // 1.0
+        let edited = generate_with(&p, &edits);
+        assert!(edited.hit[0][0], "the override did not preserve the first hit");
+        assert!(!edited.hit[0][1], "a cell without an override ignored the global probability");
+        assert!(!edited.hit[0][5], "a cell without an override ignored the global probability");
+    }
+
+    #[test]
+    fn accent_overrides_replace_the_generated_accent() {
+        let p = GenParams { kind: Mode::Oscillator, steps: 16, pulses: 16, density: 1.0, probability: 1.0, ..GenParams::default() };
+        let mut edits = crate::edits::EditView::default();
+        edits.accent[0][4] = 51; // 0.2
+        let edited = generate_with(&p, &edits);
+        assert!(edited.hit[0][4]);
+        assert!((edited.accent[0][4] - 0.2).abs() < 1e-3, "accent was {}", edited.accent[0][4]);
     }
 
     #[test]

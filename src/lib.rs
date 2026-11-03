@@ -1,6 +1,7 @@
 //! nrum seq: algorithmic multichannel percussion pattern generation, emitted as MIDI.
 //! The plug-in intentionally has no audio renderer: route it to a drum sampler / rack.
 mod editor;
+mod edits;
 mod globals;
 mod help;
 mod keys;
@@ -13,10 +14,11 @@ mod view;
 pub use modes::Mode;
 pub use modulation::ModTarget;
 
+use edits::EditView;
 use modulation::{fold, target_bit, target_in_mask, LfoClock, LfoSpec, LFO_COUNT, LFO_MAX_HZ};
 use nice_plug::prelude::*;
 use sequence::{
-    generate, GenParams, Pattern, DEFAULT_MAX_STEPS, MAX_STEPS, MIN_MAX_STEPS, TRACKS,
+    generate_with, GenParams, Pattern, DEFAULT_MAX_STEPS, MAX_STEPS, MIN_MAX_STEPS, TRACKS,
 };
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
@@ -163,6 +165,10 @@ pub struct DrumParams {
     /// Persisted generation nonce. Generate switches it indirectly; pattern snapshots include it.
     #[persist = "variation"]
     pub variation: AtomicU32,
+    /// Per-step manual edits, persisted as sparse cells and mirrored in atomics for the audio
+    /// thread. Its revision is part of the generation snapshot.
+    #[persist = "edit_overlay"]
+    pub edit_overlay: Arc<edits::EditStore>,
     #[id = "mode"] pub mode: EnumParam<Mode>,
     /// Pattern length in steps; fractional values wrap between grid cells.
     #[id = "steps"] pub steps: FloatParam,
@@ -307,6 +313,7 @@ impl Default for DrumParams {
     fn default() -> Self {
         Self {
             variation: AtomicU32::new(0),
+            edit_overlay: Arc::new(edits::EditStore::default()),
             mode: EnumParam::new("Generation Mode", Mode::Euclidean),
             steps: FloatParam::new("Steps", 16.0, FloatRange::Linear { min: 1.0, max: MAX_STEPS as f32 }),
             max_steps: IntParam::new(
@@ -452,6 +459,7 @@ impl DrumParams {
             variation: self.variation.load(Relaxed),
             invert: self.invert.value(),
             mirror: self.mirror.value(),
+            edit_rev: self.edit_overlay.revision(),
         }
     }
 
@@ -779,6 +787,9 @@ pub struct NrumSeq {
     /// Unmodulated snapshot used to detect manual parameter edits.
     last_base_key: Option<GenParams>,
     pattern: Pattern,
+    /// Plain mirror of the manual edit store, refreshed when its revision changes.
+    edit_view: EditView,
+    last_edit_rev: u32,
     /// Loop length in steps, from the same snapshot as `pattern`.
     loop_length: f64,
     last_generate: Option<bool>,
@@ -800,7 +811,8 @@ impl Default for NrumSeq {
     fn default() -> Self {
         Self {
             params: Arc::new(DrumParams::default()), shared: Arc::new(Shared::default()),
-            last_key: None, last_base_key: None, pattern: Pattern::default(), loop_length: 16.0, last_generate: None,
+            last_key: None, last_base_key: None, pattern: Pattern::default(),
+            edit_view: EditView::default(), last_edit_rev: 0, loop_length: 16.0, last_generate: None,
             active: [None; TRACKS], expected_beat: None, next_step: None, pending_reset: false, free_beat: 0.0,
             last_regen_cycle: None, last_randomize_cycle: None, last_mod_cycle: None, sample_rate: 44100.0,
         }
@@ -867,6 +879,8 @@ impl Plugin for NrumSeq {
         self.last_mod_cycle = None;
         self.last_key = None;
         self.last_base_key = None;
+        self.edit_view = EditView::default();
+        self.last_edit_rev = 0;
         self.loop_length = 16.0;
         self.last_generate = None;
         self.shared.current_step.store(-1, Relaxed);
@@ -875,6 +889,11 @@ impl Plugin for NrumSeq {
 
     fn process(&mut self, buffer: &mut Buffer, _aux: &mut AuxiliaryBuffers, context: &mut impl ProcessContext<Self>) -> ProcessStatus {
         let p = self.params.clone();
+        let edit_rev = p.edit_overlay.revision();
+        if edit_rev != self.last_edit_rev {
+            p.edit_overlay.fill(&mut self.edit_view);
+            self.last_edit_rev = edit_rev;
+        }
         if self.pending_reset {
             self.pending_reset = false;
             self.stop_all(context);
@@ -920,7 +939,7 @@ impl Plugin for NrumSeq {
         let base_key = p.gen_params();
         if self.last_base_key != Some(base_key) {
             let initial_key = p.gen_params_at(clock_start);
-            self.pattern = generate(&initial_key);
+            self.pattern = generate_with(&initial_key, &self.edit_view);
             self.loop_length = initial_key.length as f64;
             self.last_key = Some(initial_key);
             self.last_base_key = Some(base_key);
@@ -999,7 +1018,7 @@ impl Plugin for NrumSeq {
                         self.shared.regen_pulse.store(true, Relaxed);
                     }
                     let next_key = p.gen_params_at(nominal_clock);
-                    self.pattern = generate(&next_key);
+                    self.pattern = generate_with(&next_key, &self.edit_view);
                     self.loop_length = next_key.length as f64;
                     self.last_key = Some(next_key);
                     // Regenerate-after-N bumps `variation`; refresh the base snapshot to avoid a false manual change.

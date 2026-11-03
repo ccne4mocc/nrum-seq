@@ -3,7 +3,8 @@ use crate::globals;
 use crate::keys;
 use crate::midi_export;
 use crate::modulation::{format_target_value, target_in_mask, LfoClock, LFO_COUNT, LFO_MAX_HZ};
-use crate::sequence::{generate, GenParams, Pattern, Rng, MAX_STEPS, MIN_MAX_STEPS, TRACKS};
+use crate::edits::EditView;
+use crate::sequence::{generate_with, GenParams, Pattern, Rng, MAX_STEPS, MIN_MAX_STEPS, TRACKS};
 use crate::view::{self, View};
 use crate::{
     cell_count_for, scope, DrumParams, LfoPolarity, LfoRateMode, ModTarget, Mode, OscWave, Rate,
@@ -432,7 +433,9 @@ fn write_midi_file(p: &DrumParams, bpm: f64, folder: &str) -> Result<PathBuf, St
         .map_err(|e| format!("create {}: {e}", folder.display()))?;
 
     let gen = p.gen_params();
-    let pattern = generate(&gen);
+    let mut edits = EditView::default();
+    p.edit_overlay.fill(&mut edits);
+    let pattern = generate_with(&gen, &edits);
     let lanes = std::array::from_fn(|tr| midi_export::Lane {
         enabled: p.track_enabled(tr),
         note: p.track_note(tr),
@@ -949,7 +952,9 @@ impl Editor for SlintEditor {
                 poisoned.into_inner()
             });
             if c.gen_key != Some(gen_key) {
-                c.pattern = generate(&gen_key);
+                let mut edits = EditView::default();
+                p.edit_overlay.fill(&mut edits);
+                c.pattern = generate_with(&gen_key, &edits);
                 ui.set_mode_math(SharedString::from(crate::help::math(&gen_key)));
                 if p.logging.value() {
                     log_line(&format!(
