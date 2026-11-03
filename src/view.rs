@@ -13,7 +13,7 @@ const P: f32 = SIZE;
 fn x_of(i: usize, n: usize) -> f32 { 8.0 + i as f32 / n.max(1) as f32 * (P - 16.0) }
 
 #[derive(Clone, Debug, Default)]
-pub struct Node { pub x: f32, pub y: f32, pub r: f32, pub on: bool, pub cur: bool, pub label: String }
+pub struct Node { pub x: f32, pub y: f32, pub r: f32, pub on: bool, pub cur: bool, pub label: String, pub lane: u8 }
 #[derive(Clone, Debug, Default)]
 pub struct View {
     pub nodes: Vec<Node>,
@@ -87,7 +87,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 for i in 0..n {
                     let (x, y) = polar(radius, i as f32 / n as f32);
                     let on = p.hit[tr][i];
-                    v.nodes.push(Node { x, y, r: if on { 3.6 } else { 1.8 }, on, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x, y, r: if on { 3.6 } else { 1.8 }, on, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 }
             }
             if let Some(i) = play {
@@ -114,7 +114,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             for i in 0..vertices {
                 let (x, y) = pos(i);
                 let state_cur = play.map(|step| p.state[step] as usize == i).unwrap_or(false);
-                v.nodes.push(Node { x, y, r: if i == 0 { 9.0 } else { 11.0 }, on: i != 0, cur: state_cur, label: labels[i].into() });
+                v.nodes.push(Node { x, y, r: if i == 0 { 9.0 } else { 11.0 }, on: i != 0, cur: state_cur, label: labels[i].into(), lane: u8::MAX });
             }
             if let Some(i) = play {
                 let state = p.state[i] as usize;
@@ -139,33 +139,29 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 arc(&mut v.lines, (sec_r - 2.0 - tr as f32 * 1.2).max(18.0), 0.0, threshold * 0.18);
             }
 
+            // Eight rosettes, one per lane. Each lane uses its own golden-angle phase, so the
+            // rosettes are visibly distinct instead of eight dots sharing one aggregate angle.
             let stride = n.div_ceil(128);
             for g0 in (0..n).step_by(stride) {
                 let g1 = (g0 + stride).min(n);
-                let mut lanes = 0usize;
-                for g in g0..g1 {
-                    let slot = slot_of(g);
-                    for tr in 0..TRACKS {
-                        if p.hit[tr][slot]
-                            && crate::sequence::phyllotaxis_rules(g, tr, params) & 1 != 0
-                        {
-                            lanes += 1;
-                        }
-                    }
-                }
                 let mid = g0 + (g1 - g0) / 2;
                 let r = max_r * ((mid as f32 + 1.0) / n as f32).sqrt();
-                let (x, y) = polar(r, crate::sequence::phyllotaxis_primary(mid, 0, params) as f32);
                 let cur = (g0..g1).any(|g| play == Some(slot_of(g)));
-                let on = lanes > 0;
-                v.nodes.push(Node {
-                    x, y,
-                    r: if on { 3.0 + lanes.min(TRACKS) as f32 * 0.35 } else { 1.1 },
-                    on, cur, label: String::new(),
-                });
+                for tr in 0..TRACKS {
+                    let on = (g0..g1).any(|g| {
+                        p.hit[tr][slot_of(g)]
+                            && crate::sequence::phyllotaxis_rules(g, tr, params) & 1 != 0
+                    });
+                    let (x, y) = polar(r, crate::sequence::phyllotaxis_primary(mid, tr, params) as f32);
+                    v.nodes.push(Node {
+                        x, y,
+                        r: if on { 2.8 } else { 1.0 },
+                        on, cur, label: String::new(), lane: tr as u8,
+                    });
+                }
 
                 // The secondary rule is sparse by design, so draw only the groups where it
-                // fired. That keeps the inner band readable and its length bounded too.
+                // fired. It stays a single inner aggregate band.
                 let mut secondary = 0usize;
                 for g in g0..g1 {
                     let slot = slot_of(g);
@@ -183,7 +179,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     v.nodes.push(Node {
                         x: x2, y: y2,
                         r: 2.4 + secondary.min(TRACKS) as f32 * 0.2,
-                        on: true, cur: false, label: String::new(),
+                        on: true, cur: false, label: String::new(), lane: u8::MAX,
                     });
                 }
             }
@@ -210,7 +206,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                         r: (cw.min(ch) * 0.40).max(1.1),
                         on,
                         cur,
-                        label: String::new(),
+                        label: String::new(), lane: u8::MAX,
                     });
                 }
             }
@@ -234,7 +230,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             let threshold_y = y_at(cutoff);
             mv(&mut v.edges, 12.0, threshold_y); ln(&mut v.edges, 198.0, threshold_y);
             for i in 0..n {
-                v.nodes.push(Node { x: x_at(i), y: y_at(p.orbit[i]), r: 3.0, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
+                v.nodes.push(Node { x: x_at(i), y: y_at(p.orbit[i]), r: 3.0, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new(), lane: u8::MAX });
             }
         }
         Mode::Crystallographic => {
@@ -245,7 +241,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     let on = p.hit[tr][i];
                     let x = 13.0 + (i as f32 + 0.5) * cw;
                     let y = 21.0 + (tr as f32 + 0.5) * ch;
-                    v.nodes.push(Node { x, y, r: if on { 4.1 } else { 2.0 }, on, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x, y, r: if on { 4.1 } else { 2.0 }, on, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 }
             }
             for i in 0..=n {
@@ -281,7 +277,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             for i in 0..n {
                 let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
                 let value = crate::sequence::raised_cosine_envelope(i, n, hits, phase);
-                v.nodes.push(Node { x, y: 180.0 - value * 148.0, r: 3.0, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new() });
+                v.nodes.push(Node { x, y: 180.0 - value * 148.0, r: 3.0, on: aggregate_hit(p, i), cur: play == Some(i), label: String::new(), lane: u8::MAX });
             }
             if let Some(i) = play { let x = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0; mv(&mut v.hand, x, 18.0); ln(&mut v.hand, x, 194.0); }
         }
@@ -304,7 +300,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 for i in 0..n {
                     let on = p.hit[tr][i];
                     let x = 13.0 + (i as f32 + 0.5) * cw;
-                    v.nodes.push(Node { x, y, r: if on { 4.3 } else { 1.8 }, on, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x, y, r: if on { 4.3 } else { 1.8 }, on, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 }
             }
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) * cw; mv(&mut v.hand, x, 16.0); ln(&mut v.hand, x, 196.0); }
@@ -331,7 +327,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                         r: 3.2 + 1.8 * p.accent[tr][i],
                         on: true,
                         cur: play == Some(i),
-                        label: String::new(),
+                        label: String::new(), lane: u8::MAX,
                     });
                 }
             }
@@ -355,7 +351,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     if i == 0 { mv(&mut v.lines, x, y); } else { ln(&mut v.lines, x, y); }
                     if p.hit[tr][i] {
                         mv(&mut v.edges, x, baseline); ln(&mut v.edges, x, y);
-                        v.nodes.push(Node { x, y: baseline, r: 2.6, on: true, cur: play == Some(i), label: String::new() });
+                        v.nodes.push(Node { x, y: baseline, r: 2.6, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                     }
                 }
             }
@@ -370,7 +366,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             for i in 0..n {
                 let x = 13.0 + (i as f32 + 0.5) * cw;
                 let a = p.lsym[i] == 0;
-                v.nodes.push(Node { x, y: if a { 12.0 } else { 21.0 }, r: if a { 2.2 } else { 1.5 }, on: a, cur: false, label: String::new() });
+                v.nodes.push(Node { x, y: if a { 12.0 } else { 21.0 }, r: if a { 2.2 } else { 1.5 }, on: a, cur: false, label: String::new(), lane: u8::MAX });
             }
             for tr in 0..TRACKS {
                 let baseline = 34.0 + (tr as f32 + 1.0) * ch;
@@ -384,7 +380,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     let top = baseline - chance * (ch - 4.0);
                     mv(&mut v.lines, x, baseline); ln(&mut v.lines, x, top);
                     if p.hit[tr][i] {
-                        v.nodes.push(Node { x, y: top, r: 3.4, on: true, cur: play == Some(i), label: String::new() });
+                        v.nodes.push(Node { x, y: top, r: 3.4, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                     }
                 }
             }
@@ -410,7 +406,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                         r: if first { 6.4 } else { 3.4 },
                         on: true,
                         cur: play == Some(i),
-                        label: if first { labels[tr].into() } else { String::new() },
+                        label: if first { labels[tr].into() } else { String::new() }, lane: u8::MAX,
                     });
                 }
                 if let Some((x, y)) = first_point { ln(&mut v.lines, x, y); }
@@ -431,7 +427,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     if !p.hit[tr][i] { continue; }
                     let (x, y) = polar(radius, i as f32 / n as f32);
                     let accent = p.accent[tr][i];
-                    v.nodes.push(Node { x, y, r: 2.6 + accent * 2.4, on: true, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x, y, r: 2.6 + accent * 2.4, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 }
             }
             if let Some(i) = play { let (x, y) = polar(24.0 + 7.0 * 9.0, i as f32 / n as f32); mv(&mut v.hand, C, C); ln(&mut v.hand, x, y); }
@@ -448,7 +444,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0;
                     let y = 176.0 - value * 140.0;
                     mv(&mut v.lines, x, 176.0); ln(&mut v.lines, x, y);
-                    v.nodes.push(Node { x, y: 176.0, r: if p.hit[tr][i] { 4.2 } else { 2.4 }, on: p.hit[tr][i], cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x, y: 176.0, r: if p.hit[tr][i] { 4.2 } else { 2.4 }, on: p.hit[tr][i], cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 }
             }
             if let Some(i) = play { let x = 13.0 + (i as f32 + 0.5) / n as f32 * 184.0; mv(&mut v.hand, x, 20.0); ln(&mut v.hand, x, 192.0); }
@@ -474,7 +470,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let x = bx + xv * w;
                 let y = by - (r * xv as f64 * (1.0 - xv as f64)) as f32 * hgt;
                 let hit = aggregate_hit(p, i);
-                v.nodes.push(Node { x, y, r: if hit { 4.8 } else { 2.4 }, on: true, cur: play == Some(i), label: String::new() });
+                v.nodes.push(Node { x, y, r: if hit { 4.8 } else { 2.4 }, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
             }
             for i in 0..n {
                 let ox = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
@@ -512,7 +508,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                         _ => {}
                     }
                 }
-                v.nodes.push(Node { x, y, r: if hit { 6.2 } else { 4.6 }, on: true, cur: hit, label: String::new() });
+                v.nodes.push(Node { x, y, r: if hit { 6.2 } else { 4.6 }, on: true, cur: hit, label: String::new(), lane: u8::MAX });
             }
             // Gravity is the mode-scoped `ca_rule` knob; the arrow length shows its strength and
             // the direction follows the tilt.
@@ -543,7 +539,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                         r: if selected { 4.2 } else { 2.0 },
                         on: selected && row < 2,
                         cur: selected && row == 2,
-                        label: String::new(),
+                        label: String::new(), lane: u8::MAX,
                     });
                 }
             }
@@ -561,7 +557,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     r: if hit { 4.4 } else if member { 2.6 } else { 1.4 },
                     on: member,
                     cur: play == Some(i),
-                    label: String::new(),
+                    label: String::new(), lane: u8::MAX,
                 });
             }
             if let Some(i) = play {
@@ -595,7 +591,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let (x, y) = polar(radius, phase);
                 let hit = p.hit[tr][frame];
                 mv(&mut v.lines, C, C); ln(&mut v.lines, x, y);
-                v.nodes.push(Node { x, y, r: if hit { 5.2 } else { 4.0 }, on: true, cur: hit, label: String::new() });
+                v.nodes.push(Node { x, y, r: if hit { 5.2 } else { 4.0 }, on: true, cur: hit, label: String::new(), lane: u8::MAX });
             }
             // The order parameter: the bank's mean phase. Long when the lanes lock, short when
             // they drift, so the picture shows synchrony without a second computation.
@@ -625,11 +621,11 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 if let Some((lx, ly)) = prev { mv(&mut v.lines, lx, ly); ln(&mut v.lines, px, py); }
                 prev = Some((px, py));
                 if p.hit[0][i] {
-                    v.nodes.push(Node { x: px, y: py, r: 2.6, on: true, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x: px, y: py, r: 2.6, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 }
             }
             if let Some((px, py)) = prev {
-                v.nodes.push(Node { x: px, y: py, r: 5.0, on: true, cur: true, label: String::new() });
+                v.nodes.push(Node { x: px, y: py, r: 5.0, on: true, cur: true, label: String::new(), lane: u8::MAX });
             }
         }
         Mode::Arnold => {
@@ -644,7 +640,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let (x, y) = polar(radius, angle);
                 if let Some(q) = prev { mv(&mut v.lines, q.0, q.1); ln(&mut v.lines, x, y); }
                 prev = Some((x, y));
-                v.nodes.push(Node { x, y, r: if p.hit[0][i] { 4.5 } else { 2.0 }, on: p.hit[0][i], cur: play == Some(i), label: String::new() });
+                v.nodes.push(Node { x, y, r: if p.hit[0][i] { 4.5 } else { 2.0 }, on: p.hit[0][i], cur: play == Some(i), label: String::new(), lane: u8::MAX });
             }
             if let Some(i) = play {
                 let radius = 30.0 + 66.0 * (i as f32 + 1.0) / n as f32;
@@ -679,7 +675,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 if lanes > 0 {
                     v.nodes.push(Node {
                         x, y, r: 2.4 + lanes.min(TRACKS) as f32 * 0.3,
-                        on: true, cur: play == Some(i), label: String::new(),
+                        on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX,
                     });
                 }
             }
@@ -703,7 +699,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     v.nodes.push(Node {
                         x: q.0, y: q.1,
                         r: 2.6 + lanes.min(TRACKS) as f32 * 0.35,
-                        on: true, cur: play == Some(i), label: String::new(),
+                        on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX,
                     });
                 }
             }
@@ -718,7 +714,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             for i in 0..n {
                 let x = 13.0 + (i as f32 + 0.5) * cw;
                 let one = p.lsym[i] == 1;
-                v.nodes.push(Node { x, y: if one { 12.0 } else { 22.0 }, r: if one { 2.4 } else { 1.6 }, on: one, cur: false, label: String::new() });
+                v.nodes.push(Node { x, y: if one { 12.0 } else { 22.0 }, r: if one { 2.4 } else { 1.6 }, on: one, cur: false, label: String::new(), lane: u8::MAX });
             }
             let ch = 152.0 / TRACKS as f32;
             for tr in 0..TRACKS {
@@ -732,7 +728,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                         r: 3.2,
                         on: true,
                         cur: play == Some(i),
-                        label: String::new(),
+                        label: String::new(), lane: u8::MAX,
                     });
                 }
             }
@@ -761,7 +757,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                         r: 3.4,
                         on: true,
                         cur: play == Some(i),
-                        label: String::new(),
+                        label: String::new(), lane: u8::MAX,
                     });
                 }
             }
@@ -787,7 +783,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let x = bx + p.orbit[i] * w;
                 let y = by - (mu * (p.orbit[i] as f64).min(1.0 - p.orbit[i] as f64)) as f32 * hgt;
                 let hit = aggregate_hit(p, i);
-                v.nodes.push(Node { x, y, r: if hit { 4.2 } else { 2.0 }, on: true, cur: play == Some(i), label: String::new() });
+                v.nodes.push(Node { x, y, r: if hit { 4.2 } else { 2.0 }, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
             }
             for i in 0..n {
                 let ox = 12.0 + (i as f32 + 0.5) / n as f32 * 186.0;
@@ -804,7 +800,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 if let Some(last) = prev { mv(&mut v.lines, last.0, last.1); ln(&mut v.lines, q.0, q.1); }
                 prev = Some(q);
                 if aggregate_hit(p, i) {
-                    v.nodes.push(Node { x: q.0, y: q.1, r: 3.4, on: true, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x: q.0, y: q.1, r: 3.4, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 }
             }
             if let Some(i) = play {
@@ -819,9 +815,9 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let x = x_of(i, n);
                 let y = 12.0 + (1.0 - p.u[i]) * (P - 24.0);
                 if p.hit[0][i] {
-                    v.nodes.push(Node { x, y, r: 4.0, on: true, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x, y, r: 4.0, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 } else {
-                    v.nodes.push(Node { x, y, r: 1.8, on: false, cur: false, label: String::new() });
+                    v.nodes.push(Node { x, y, r: 1.8, on: false, cur: false, label: String::new(), lane: u8::MAX });
                 }
             }
             let prob = (params.density.clamp(0.0, 1.0) * params.probability.clamp(0.0, 1.0)).clamp(0.0, 1.0);
@@ -840,7 +836,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                 let y = 12.0 + (1.0 - p.u[i]) * (P - 24.0);
                 if !started { mv(&mut v.lines, x, y); started = true; } else { ln(&mut v.lines, x, y); }
                 if p.hit[0][i] {
-                    v.nodes.push(Node { x, y, r: 3.5, on: true, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x, y, r: 3.5, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 }
             }
             let thr = 1.0 - params.density.clamp(0.0, 1.0);
@@ -880,7 +876,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                     t -= (t as usize) as f32;
                 }
                 if member && p.hit[0][i] {
-                    v.nodes.push(Node { x, y: 30.0, r: 3.5, on: true, cur: play == Some(i), label: String::new() });
+                    v.nodes.push(Node { x, y: 30.0, r: 3.5, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                 }
             }
             if let Some(i) = play {
@@ -898,7 +894,7 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
                         let a = (i as f32 / n as f32) * std::f32::consts::TAU;
                         let r = 30.0 + tr as f32 * 7.0;
                         let (x, y) = (C + r * a.cos(), C + r * a.sin());
-                        v.nodes.push(Node { x, y, r: 3.0, on: true, cur: play == Some(i), label: String::new() });
+                        v.nodes.push(Node { x, y, r: 3.0, on: true, cur: play == Some(i), label: String::new(), lane: u8::MAX });
                     }
                 }
             }
@@ -1009,7 +1005,8 @@ mod tests {
             ..GenParams::default()
         };
         let view = build(&g, &generate(&g), 0);
-        assert!(view.nodes.len() <= 256, "phyllotaxis drew {} nodes", view.nodes.len());
+        assert!(view.nodes.len() <= 1_200, "phyllotaxis drew {} nodes", view.nodes.len());
+        assert!(view.nodes.iter().any(|n| n.lane < TRACKS as u8), "no per-lane rosette nodes");
         assert!(view.nodes.iter().any(|n| n.on), "sampled rosette lost every hit");
     }
 

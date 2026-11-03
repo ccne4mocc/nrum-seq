@@ -16,9 +16,11 @@ export global Theme {
     in-out property <color> border: #c7bca8;
     in-out property <color> cell-off: #ded5c3;
     in-out property <color> on-accent: #fdf9f0;
+    // Eight distinguishable lane colours used by the phyllotaxis rosettes.
+    in-out property <[color]> lanes: [#22d3ee, #a3e635, #f472b6, #ffffff, #fb923c, #a78bfa, #2dd4bf, #fde047];
 }
 
-export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string }
+export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string, lane: int }
 export struct ModeEntry { group: string, index: int, header: bool }
 export struct ModeRow { header: bool, group: string, left: int, right: int, has-right: bool }
 export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float, hit-override: int, edited: bool, ratchet: int, offset: int }
@@ -573,8 +575,8 @@ component ModePanel inherits Rectangle {
         x: root.draw-offset-x + (n.x - n.r) * root.px-per-unit; y: (n.y - n.r) * root.px-per-unit;
         width: n.r * 2 * root.px-per-unit; height: n.r * 2 * root.px-per-unit;
         border-radius: n.r * root.px-per-unit;
-        background: n.cur ? Theme.hi : (n.on ? Theme.c1 : Theme.cell-off);
-        border-width: 1px; border-color: Theme.border;
+        background: n.cur ? Theme.hi : (n.lane >= 0 ? Theme.lanes[Math.mod(n.lane, 8)].with-alpha(n.on ? 0.95 : 0.35) : (n.on ? Theme.c1 : Theme.cell-off));
+        border-width: 1px; border-color: n.lane >= 0 ? Theme.lanes[Math.mod(n.lane, 8)] : Theme.border;
         Text { width: parent.width; height: parent.height; text: n.label; font-size: 7px * root.px-per-unit; color: (n.cur || n.on) ? Theme.on-accent : Theme.text; horizontal-alignment: center; vertical-alignment: center; }
     }
 }

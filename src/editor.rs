@@ -555,12 +555,14 @@ fn push_view(ui: &AppWindow, v: &View) {
         for (i, n) in v.nodes.iter().enumerate() {
             let node = ViewNode {
                 x: n.x, y: n.y, r: n.r, on: n.on, cur: n.cur, label: SharedString::from(n.label.as_str()),
+                lane: if n.lane == u8::MAX { -1 } else { n.lane as i32 },
             };
             if model.row_data(i).as_ref() != Some(&node) { model.set_row_data(i, node); }
         }
     } else {
         ui.set_view_nodes(ModelRc::new(VecModel::from(v.nodes.iter().map(|n| ViewNode {
             x: n.x, y: n.y, r: n.r, on: n.on, cur: n.cur, label: SharedString::from(n.label.as_str()),
+            lane: if n.lane == u8::MAX { -1 } else { n.lane as i32 },
         }).collect::<Vec<_>>())));
     }
     ui.set_view_edges(SharedString::from(v.edges.as_str()));
@@ -1023,6 +1025,9 @@ impl Editor for SlintEditor {
                 palette.set_surface(rgb(colors[7])); palette.set_control(rgb(colors[8])); palette.set_control_hover(rgb(colors[9]));
                 palette.set_text(rgb(colors[10])); palette.set_text_muted(rgb(colors[11])); palette.set_border(rgb(colors[12]));
                 palette.set_cell_off(rgb(colors[13])); palette.set_on_accent(rgb(colors[14]));
+                palette.set_lanes(ModelRc::new(VecModel::from(
+                    selected_theme.lanes().iter().map(|c| rgb(*c)).collect::<Vec<_>>(),
+                )));
                 ui.set_theme_index(theme_index);
                 // Theme is user-global; persist it outside the project as it changes.
                 globals::save(&global_settings(p, update_scale, &update_midi_dir));
