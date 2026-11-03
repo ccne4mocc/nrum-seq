@@ -12,6 +12,8 @@
 - Built-in starting-point presets (House, Break, Poly, Deep, Glitch) that write ordinary host
   parameters.
 - Lane labels show MIDI note numbers.
+- Eight-lane phyllotaxis rosettes with a per-theme lane palette.
+- Cellular initial-state policies, L-system grammar-family selection and four Markov transition bias fields.
 - CI workflow for Linux, macOS and Windows, plus a release checklist and host verification matrix.
 
 ### Fixed

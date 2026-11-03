@@ -1758,6 +1758,16 @@ mod tests {
     }
 
     #[test]
+    fn every_theme_has_eight_distinct_lane_colours() {
+        for theme in [Theme::Sketchbook, Theme::Neon, Theme::Lava, Theme::Forest] {
+            let lanes = theme.lanes();
+            for (i, colour) in lanes.iter().enumerate() {
+                assert!(lanes[i + 1..].iter().all(|other| other != colour), "{theme:?} repeats lane colour {i}");
+            }
+        }
+    }
+
+    #[test]
     fn neon_is_the_fresh_default_theme() {
         assert_eq!(DrumParams::default().theme.value(), Theme::Neon);
         assert_eq!(<NrumSeq as Plugin>::VERSION, "1.2.0");

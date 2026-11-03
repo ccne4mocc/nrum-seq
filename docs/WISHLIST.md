@@ -46,9 +46,9 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 
 ## Algorithm depth
 
-- Markov transition editing with explicit weights instead of hard-coded transition preferences.
-- L-system / grammar expansion with depth and step caps, using an explicit bounded algorithm.
-- 1D/2D cellular rules, configurable initial-state policies, CA generation selection.
+- ~~Markov transition editing with explicit weights.~~ Implemented as four 2-bit bias fields (`markov_bias`): rest, repeat, role-compatible and novelty. A full 9×9 matrix remains open.
+- ~~L-system / grammar expansion with depth and step caps.~~ Grammar families are selectable through `symmetry`; the rewrite is bounded to 1024 symbols and 16 passes.
+- 1D CA now has selectable initial-state policies; 2-D Life-like CA remains open.
 - ~~Formalize the crystallographic-inspired mode.~~ Documented in `REFERENCE_MAPPING.md`, including which operation is a real translation action and why density is structurally steppy.
 - Chaotic maps (circle, tent) as separate modes only if each has a genuinely different control and view. Both are one-dimensional and would need controls that are not `pulses`/`density` again.
 - Every algorithm now has a help line and a mode view, and the major gaps in targeted invariant tests are filled. Worked examples and explicit seed-behaviour notes are still open.
@@ -57,7 +57,7 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 
 ## Visual try-outs
 
-- **Phyllotaxis: full eight-lane rosette variant.** Draw all eight rosettes with per-lane colours and matching trigger wedges, rather than overlaid dots in one colour with staggered arcs. This needs a `ViewNode.lane`/palette contract shared by `src/view.rs` and `ui/app.slint`; the current panel intentionally keeps the eight-rosette drawing and fixes only the trigger art.
+- ~~**Phyllotaxis: full eight-lane rosette variant.**~~ Implemented with `ViewNode.lane`, eight rosettes and a per-theme lane palette.
 
 ## Notes on working here
 
