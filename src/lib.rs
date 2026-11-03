@@ -1451,6 +1451,58 @@ mod tests {
     }
 
     #[test]
+    fn plugin_identity_and_host_ids_are_stable() {
+        // These strings are project state and host scan identity. Changing one breaks sessions.
+        assert_eq!(<NrumSeq as Plugin>::NAME, "nrum seq");
+        assert_eq!(<NrumSeq as Plugin>::VENDOR, contact::AUTHOR);
+        assert_eq!(<NrumSeq as Plugin>::VERSION, "1.2.0");
+        assert_eq!(<NrumSeq as ClapPlugin>::CLAP_ID, "com.nrumseq.nrumseq");
+        assert_eq!(<NrumSeq as Vst3Plugin>::VST3_CLASS_ID, *b"nrum-seq\0\0\0\0\0\0\0\0");
+    }
+
+    #[test]
+    fn parameter_ids_are_unique() {
+        let params = DrumParams::default();
+        let map = params.param_map();
+        let mut ids: Vec<&str> = map.iter().map(|(id, _, _)| id.as_str()).collect();
+        let count = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), count, "two parameters share a host id");
+    }
+
+    #[test]
+    fn every_mode_id_is_unique_and_non_empty() {
+        let ids = Mode::ids().expect("mode ids are host state");
+        for id in ids {
+            assert!(!id.is_empty(), "a mode has an empty host id");
+        }
+        let mut unique = ids.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), ids.len(), "two modes share a host id");
+        assert_eq!(ids.len(), <Mode as Enum>::variants().len());
+    }
+
+    #[test]
+    fn lane_defaults_are_the_documented_gm_map() {
+        let p = DrumParams::default();
+        let notes: Vec<u8> = (0..TRACKS).map(|lane| p.track_note(lane)).collect();
+        assert_eq!(notes, [36, 38, 42, 46, 39, 37, 45, 50]);
+        let enabled: Vec<bool> = (0..TRACKS).map(|lane| p.track_enabled(lane)).collect();
+        assert_eq!(enabled, [true, true, true, true, false, false, false, true]);
+    }
+
+    #[test]
+    fn the_effective_step_ceiling_defaults_to_1024() {
+        assert_eq!(DEFAULT_MAX_STEPS, 1024);
+        assert_eq!(MIN_MAX_STEPS, 64);
+        let p = DrumParams::default();
+        assert_eq!(p.max_steps.value(), 1024);
+        assert_eq!(p.step_ceiling(), 1024);
+    }
+
+    #[test]
     fn theme_indices_and_palettes_are_consistent() {
         for index in 0..4 { assert_eq!(Theme::from_index(index).to_index(), index); }
         let palettes = [Theme::Sketchbook.colors(), Theme::Neon.colors(), Theme::Lava.colors(), Theme::Forest.colors()];
