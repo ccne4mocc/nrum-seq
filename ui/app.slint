@@ -1224,12 +1224,9 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                VerticalLayout {
-                    spacing: 0px;
-                    Text { text: root.mode-help[root.mode]; color: Theme.text; font-size: 13px; wrap: word-wrap; }
-                    // Live formula with the current snapshot, pushed from the generator's own helpers.
-                    Text { text: root.mode-math; color: Theme.text-muted; font-size: 11px; wrap: word-wrap; }
-                }
+                Text { text: root.mode-help[root.mode]; color: Theme.text; font-size: 13px; horizontal-alignment: left; wrap: word-wrap; }
+                // Live formula with the current snapshot, pushed from the generator's own helpers.
+                Text { text: root.mode-math; color: Theme.text-muted; font-size: 11px; horizontal-alignment: left; wrap: word-wrap; }
                 Rectangle { height: 2px; }
                 HorizontalLayout { spacing: 5px;
                     OptSlider { opt: root.opts[0]; mod-target: 0; changed(v) => { root.set-opt(0, v); } }
@@ -1577,13 +1574,13 @@ export component AppWindow inherits Window {
             }
         }
         // Thin status strip: hover descriptions and edit/export feedback live here, clear of the
-        // pointer and out of the header.
+        // pointer and out of the header. Keep the inset and alignment identical to nelody seq.
         Rectangle {
             height: 20px; border-radius: 3px;
             background: Theme.surface.with-alpha(0.55);
             border-width: 1px; border-color: Theme.border.with-alpha(0.7);
             Text {
-                x: 5px; width: parent.width - 10px; height: parent.height;
+                x: 8px; width: parent.width - 16px; height: parent.height;
                 text: HoverTip.text != ""
                     ? HoverTip.text
                     : (root.mod-status != ""
@@ -1592,7 +1589,7 @@ export component AppWindow inherits Window {
                             ? root.export-status
                             : "height = velocity · width = gate · opacity = probability · segments = ratchet · drag GATE to edit"));
                 color: HoverTip.text != "" ? Theme.text : Theme.text-muted;
-                font-size: 9px; vertical-alignment: center; overflow: elide;
+                font-size: 9px; horizontal-alignment: left; vertical-alignment: center; overflow: elide;
             }
         }
     }
@@ -1868,7 +1865,7 @@ export component AppWindow inherits Window {
             x: 8px; width: parent.width - 16px; height: parent.height;
             text: ModView.view(ModHover.target).lfo-text;
             color: Theme.text; font-size: 10px;
-            vertical-alignment: center; overflow: elide;
+            horizontal-alignment: left; vertical-alignment: center; overflow: elide;
         }
     }
 }
