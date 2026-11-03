@@ -221,15 +221,6 @@ pub struct DrumParams {
     #[id = "symmetry"] pub symmetry: IntParam,
     /// Markov transition bias: 2 bits each for rest, repeat, role and novelty.
     #[id = "markov_bias"] pub markov_bias: IntParam,
-    /// Per-lane generator override: 0 = follow `mode`, otherwise 1 + the mode index.
-    #[id = "lane1_mode"] pub lane1_mode: IntParam,
-    #[id = "lane2_mode"] pub lane2_mode: IntParam,
-    #[id = "lane3_mode"] pub lane3_mode: IntParam,
-    #[id = "lane4_mode"] pub lane4_mode: IntParam,
-    #[id = "lane5_mode"] pub lane5_mode: IntParam,
-    #[id = "lane6_mode"] pub lane6_mode: IntParam,
-    #[id = "lane7_mode"] pub lane7_mode: IntParam,
-    #[id = "lane8_mode"] pub lane8_mode: IntParam,
     #[id = "theme"] pub theme: EnumParam<Theme>,
     #[id = "rate"] pub rate: EnumParam<Rate>,
     #[id = "gate"] pub gate: FloatParam,
@@ -378,14 +369,6 @@ impl Default for DrumParams {
             ca_rule: IntParam::new("Cellular Automaton Rule", 30, IntRange::Linear { min: 0, max: 255 }),
             symmetry: IntParam::new("Crystallographic Symmetry", 4, IntRange::Linear { min: 1, max: 8 }),
             markov_bias: IntParam::new("Markov Transition Bias", 0, IntRange::Linear { min: 0, max: 255 }),
-            lane1_mode: IntParam::new("Lane 1 Mode", 0, IntRange::Linear { min: 0, max: 39 }),
-            lane2_mode: IntParam::new("Lane 2 Mode", 0, IntRange::Linear { min: 0, max: 39 }),
-            lane3_mode: IntParam::new("Lane 3 Mode", 0, IntRange::Linear { min: 0, max: 39 }),
-            lane4_mode: IntParam::new("Lane 4 Mode", 0, IntRange::Linear { min: 0, max: 39 }),
-            lane5_mode: IntParam::new("Lane 5 Mode", 0, IntRange::Linear { min: 0, max: 39 }),
-            lane6_mode: IntParam::new("Lane 6 Mode", 0, IntRange::Linear { min: 0, max: 39 }),
-            lane7_mode: IntParam::new("Lane 7 Mode", 0, IntRange::Linear { min: 0, max: 39 }),
-            lane8_mode: IntParam::new("Lane 8 Mode", 0, IntRange::Linear { min: 0, max: 39 }),
             theme: EnumParam::new("Theme", Theme::Neon),
             rate: EnumParam::new("Rate", Rate::Sixteenth),
             gate: FloatParam::new("Gate", 0.12, FloatRange::Linear { min: 0.02, max: 1.0 }),
@@ -507,16 +490,6 @@ impl DrumParams {
             variation: self.variation.load(Relaxed),
             invert: self.invert.value(),
             mirror: self.mirror.value(),
-            lane_modes: [
-                self.lane1_mode.value().clamp(0, 39) as u8,
-                self.lane2_mode.value().clamp(0, 39) as u8,
-                self.lane3_mode.value().clamp(0, 39) as u8,
-                self.lane4_mode.value().clamp(0, 39) as u8,
-                self.lane5_mode.value().clamp(0, 39) as u8,
-                self.lane6_mode.value().clamp(0, 39) as u8,
-                self.lane7_mode.value().clamp(0, 39) as u8,
-                self.lane8_mode.value().clamp(0, 39) as u8,
-            ],
             markov_bias: self.markov_bias.value().clamp(0, 255) as u8,
             edit_rev: self.edit_overlay.revision(),
         }
@@ -1598,7 +1571,7 @@ mod tests {
         let params = DrumParams::default();
         let map = params.param_map();
         let ids: Vec<&str> = map.iter().map(|(id, _, _)| id.as_str()).collect();
-        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_lengths", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "markov_bias", "lane1_mode", "lane2_mode", "lane3_mode", "lane4_mode", "lane5_mode", "lane6_mode", "lane7_mode", "lane8_mode", "lfo1_enabled", "lfo1_wave", "lfo1_rate_mode", "lfo1_freq", "lfo1_rate", "lfo1_depth", "lfo1_phase", "lfo1_polarity", "lfo2_enabled", "lfo2_wave", "lfo2_rate_mode", "lfo2_freq", "lfo2_rate", "lfo2_depth", "lfo2_phase", "lfo2_polarity", "lfo3_enabled", "lfo3_wave", "lfo3_rate_mode", "lfo3_freq", "lfo3_rate", "lfo3_depth", "lfo3_phase", "lfo3_polarity", "lfo4_enabled", "lfo4_wave", "lfo4_rate_mode", "lfo4_freq", "lfo4_rate", "lfo4_depth", "lfo4_phase", "lfo4_polarity", "generate", "invert", "mirror", "logging", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
+        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_lengths", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "markov_bias", "lfo1_enabled", "lfo1_wave", "lfo1_rate_mode", "lfo1_freq", "lfo1_rate", "lfo1_depth", "lfo1_phase", "lfo1_polarity", "lfo2_enabled", "lfo2_wave", "lfo2_rate_mode", "lfo2_freq", "lfo2_rate", "lfo2_depth", "lfo2_phase", "lfo2_polarity", "lfo3_enabled", "lfo3_wave", "lfo3_rate_mode", "lfo3_freq", "lfo3_rate", "lfo3_depth", "lfo3_phase", "lfo3_polarity", "lfo4_enabled", "lfo4_wave", "lfo4_rate_mode", "lfo4_freq", "lfo4_rate", "lfo4_depth", "lfo4_phase", "lfo4_polarity", "generate", "invert", "mirror", "logging", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
             assert!(ids.contains(&expected), "missing parameter {expected}");
         }
         for (id, ptr, _) in &map {

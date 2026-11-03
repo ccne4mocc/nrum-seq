@@ -9,8 +9,6 @@
 - Per-step edit overlay: hit overrides, probability, accent, ratchets (1–4), step-wide
   microtiming, `CLR ALL`, and editor-local undo/redo. Edits are project state and are applied in
   display space, so they survive Rotate, Mirror and Generate.
-- Per-lane generator selection through `lane1_mode` … `lane8_mode`; each lane badge opens the
-  shared mode picker, and the global mode still supplies the panel view.
 - Built-in starting-point presets (House, Break, Poly, Deep, Glitch) that write ordinary host
   parameters.
 - Lane labels show MIDI note numbers.

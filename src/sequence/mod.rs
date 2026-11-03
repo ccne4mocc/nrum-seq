@@ -79,7 +79,6 @@ pub(crate) use kuramoto::{
 // The mode enum is the shared host parameter type: one list, one order, no mapping table.
 use crate::edits::{EditView, HIT_OFF, HIT_ON};
 use crate::modes::Mode;
-use nice_plug::prelude::Enum;
 
 pub const TRACKS: usize = 8;
 /// Hard capacity for every pattern array; the host's `max_steps` ceiling can reach 1024.
@@ -127,8 +126,6 @@ pub struct GenParams {
     pub invert: bool,
     /// Reverse the step order after generation.
     pub mirror: bool,
-    /// Per-lane generator override: 0 follows `kind`, otherwise 1 + the `Mode` index.
-    pub lane_modes: [u8; TRACKS],
     /// Markov transition bias: two bits each for rest, repeat, role-compatible and novelty.
     pub markov_bias: u8,
     /// Revision of the manual edit overlay in this snapshot; part of the cache key.
@@ -141,7 +138,6 @@ impl Default for GenParams {
             kind: Mode::Euclidean, steps: 16, length: 16.0, pulses: 5, rotate: 0,
             density: 0.65, probability: 1.0, velocity: 1.0, seed: 0.271, phase: 0.0, osc_rate: 2.0,
             osc_wave: 0, ca_rule: 30, symmetry: 4, variation: 0, invert: false, mirror: false,
-            lane_modes: [0; TRACKS],
             markov_bias: 0,
             edit_rev: 0,
         }
@@ -397,27 +393,6 @@ fn generate_impl(p: &GenParams, edits: Option<&EditView>) -> Pattern {
     q.osc_wave %= oscillator::WAVE_COUNT;
     let mut out = run_mode(&q);
     out.steps = steps;
-    // Per-lane overrides dispatch each distinct mode once, then copy only its assigned lanes.
-    // The global mode still supplies the panel's view state.
-    if q.lane_modes.iter().any(|mode| *mode != 0) {
-        let last = <Mode as Enum>::variants().len();
-        let mut done = [false; TRACKS];
-        for lane in 0..TRACKS {
-            let value = q.lane_modes[lane] as usize;
-            if done[lane] || value == 0 || value > last { continue; }
-            let mut lane_params = q;
-            lane_params.kind = Mode::from_index(value - 1);
-            lane_params.lane_modes = [0; TRACKS];
-            let lane_pattern = run_mode(&lane_params);
-            for target in 0..TRACKS {
-                if q.lane_modes[target] as usize == value {
-                    out.hit[target][..steps].copy_from_slice(&lane_pattern.hit[target][..steps]);
-                    out.accent[target][..steps].copy_from_slice(&lane_pattern.accent[target][..steps]);
-                    done[target] = true;
-                }
-            }
-        }
-    }
     // Rotation includes probability drops, accents and auxiliary view data. Variation also rotates,
     // so closed-form modes can regenerate differently. Computed before probability so a display
     // space probability override can be mapped back to the generator step.
@@ -1255,27 +1230,6 @@ mod tests {
             let b = pat(symmetry);
             assert_eq!(a.hit, b.hit, "policy {symmetry} is not deterministic");
             assert!(a.hit.iter().any(|lane| lane[..n].iter().any(|hit| *hit)), "policy {symmetry} is silent");
-        }
-    }
-
-    #[test]
-    fn per_lane_modes_copy_only_their_assigned_lanes() {
-        let global = GenParams { kind: Mode::Euclidean, steps: 16, pulses: 5, density: 1.0, probability: 1.0, ..GenParams::default() };
-        let euclidean = generate(&GenParams { lane_modes: [0; TRACKS], ..global });
-        let mut lane_modes = [0u8; TRACKS];
-        lane_modes[0] = Mode::Oscillator as u8 + 1;
-        lane_modes[1] = Mode::Oscillator as u8 + 1;
-        lane_modes[2] = Mode::Euclidean as u8 + 1;
-        let mixed = generate(&GenParams { lane_modes, ..global });
-        let oscillator = generate(&GenParams { kind: Mode::Oscillator, lane_modes: [0; TRACKS], ..global });
-        for step in 0..16 {
-            assert_eq!(mixed.hit[0][step], oscillator.hit[0][step], "lane 0 step {step}");
-            assert_eq!(mixed.hit[1][step], oscillator.hit[1][step], "lane 1 step {step}");
-            assert_eq!(mixed.hit[2][step], euclidean.hit[2][step], "lane 2 step {step}");
-        }
-        // A lane that keeps the global mode is untouched.
-        for step in 0..16 {
-            assert_eq!(mixed.hit[3][step], euclidean.hit[3][step], "lane 3 step {step}");
         }
     }
 
