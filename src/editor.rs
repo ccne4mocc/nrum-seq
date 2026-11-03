@@ -728,6 +728,12 @@ impl Editor for SlintEditor {
                             _ => 0,
                         }),
                         4 => store.clear_cell(lane, step),
+                        5 => store.set_ratchet(lane, step, match store.ratchet(lane, step) {
+                            1 => 2,
+                            2 => 3,
+                            3 => 4,
+                            _ => 1,
+                        }),
                         _ => {}
                     }
                 });
@@ -1096,6 +1102,7 @@ impl Editor for SlintEditor {
                             },
                             hit_override: hit_override as i32,
                             edited,
+                            ratchet: p.edit_overlay.ratchet(tr, i) as i32,
                         }
                     }).collect::<Vec<_>>();
                     rows.push(TrackRow {

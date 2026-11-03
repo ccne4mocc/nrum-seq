@@ -797,6 +797,12 @@ pub struct NrumSeq {
     expected_beat: Option<f64>,
     /// Next step index to schedule, carried across blocks so swing cannot drop a step.
     next_step: Option<i64>,
+    /// Substep within the carried step for ratchets (0 when ratchets are off).
+    next_sub: u8,
+    /// Number of ratchet subdivisions used by the current step (1 or 12).
+    subdivisions: u8,
+    /// Ratchet count per lane for the current step, read from the edit overlay.
+    ratchets: [u8; TRACKS],
     /// Set by `reset`, which has no `ProcessContext` to send NoteOffs with. The next
     /// `process` flushes them, so a host transport reset cannot leave notes hanging.
     pending_reset: bool,
@@ -813,7 +819,8 @@ impl Default for NrumSeq {
             params: Arc::new(DrumParams::default()), shared: Arc::new(Shared::default()),
             last_key: None, last_base_key: None, pattern: Pattern::default(),
             edit_view: EditView::default(), last_edit_rev: 0, loop_length: 16.0, last_generate: None,
-            active: [None; TRACKS], expected_beat: None, next_step: None, pending_reset: false, free_beat: 0.0,
+            active: [None; TRACKS], expected_beat: None, next_step: None, next_sub: 0,
+            subdivisions: 1, ratchets: [1; TRACKS], pending_reset: false, free_beat: 0.0,
             last_regen_cycle: None, last_randomize_cycle: None, last_mod_cycle: None, sample_rate: 44100.0,
         }
     }
@@ -873,6 +880,9 @@ impl Plugin for NrumSeq {
         self.pending_reset = self.active.iter().any(|a| a.is_some());
         self.expected_beat = None;
         self.next_step = None;
+        self.next_sub = 0;
+        self.subdivisions = 1;
+        self.ratchets = [1; TRACKS];
         self.free_beat = 0.0;
         self.last_regen_cycle = None;
         self.last_randomize_cycle = None;
@@ -972,7 +982,10 @@ impl Plugin for NrumSeq {
         let schedule_start = p.schedule_at(clock_start);
         let every = schedule_start.regenerate_every.max(0) as i64;
         let randomize_every = schedule_start.randomize_after.max(0) as i64;
-        let mut k = resume_cursor(self.next_step, transport_jump, start, end, spb);
+        let carried_step = self.next_step;
+        let mut k = resume_cursor(carried_step, transport_jump, start, end, spb);
+        let mut sub = if carried_step == Some(k) { self.next_sub } else { 0 };
+        if self.subdivisions == 0 { self.subdivisions = 1; }
         if self.last_mod_cycle.is_none() {
             self.last_mod_cycle = Some((k as f64 / self.loop_length).floor() as i64);
         }
@@ -981,8 +994,11 @@ impl Plugin for NrumSeq {
             let nominal_beat = k as f64 * step_len;
             let nominal_clock = LfoClock::from_beat(nominal_beat, bpm);
             let swing = p.schedule_at(nominal_clock).swing.clamp(0.0, 0.5) as f64 * step_len;
+            let sub_len = step_len / self.subdivisions.max(1) as f64;
             let next_step = if (k as f64) < s1 + 1.0 {
-                nominal_beat + if k.rem_euclid(2) != 0 { swing } else { 0.0 }
+                nominal_beat
+                    + if k.rem_euclid(2) != 0 { swing } else { 0.0 }
+                    + sub as f64 * sub_len
             } else {
                 f64::INFINITY
             };
@@ -1000,41 +1016,57 @@ impl Plugin for NrumSeq {
                 }
             }
             if next_step <= at + 1e-9 && next_step < end - 1e-9 {
-                // Complete pattern lengths, not host beats, like regeneration. The request is
-                // lock-free here; the editor applies it through ParamSetter on its next tick.
-                if let Some(cycle) = regeneration_cycle_at(k, self.loop_length, randomize_every, self.last_randomize_cycle) {
-                    self.shared.randomize_request.fetch_add(1, Relaxed);
-                    self.last_randomize_cycle = Some(cycle);
-                }
-
-                // Sample pattern-shaping LFO links once per loop, using the current loop length.
-                let mod_cycle = (k as f64 / self.loop_length).floor() as i64;
-                let mod_due = p.has_generation_links() && self.last_mod_cycle != Some(mod_cycle);
-                let regen_cycle = regeneration_cycle_at(k, self.loop_length, every, self.last_regen_cycle);
-                if mod_due || regen_cycle.is_some() {
-                    if let Some(cycle) = regen_cycle {
-                        p.variation.fetch_add(1, Relaxed);
-                        self.last_regen_cycle = Some(cycle);
-                        self.shared.regen_pulse.store(true, Relaxed);
+                if sub == 0 {
+                    // Complete pattern lengths, not host beats, like regeneration. The request is
+                    // lock-free here; the editor applies it through ParamSetter on its next tick.
+                    if let Some(cycle) = regeneration_cycle_at(k, self.loop_length, randomize_every, self.last_randomize_cycle) {
+                        self.shared.randomize_request.fetch_add(1, Relaxed);
+                        self.last_randomize_cycle = Some(cycle);
                     }
-                    let next_key = p.gen_params_at(nominal_clock);
-                    self.pattern = generate_with(&next_key, &self.edit_view);
-                    self.loop_length = next_key.length as f64;
-                    self.last_key = Some(next_key);
-                    // Regenerate-after-N bumps `variation`; refresh the base snapshot to avoid a false manual change.
-                    self.last_base_key = Some(p.gen_params());
-                    self.last_mod_cycle = Some((k as f64 / self.loop_length).floor() as i64);
-                    self.shared.pattern_beat.store(nominal_beat.to_bits(), Relaxed);
+
+                    // Sample pattern-shaping LFO links once per loop, using the current loop length.
+                    let mod_cycle = (k as f64 / self.loop_length).floor() as i64;
+                    let mod_due = p.has_generation_links() && self.last_mod_cycle != Some(mod_cycle);
+                    let regen_cycle = regeneration_cycle_at(k, self.loop_length, every, self.last_regen_cycle);
+                    if mod_due || regen_cycle.is_some() {
+                        if let Some(cycle) = regen_cycle {
+                            p.variation.fetch_add(1, Relaxed);
+                            self.last_regen_cycle = Some(cycle);
+                            self.shared.regen_pulse.store(true, Relaxed);
+                        }
+                        let next_key = p.gen_params_at(nominal_clock);
+                        self.pattern = generate_with(&next_key, &self.edit_view);
+                        self.loop_length = next_key.length as f64;
+                        self.last_key = Some(next_key);
+                        // Regenerate-after-N bumps `variation`; refresh the base snapshot to avoid a false manual change.
+                        self.last_base_key = Some(p.gen_params());
+                        self.last_mod_cycle = Some((k as f64 / self.loop_length).floor() as i64);
+                        self.shared.pattern_beat.store(nominal_beat.to_bits(), Relaxed);
+                    }
                 }
 
                 // Regeneration can change the step count; clamp the active index before reading hits.
                 let idx = step_index(k, self.loop_length) as usize;
                 let idx = idx.min(self.pattern.steps.saturating_sub(1));
-                self.shared.current_step.store(idx as i32, Relaxed);
+                if sub == 0 {
+                    self.shared.current_step.store(idx as i32, Relaxed);
+                    // Read this step's ratchet counts once; the scheduler uses 12 subdivisions
+                    // only when at least one lane actually ratchets.
+                    self.subdivisions = 1;
+                    self.ratchets = [1; TRACKS];
+                    for tr in 0..TRACKS {
+                        let count = self.edit_view.ratchet_at(tr, idx);
+                        self.ratchets[tr] = count;
+                        if count > 1 { self.subdivisions = 12; }
+                    }
+                }
                 let note_clock = LfoClock::from_beat(next_step, bpm);
                 let schedule_note = p.schedule_at(note_clock);
                 for tr in 0..TRACKS {
                     if !p.track_enabled(tr) || !self.pattern.hit[tr][idx] { continue; }
+                    let ratchet = self.ratchets[tr].clamp(1, 4);
+                    // With 12 subdivisions every count 1..4 divides evenly: 12/3 = 4, 12/4 = 3.
+                    if sub as u32 % (12 / ratchet as u32) != 0 { continue; }
                     let t = timing(next_step);
                     if let Some(a) = self.active[tr].take() {
                         context.send_event(NoteEvent::NoteOff { timing: t, voice_id: None, channel: 9, note: a.note, velocity: 0.0 });
@@ -1042,13 +1074,24 @@ impl Plugin for NrumSeq {
                     let note = p.track_note(tr);
                     let velocity = (p.track_velocity(tr) * schedule_note.velocity * self.pattern.accent[tr][idx]).clamp(0.01, 1.0);
                     context.send_event(NoteEvent::NoteOn { timing: t, voice_id: None, channel: 9, note, velocity });
-                    self.active[tr] = Some(Active { note, off_beat: next_step + schedule_note.gate as f64 * step_len });
+                    // A ratchet must not overlap the next substep; otherwise one lane would need
+                    // polyphony. Gate is therefore capped to its own substep spacing.
+                    let lane_step = step_len / ratchet as f64;
+                    let gate = (schedule_note.gate as f64 * step_len).min(lane_step * 0.9);
+                    self.active[tr] = Some(Active { note, off_beat: next_step + gate });
                 }
-                k += 1;
+                if sub + 1 < self.subdivisions {
+                    sub += 1;
+                } else {
+                    sub = 0;
+                    k += 1;
+                }
             }
         }
-        // Carry the unplayed step into the next block; a swung step may not have been reached.
+        // Carry the unplayed step and substep into the next block; a swung or ratcheted event may
+        // not have been reached.
         self.next_step = Some(k);
+        self.next_sub = sub;
         ProcessStatus::Normal
     }
 }
@@ -1363,6 +1406,40 @@ mod tests {
             run_playing(&mut plugin, &mut ctx, 16, 64);
             let used = crate::test_alloc::count();
             assert_eq!(used, 0, "process() allocated {used} times with {kind:?} on the audio thread");
+        }
+    }
+
+    #[test]
+    fn ratchets_distribute_substeps_within_the_step() {
+        for (count, spacing) in [(2u8, 2756.25f64), (3, 1837.5), (4, 1378.125)] {
+            let (mut plugin, mut ctx) = every_step_plugin();
+            plugin.params.edit_overlay.set_ratchet(0, 0, count);
+            run_playing(&mut plugin, &mut ctx, 48, 512);
+            let kicks: Vec<u64> = ctx
+                .note_ons()
+                .into_iter()
+                .filter(|(_, note, _)| *note == 36)
+                .take(count as usize)
+                .map(|(at, _, _)| at)
+                .collect();
+            assert_eq!(kicks.len(), count as usize, "expected {count} kick onsets, got {kicks:?}");
+            for (j, at) in kicks.iter().enumerate() {
+                let expected = j as f64 * spacing;
+                assert!((*at as f64 - expected).abs() <= 1.5,
+                    "ratchet {count}, substep {j}: {at} != {expected}");
+            }
+            // Every ratchet note must be closed before the next one starts.
+            let mut active = false;
+            for (at, event) in &ctx.events {
+                match event {
+                    NoteEvent::NoteOn { note: 36, .. } => {
+                        assert!(!active, "ratchet retriggered at {at} while the previous note was active");
+                        active = true;
+                    }
+                    NoteEvent::NoteOff { note: 36, .. } => active = false,
+                    _ => {}
+                }
+            }
         }
     }
 
