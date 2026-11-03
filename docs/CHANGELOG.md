@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Per-step edit overlay: hit overrides, probability, accent, ratchets (1–4), step-wide
+  microtiming, `CLR ALL`, and editor-local undo/redo. Edits are project state and are applied in
+  display space, so they survive Rotate, Mirror and Generate.
+- Per-lane generator selection through `lane1_mode` … `lane8_mode`; each lane badge opens the
+  shared mode picker, and the global mode still supplies the panel view.
+- Built-in starting-point presets (House, Break, Poly, Deep, Glitch) that write ordinary host
+  parameters.
+- Lane labels show MIDI note numbers.
+- CI workflow for Linux, macOS and Windows, plus a release checklist and host verification matrix.
+
+### Fixed
+
+- Slowcat lane 0 no longer tiles silence when the pattern is no longer than its first motif.
+- Documentation now matches the 1024-step default ceiling.
+
+### Tests
+
+- Transport-aware scheduler harness covering block boundaries, one-sample blocks, swing,
+  transport jumps, stop/reset NoteOffs, lane disable and one-step patterns.
+- Allocation guards for both `generate()` and `Plugin::process()`.
+- Targeted generator invariants for the modes that had only cross-mode coverage.
+- Ratchet substep spacing, microtiming timing, edit-overlay precedence and preset bounds.
+
+
 ## 1.2.0 — LFO subsystem
 
 ### Added
