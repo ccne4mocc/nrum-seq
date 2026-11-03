@@ -21,6 +21,7 @@ Each lane/step cell has:
 | probability | `255` follow the global probability, otherwise `0..254` mapped to `0..1` |
 | ratchet | `1` no ratchet, `2..4` substeps |
 | offset | signed fraction of one step; currently only positive values are scheduled |
+| length | `0` follows the global gate, otherwise `0.02..1.0` of one step |
 
 `EditState` serializes only non-default cells as a sparse list, so an untouched project stores an
 empty list. `EditStore` implements nice-plug's `PersistentField` directly instead of using an
@@ -49,6 +50,8 @@ Consequences:
   count `r` fires on subdivisions `0, 12/r, 2·12/r, …`.
 - A ratchet note's gate is capped to `0.9 ×` its own substep spacing, so one lane never needs
   polyphony. NoteOff still precedes every retrigger.
+- A per-cell length replaces the global gate for that lane/step. The ratchet cap still applies,
+  and export uses the same length, so what you hear and what you export stay identical.
 - Microtiming delays the whole step and is shared by every lane. The editor writes the same
   offset to all eight lane cells. Positive values are clamped to `0.9` of a step; negative values
   are stored but ignored until the scheduler has lookahead for early events.
@@ -56,8 +59,8 @@ Consequences:
 
 ## Editor
 
-The matrix header has edit modes: `HIT`, `PROB`, `ACC`, `CLR`, `RAT`, `TIME`, plus `CLR ALL`,
-`UNDO` and `REDO`.
+The matrix header has edit modes: `HIT`, `PROB`, `ACC`, `CLR`, `RAT`, `TIME`, `LEN`, plus
+`CLR ALL`, `UNDO`, `REDO` and a length snap selector (`1/16` … `1/2` of a step).
 
 - Editing is disabled until a mode is selected, so normal scrolling is unaffected.
 - `HIT` cycles auto → on → off.
@@ -65,14 +68,20 @@ The matrix header has edit modes: `HIT`, `PROB`, `ACC`, `CLR`, `RAT`, `TIME`, pl
 - `ACC` cycles auto → 100 → 75 → 50 percent.
 - `RAT` cycles 1 → 2 → 3 → 4.
 - `TIME` cycles 0 → 1/8 → 1/4 → 1/2 of a step.
+- `LEN` drags a step's gate length; the value snaps to the selected grid and one undo entry covers
+  the whole drag.
 - `CLR` clears every overlay field on the clicked cell.
 - `CLR ALL` clears the whole overlay.
 - Undo/redo is editor-local and covers overlay edits only. Host parameter changes remain owned by
   the host's undo and automation.
 
-The UI receives `hit-override`, effective `probability`, `ratchet`, `offset` and `edited` per cell.
-Force-on and force-off cells are marked, ratchet ticks show the count, and a small tick shows the
-microtiming delay.
+The UI receives `hit-override`, effective `probability`, `ratchet`, `offset`, effective `length`
+and `edited` per cell. Note bodies encode width = length, height = velocity, opacity = probability
+and one segment per ratchet. Force-on and force-off cells are marked, and beat/bar lines plus a
+bar ruler make the grid readable at any zoom.
+
+The matrix supports horizontal and vertical zoom (`+`, `−`, `FIT`), native scrollbars, follow-mode
+centering and a vertical scroll shared with the lane-label column.
 
 ## Tests
 
@@ -80,13 +89,15 @@ microtiming delay.
 - `sequence::tests`: empty overlay parity, display-space hit overrides, probability restoration,
   accent replacement.
 - `lib.rs` scheduler tests: edits reach playback, ratchet substep spacing and NoteOff ordering,
-  microtiming delay and grid alignment.
-- `midi_export.rs`: microtiming shifts the exported tick; NoteOff still sorts first.
+  microtiming delay and grid alignment, and per-cell length controls NoteOff.
+- `midi_export.rs`: microtiming shifts the exported tick; per-cell length replaces the global
+  gate; NoteOff still sorts first.
 
 ## Limitations
 
 - Microtiming is step-wide, not per lane, and negative offsets are not scheduled yet.
-- Ratchets are limited to four and are not represented in the pattern view panel; they appear in
-  the step matrix ticks.
+- Ratchets are limited to four; they appear as note-body segments in the step matrix.
+- Per-cell length is capped at one step. Longer legato-style overlaps would need a voice/overlap
+  rethink.
 - Overlay edits are not host-automatable. They are project state, edited in the GUI.
 - The editor's undo history is capped at 64 snapshots and is not saved with the project.

@@ -27,6 +27,10 @@ pub(crate) struct ExportSettings {
     pub velocity: f32,
     /// Step-wide microtiming in fractions of one step (0..0.9), applied to every lane.
     pub offsets: [f32; MAX_STEPS],
+    /// Ratchet count per lane and step (1..=4).
+    pub ratchets: [[u8; MAX_STEPS]; TRACKS],
+    /// Per-cell gate/length override in fractions of one step; 0 follows `gate`.
+    pub lengths: [[f32; MAX_STEPS]; TRACKS],
     pub lanes: [Lane; TRACKS],
 }
 
@@ -65,12 +69,25 @@ pub(crate) fn smf(pattern: &Pattern, settings: &ExportSettings) -> Vec<u8> {
             if !lane.enabled || !pattern.hit[tr][i] {
                 continue;
             }
+            let ratchet = settings.ratchets[tr][i].clamp(1, 4) as usize;
+            let lane_step = step_len / ratchet as f64;
+            // A per-cell length replaces the global gate; a ratchet still caps it to its own
+            // substep spacing so one lane never overlaps itself.
+            let cell_gate = if settings.lengths[tr][i] > 0.0 {
+                settings.lengths[tr][i].clamp(0.02, 1.0) as f64 * step_len
+            } else {
+                gate
+            };
+            let sub_gate = if ratchet > 1 { cell_gate.min(lane_step * 0.9) } else { cell_gate };
             let velocity = (settings.velocity * lane.velocity * pattern.accent[tr][i])
                 .clamp(0.0, 1.0);
             let velocity = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
             let note = lane.note.min(127);
-            events.push(Event { tick: to_tick(onset), order: 1, note, velocity });
-            events.push(Event { tick: to_tick(onset + gate), order: 0, note, velocity: 0 });
+            for r in 0..ratchet {
+                let at = onset + r as f64 * lane_step;
+                events.push(Event { tick: to_tick(at), order: 1, note, velocity });
+                events.push(Event { tick: to_tick(at + sub_gate), order: 0, note, velocity: 0 });
+            }
         }
     }
     events.sort_unstable_by(|a, b| {
@@ -146,6 +163,8 @@ mod tests {
             swing: 0.0,
             velocity: 1.0,
             offsets: [0.0; MAX_STEPS],
+            ratchets: [[1; MAX_STEPS]; TRACKS],
+            lengths: [[0.0; MAX_STEPS]; TRACKS],
             lanes,
         };
         (pattern, settings)
@@ -200,12 +219,34 @@ mod tests {
     }
 
     #[test]
+    fn per_cell_length_replaces_the_global_gate() {
+        let (pattern, mut settings) = for_one_lane(36, 4, &[(0, true), (1, true)]);
+        // 0.25 of a step is 30 ticks at 480 PPQ and 1/16.
+        settings.lengths[0][0] = 0.25;
+        let events = channel_events(&smf(&pattern, &settings)[22..]);
+        assert_eq!((events[0].0, events[0].1), (0, 0x99));
+        assert_eq!((events[1].0, events[1].1), (30, 0x89));
+        // The next cell still follows the global gate (60 ticks).
+        assert_eq!((events[3].0, events[3].1), (180, 0x89));
+    }
+
+    #[test]
     fn microtiming_shifts_the_exported_tick() {
         let (pattern, mut settings) = for_one_lane(36, 4, &[(0, true), (1, true)]);
         settings.offsets[0] = 0.5;
         let events = channel_events(&smf(&pattern, &settings)[22..]);
         assert_eq!(events[0].0, 60, "half a step is 60 ticks at 480 PPQ and 1/16");
         assert_eq!(events[2].0, 120, "the next step must not inherit the delay");
+    }
+
+    #[test]
+    fn ratchets_export_even_substeps() {
+        let (pattern, mut settings) = for_one_lane(36, 4, &[(0, true)]);
+        settings.ratchets[0][0] = 2;
+        let events = channel_events(&smf(&pattern, &settings)[22..]);
+        let ons: Vec<u32> = events.iter().filter(|e| e.1 == 0x99).map(|e| e.0).collect();
+        // One 1/16 step is 120 ticks, so a two-note ratchet fires at 0 and 60.
+        assert_eq!(ons, vec![0, 60]);
     }
 
     #[test]

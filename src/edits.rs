@@ -24,6 +24,21 @@ pub const PROB_AUTO: u8 = 255;
 pub const ACCENT_AUTO: u8 = 0;
 /// Ratchet count; 1 means no ratchet.
 pub const RATCHET_AUTO: u8 = 1;
+/// Per-step length override; 0 means follow the global gate.
+pub const LENGTH_AUTO: u8 = 0;
+
+/// Convert a 0.02..1.0 step-length fraction into the stored byte, or `LENGTH_AUTO` for `None`.
+pub fn quantize_length(value: Option<f32>) -> u8 {
+    match value {
+        None => LENGTH_AUTO,
+        Some(v) => ((v.clamp(0.02, 1.0) * 255.0).round() as u8).max(1),
+    }
+}
+
+/// Decode one stored length byte. `None` means the global gate still applies.
+pub fn length_fraction(value: u8) -> Option<f32> {
+    (value != LENGTH_AUTO).then(|| (value as f32 / 255.0).clamp(0.02, 1.0))
+}
 
 /// Plain snapshot consumed by generation, the scheduler, export and preview.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,6 +49,8 @@ pub struct EditView {
     pub ratchet: [[u8; MAX_STEPS]; TRACKS],
     /// Microtiming as a fraction of one step, -127..127 (0 = on the grid).
     pub offset: [[i8; MAX_STEPS]; TRACKS],
+    /// Per-cell gate/length override; 0 follows the global gate.
+    pub length: [[u8; MAX_STEPS]; TRACKS],
 }
 
 impl Default for EditView {
@@ -44,6 +61,7 @@ impl Default for EditView {
             probability: [[PROB_AUTO; MAX_STEPS]; TRACKS],
             ratchet: [[RATCHET_AUTO; MAX_STEPS]; TRACKS],
             offset: [[0; MAX_STEPS]; TRACKS],
+            length: [[LENGTH_AUTO; MAX_STEPS]; TRACKS],
         }
     }
 }
@@ -72,6 +90,11 @@ impl EditView {
     pub fn offset_at(&self, lane: usize, step: usize) -> f32 {
         self.offset[lane.min(TRACKS - 1)][step.min(MAX_STEPS - 1)] as f32 / 127.0
     }
+
+    /// `None` means the global gate still applies.
+    pub fn length_at(&self, lane: usize, step: usize) -> Option<f32> {
+        length_fraction(self.length[lane.min(TRACKS - 1)][step.min(MAX_STEPS - 1)])
+    }
 }
 
 /// One edited cell in the project state. Only non-default cells are serialized.
@@ -89,6 +112,9 @@ pub struct EditCell {
     pub ratchet: u8,
     #[serde(default)]
     pub offset: i8,
+    /// Per-cell gate/length; 0 follows the global gate.
+    #[serde(default)]
+    pub length: u8,
 }
 
 fn auto_probability() -> u8 { PROB_AUTO }
@@ -110,6 +136,7 @@ pub struct EditStore {
     probability: [[AtomicU8; MAX_STEPS]; TRACKS],
     ratchet: [[AtomicU8; MAX_STEPS]; TRACKS],
     offset: [[AtomicU8; MAX_STEPS]; TRACKS],
+    length: [[AtomicU8; MAX_STEPS]; TRACKS],
     revision: AtomicU32,
 }
 
@@ -121,6 +148,7 @@ impl Default for EditStore {
             probability: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(PROB_AUTO))),
             ratchet: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(RATCHET_AUTO))),
             offset: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(0))),
+            length: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(LENGTH_AUTO))),
             revision: AtomicU32::new(0),
         }
     }
@@ -183,12 +211,27 @@ impl EditStore {
         self.bump();
     }
 
+    pub fn length(&self, lane: usize, step: usize) -> u8 {
+        self.length[lane.min(TRACKS - 1)][step.min(MAX_STEPS - 1)].load(Relaxed)
+    }
+
+    pub fn set_length(&self, lane: usize, step: usize, value: u8) {
+        self.length[lane.min(TRACKS - 1)][step.min(MAX_STEPS - 1)].store(value, Relaxed);
+        self.bump();
+    }
+
+    /// `None` means the global gate still applies.
+    pub fn length_at(&self, lane: usize, step: usize) -> Option<f32> {
+        length_fraction(self.length(lane, step))
+    }
+
     pub fn clear_cell(&self, lane: usize, step: usize) {
         self.set_hit(lane, step, HIT_AUTO);
         self.set_accent(lane, step, ACCENT_AUTO);
         self.set_probability(lane, step, PROB_AUTO);
         self.set_ratchet(lane, step, RATCHET_AUTO);
         self.set_offset(lane, step, 0);
+        self.set_length(lane, step, LENGTH_AUTO);
     }
 
     pub fn clear_all(&self) {
@@ -199,6 +242,7 @@ impl EditStore {
                 self.probability[lane][step].store(PROB_AUTO, Relaxed);
                 self.ratchet[lane][step].store(RATCHET_AUTO, Relaxed);
                 self.offset[lane][step].store(0, Relaxed);
+                self.length[lane][step].store(LENGTH_AUTO, Relaxed);
             }
         }
         self.bump();
@@ -213,6 +257,7 @@ impl EditStore {
                 out.probability[lane][step] = self.probability[lane][step].load(Relaxed);
                 out.ratchet[lane][step] = self.ratchet[lane][step].load(Relaxed);
                 out.offset[lane][step] = self.offset[lane][step].load(Relaxed) as i8;
+                out.length[lane][step] = self.length[lane][step].load(Relaxed);
             }
         }
     }
@@ -226,13 +271,15 @@ impl EditStore {
                 let probability = self.probability[lane][step].load(Relaxed);
                 let ratchet = self.ratchet[lane][step].load(Relaxed);
                 let offset = self.offset[lane][step].load(Relaxed) as i8;
+                let length = self.length[lane][step].load(Relaxed);
                 if hit != HIT_AUTO
                     || accent != ACCENT_AUTO
                     || probability != PROB_AUTO
                     || ratchet != RATCHET_AUTO
                     || offset != 0
+                    || length != LENGTH_AUTO
                 {
-                    cells.push(EditCell { lane: lane as u8, step: step as u16, hit, accent, probability, ratchet, offset });
+                    cells.push(EditCell { lane: lane as u8, step: step as u16, hit, accent, probability, ratchet, offset, length });
                 }
             }
         }
@@ -250,6 +297,7 @@ impl EditStore {
             self.probability[lane][step].store(cell.probability, Relaxed);
             self.ratchet[lane][step].store(cell.ratchet.clamp(1, 4), Relaxed);
             self.offset[lane][step].store(cell.offset as u8, Relaxed);
+            self.length[lane][step].store(cell.length, Relaxed);
         }
         self.bump();
     }
@@ -280,6 +328,7 @@ mod tests {
                 assert_eq!(view.accent_at(lane, step), None);
                 assert_eq!(view.ratchet_at(lane, step), 1);
                 assert_eq!(view.offset_at(lane, step), 0.0);
+                assert_eq!(view.length_at(lane, step), None);
             }
         }
     }
@@ -292,6 +341,7 @@ mod tests {
         store.set_accent(7, 1015, 200);
         store.set_ratchet(0, 0, 4);
         store.set_offset(1, 3, -64);
+        store.set_length(2, 9, quantize_length(Some(0.42)));
         let state = store.snapshot();
         let restored = EditStore::default();
         restored.apply(&state);
@@ -307,11 +357,23 @@ mod tests {
         let store = EditStore::default();
         store.set_hit(1, 1, HIT_ON);
         store.set_probability(1, 1, 10);
+        store.set_length(1, 1, quantize_length(Some(0.5)));
         store.clear_cell(1, 1);
         let mut view = EditView::default();
         store.fill(&mut view);
         assert_eq!(view.hit_override(1, 1), HIT_AUTO);
         assert_eq!(view.probability_at(1, 1), None);
+        assert_eq!(view.length_at(1, 1), None);
+    }
+
+    #[test]
+    fn length_overrides_round_trip_and_clamp() {
+        assert_eq!(length_fraction(LENGTH_AUTO), None);
+        assert!((length_fraction(quantize_length(Some(0.0))).unwrap() - 0.02).abs() < 1e-6);
+        assert!((length_fraction(quantize_length(Some(9.0))).unwrap() - 1.0).abs() < 1e-6);
+        let store = EditStore::default();
+        store.set_length(0, 0, quantize_length(Some(0.25)));
+        assert!((store.length_at(0, 0).unwrap() - 0.25).abs() < 0.01);
     }
 
     #[test]
@@ -323,7 +385,8 @@ mod tests {
         store.set_probability(0, 0, 1);
         store.set_ratchet(0, 0, 2);
         store.set_offset(0, 0, 1);
+        store.set_length(0, 0, 32);
         store.clear_cell(0, 0);
-        assert!(store.revision() > start + 5);
+        assert!(store.revision() > start + 6);
     }
 }

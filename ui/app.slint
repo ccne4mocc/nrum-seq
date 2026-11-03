@@ -23,7 +23,7 @@ export global Theme {
 export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string, lane: int }
 export struct ModeEntry { group: string, index: int, header: bool }
 export struct ModeRow { header: bool, group: string, left: int, right: int, has-right: bool }
-export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float, hit-override: int, edited: bool, ratchet: int, offset: int }
+export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float, hit-override: int, edited: bool, ratchet: int, offset: int, length: float }
 export struct TrackRow { index: int, name: string, enabled: bool, note: int, cells: [StepCell] }
 export struct Opt { label: string, min: float, max: float, value: float, text: string, step: float, number: string, scale: float }
 export struct ModRow { lfo: int, target-id: int, source: string, target: string, base: string, value: string, delta: string }
@@ -715,7 +715,7 @@ export component AppWindow inherits Window {
     title: "nrum seq";
     // Fixed layout size: the window never resizes, so the host cannot fight over it.
     in property <length> base-width: 860px;
-    in property <length> base-height: 740px;
+    in property <length> base-height: 768px;
     preferred-width: root.base-width; preferred-height: root.base-height;
     background: @linear-gradient(135deg, Theme.bg1 0%, Theme.bg2 50%, Theme.bg3 100%);
     in property <int> mode: 0;
@@ -727,8 +727,20 @@ export component AppWindow inherits Window {
     // Grid cells the generator will fill, mirroring `cell_count_for`: snap rounds, free length
     // takes the ceiling. Header and bounds read this so they cannot disagree with the matrix.
     property <int> cells: root.round-steps ? Math.round(root.steps) : Math.ceil(root.steps);
-    // Fixed step width: growing the pattern scrolls the matrix instead of shrinking cells.
-    property <length> matrix-cell-width: root.cells < 64 ? Math.max(14px, 780px / root.cells) : 14px;
+    // Zoom is a multiplier over the natural cell width, so large patterns still scroll.
+    property <length> base-cell-width: root.cells < 64 ? Math.max(14px, 780px / root.cells) : 14px;
+    in-out property <float> matrix-zoom: 1.0;
+    property <length> matrix-cell-width: root.base-cell-width * root.matrix-zoom;
+    in-out property <float> matrix-row-zoom: 1.0;
+    property <length> matrix-row-height: 22px * root.matrix-row-zoom;
+    in-out property <length> matrix-scroll-y: 0px;
+    // Musical grid, pushed from the host clock rate (4 = 1/16, 6 = 1/16 triplets, ...).
+    in property <int> steps-per-beat: 4;
+    in property <int> steps-per-bar: 16;
+    property <int> bar-count: Math.ceil(root.cells / root.steps-per-bar);
+    // Length edits snap to a fraction of one step.
+    in-out property <int> snap-index: 1;
+    in-out property <bool> length-dragging: false;
     in-out property <int> current-step: 0;
     in-out property <bool> follow-step: true;
     in-out property <bool> regen-pulse: false;
@@ -745,6 +757,33 @@ export component AppWindow inherits Window {
     }
     changed follow-step => {
         if (root.follow-step) { root.matrix-x = root.follow-x(); }
+    }
+    function zoom-matrix(factor: float) {
+        let width = Math.max(matrix-scroll.width, 1px);
+        let center = (-root.matrix-x + width * 0.5) / Math.max(root.matrix-cell-width, 0.01px);
+        let zoom = Math.max(0.02, Math.min(3.0, root.matrix-zoom * factor));
+        if (zoom == root.matrix-zoom) { return; }
+        root.matrix-zoom = zoom;
+        root.follow-step = false;
+        let max-offset = Math.max(0px, root.cells * root.matrix-cell-width - width);
+        let offset = Math.max(0px, Math.min(center * root.matrix-cell-width - width * 0.5, max-offset));
+        root.matrix-x = -offset;
+    }
+    function fit-matrix() {
+        let width = Math.max(matrix-scroll.width, 1px);
+        root.matrix-zoom = Math.max(0.02, Math.min(3.0, width / (root.cells * root.base-cell-width)));
+        root.follow-step = false;
+        root.matrix-x = 0px;
+    }
+    pure function snap-unit() -> float {
+        if (root.snap-index == 0) { return 0.0625; }
+        if (root.snap-index == 1) { return 0.125; }
+        if (root.snap-index == 2) { return 0.25; }
+        return 0.5;
+    }
+    pure function snap-length(value: float) -> float {
+        let unit = root.snap-unit();
+        return Math.max(unit, Math.min(1.0, Math.round(value / unit) * unit));
     }
     in property <float> pulses: 5;
     in property <float> rotate: 0;
@@ -863,7 +902,7 @@ export component AppWindow inherits Window {
     in property <bool> logging-on: false;
     in property <bool> generate-on: false;
     in property <[TrackRow]> tracks;
-    /// 0 = off, 1 = hit, 2 = probability, 3 = accent, 4 = clear cell, 5 = ratchet, 6 = microtiming.
+    /// 0 = off, 1 = hit, 2 = probability, 3 = accent, 4 = clear cell, 5 = ratchet, 6 = microtiming, 7 = length.
     in-out property <int> edit-mode: 0;
     in property <[ViewNode]> view-nodes;
     in property <string> view-edges: "M0 0";
@@ -890,6 +929,8 @@ export component AppWindow inherits Window {
     callback toggle-round-steps();
     callback toggle-track(int);
     callback edit-step(int, int, int);
+    /// track, step, length fraction (0.02..1.0), begin-gesture.
+    callback edit-length(int, int, float, bool);
     callback clear-edits();
     callback undo-edit();
     callback redo-edit();
@@ -1089,7 +1130,7 @@ export component AppWindow inherits Window {
         { label: "Transition bias", min: 0, max: 255, value: root.markov-bias, text: "\{Math.round(root.markov-bias)}", step: 1, number: "\{Math.round(root.markov-bias)}", scale: 1 }
     ];
 
-    // One fixed 860x740 coordinate space; the matrix scrolls fixed-width cells, so nothing reflows.
+    // One fixed 860x768 coordinate space; the matrix scrolls fixed-width cells, so nothing reflows.
     Rectangle {
         width: root.base-width; height: root.base-height;
 
@@ -1121,14 +1162,8 @@ export component AppWindow inherits Window {
             height: 34px; spacing: 6px;
             Text { text: "nrum seq"; color: Theme.text; font-family: "Consolas"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
             Text { visible: root.track-name != ""; text: "· \{root.track-name}"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide; }
-            // Hover descriptions live in the header. This is always at the top, cannot sit under the
-            // pointer, and costs no overlay or hover hit-testing.
-            Text {
-                horizontal-stretch: 1;
-                text: HoverTip.text;
-                color: Theme.text-muted; font-size: 9px;
-                vertical-alignment: center; overflow: elide;
-            }
+            // Hover descriptions live in the bottom status strip, clear of the pointer.
+            Rectangle { horizontal-stretch: 1; }
             Text { text: "CLOCK RATE"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; }
             // Clock-rate picker: sized like nelody seq's rate field.
             Rectangle {
@@ -1229,67 +1264,128 @@ export component AppWindow inherits Window {
                 }
             }
         }
-        HorizontalLayout { spacing: 8px;
-            Rectangle { width: 74px; height: 20px; border-radius: 3px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TipTouch { hint: "Swap every generated hit with a rest"; clicked => { root.toggle-invert(); } } }
-            Rectangle { width: 74px; height: 20px; border-radius: 3px; background: root.mirror-on ? Theme.c3.with-alpha(0.35) : Theme.control; Text { text: "MIRROR"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } mirror-touch := TipTouch { hint: "Reverse the generated steps after rotation"; clicked => { root.toggle-mirror(); } } }
-            Rectangle { width: 32px; height: 20px; border-radius: 3px; background: root.edit-mode == 1 ? Theme.c1.with-alpha(0.75) : Theme.control; Text { text: "HIT"; color: root.edit-mode == 1 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } hit-edit-touch := TipTouch { hint: "Edit mode: click a step to cycle auto / force on / force off"; clicked => { root.edit-mode = root.edit-mode == 1 ? 0 : 1; } } }
-            Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 2 ? Theme.c2.with-alpha(0.75) : Theme.control; Text { text: "PROB"; color: root.edit-mode == 2 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } prob-edit-touch := TipTouch { hint: "Edit mode: cycle a step's hit probability"; clicked => { root.edit-mode = root.edit-mode == 2 ? 0 : 2; } } }
-            Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 3 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "ACC"; color: root.edit-mode == 3 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } acc-edit-touch := TipTouch { hint: "Edit mode: cycle a step's accent"; clicked => { root.edit-mode = root.edit-mode == 3 ? 0 : 3; } } }
-            Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 4 ? Theme.hi.with-alpha(0.75) : Theme.control; Text { text: "CLR"; color: root.edit-mode == 4 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clr-edit-touch := TipTouch { hint: "Edit mode: clear every manual edit on a step"; clicked => { root.edit-mode = root.edit-mode == 4 ? 0 : 4; } } }
-            Rectangle { width: 48px; height: 20px; border-radius: 3px; background: clear-edits-touch.has-hover ? Theme.hi : Theme.control; Text { text: "CLR ALL"; color: clear-edits-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clear-edits-touch := TipTouch { hint: "Clear all manual step edits in this pattern"; clicked => { root.clear-edits(); } } }
-            Rectangle { width: 32px; height: 20px; border-radius: 3px; background: root.edit-mode == 5 ? Theme.c1.with-alpha(0.75) : Theme.control; Text { text: "RAT"; color: root.edit-mode == 5 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } rat-edit-touch := TipTouch { hint: "Edit mode: cycle 1–4 ratchet substeps on a step"; clicked => { root.edit-mode = root.edit-mode == 5 ? 0 : 5; } } }
-            Rectangle { width: 38px; height: 20px; border-radius: 3px; background: root.edit-mode == 6 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "TIME"; color: root.edit-mode == 6 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } time-edit-touch := TipTouch { hint: "Edit mode: delay a step by 0, 1/8, 1/4 or 1/2 step"; clicked => { root.edit-mode = root.edit-mode == 6 ? 0 : 6; } } }
-            Rectangle { width: 38px; height: 20px; border-radius: 3px; background: undo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "UNDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } undo-touch := TipTouch { hint: "Undo the last manual step edit"; clicked => { root.undo-edit(); } } }
-            Rectangle { width: 38px; height: 20px; border-radius: 3px; background: redo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "REDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } redo-touch := TipTouch { hint: "Redo the last undone step edit"; clicked => { root.redo-edit(); } } }
+        HorizontalLayout { spacing: 4px;
+            Rectangle { width: 58px; height: 20px; border-radius: 3px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TipTouch { hint: "Swap every generated hit with a rest"; clicked => { root.toggle-invert(); } } }
+            Rectangle { width: 58px; height: 20px; border-radius: 3px; background: root.mirror-on ? Theme.c3.with-alpha(0.35) : Theme.control; Text { text: "MIRROR"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } mirror-touch := TipTouch { hint: "Reverse the generated steps after rotation"; clicked => { root.toggle-mirror(); } } }
+            Rectangle { width: 28px; height: 20px; border-radius: 3px; background: root.edit-mode == 1 ? Theme.c1.with-alpha(0.75) : Theme.control; Text { text: "HIT"; color: root.edit-mode == 1 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } hit-edit-touch := TipTouch { hint: "Edit mode: click a step to cycle auto / force on / force off"; clicked => { root.edit-mode = root.edit-mode == 1 ? 0 : 1; } } }
+            Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 2 ? Theme.c2.with-alpha(0.75) : Theme.control; Text { text: "PROB"; color: root.edit-mode == 2 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } prob-edit-touch := TipTouch { hint: "Edit mode: cycle a step's hit probability"; clicked => { root.edit-mode = root.edit-mode == 2 ? 0 : 2; } } }
+            Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 3 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "ACC"; color: root.edit-mode == 3 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } acc-edit-touch := TipTouch { hint: "Edit mode: cycle a step's accent"; clicked => { root.edit-mode = root.edit-mode == 3 ? 0 : 3; } } }
+            Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 4 ? Theme.hi.with-alpha(0.75) : Theme.control; Text { text: "CLR"; color: root.edit-mode == 4 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clr-edit-touch := TipTouch { hint: "Edit mode: clear every manual edit on a step"; clicked => { root.edit-mode = root.edit-mode == 4 ? 0 : 4; } } }
+            Rectangle { width: 44px; height: 20px; border-radius: 3px; background: clear-edits-touch.has-hover ? Theme.hi : Theme.control; Text { text: "CLR ALL"; color: clear-edits-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clear-edits-touch := TipTouch { hint: "Clear all manual step edits in this pattern"; clicked => { root.clear-edits(); } } }
+            Rectangle { width: 28px; height: 20px; border-radius: 3px; background: root.edit-mode == 5 ? Theme.c1.with-alpha(0.75) : Theme.control; Text { text: "RAT"; color: root.edit-mode == 5 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } rat-edit-touch := TipTouch { hint: "Edit mode: cycle 1–4 ratchet substeps on a step"; clicked => { root.edit-mode = root.edit-mode == 5 ? 0 : 5; } } }
+            Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 6 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "TIME"; color: root.edit-mode == 6 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } time-edit-touch := TipTouch { hint: "Edit mode: delay a step by 0, 1/8, 1/4 or 1/2 step"; clicked => { root.edit-mode = root.edit-mode == 6 ? 0 : 6; } } }
+            Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 7 ? Theme.c2.with-alpha(0.75) : Theme.control; Text { text: "LEN"; color: root.edit-mode == 7 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } len-edit-touch := TipTouch { hint: "Edit mode: drag a step to set its gate length"; clicked => { root.edit-mode = root.edit-mode == 7 ? 0 : 7; } } }
+            Rectangle { width: 34px; height: 20px; border-radius: 3px; background: undo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "UNDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } undo-touch := TipTouch { hint: "Undo the last manual step edit"; clicked => { root.undo-edit(); } } }
+            Rectangle { width: 34px; height: 20px; border-radius: 3px; background: redo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "REDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } redo-touch := TipTouch { hint: "Redo the last undone step edit"; clicked => { root.redo-edit(); } } }
+            Rectangle { width: 44px; height: 20px; border-radius: 3px; background: Theme.control; Text { text: root.snap-index == 0 ? "1/16" : (root.snap-index == 1 ? "1/8" : (root.snap-index == 2 ? "1/4" : "1/2")); color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } snap-touch := TipTouch { hint: "Length snap grid: click to cycle 1/16, 1/8, 1/4, 1/2 of a step"; clicked => { root.snap-index = Math.mod(root.snap-index + 1, 4); } } }
             Rectangle { horizontal-stretch: 1; }
-            Rectangle { width: 92px; height: 20px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TipTouch { hint: "Keep the matrix scrolled to the playhead"; clicked => { root.follow-step = !root.follow-step; } } }
+            Rectangle { width: 20px; height: 20px; border-radius: 3px; background: zoom-out.has-hover ? Theme.control-hover : Theme.control; Text { text: "−"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; } zoom-out := TipTouch { hint: "Zoom the matrix out"; clicked => { root.zoom-matrix(0.8); } } }
+            Rectangle { width: 20px; height: 20px; border-radius: 3px; background: zoom-in.has-hover ? Theme.control-hover : Theme.control; Text { text: "+"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; } zoom-in := TipTouch { hint: "Zoom the matrix in"; clicked => { root.zoom-matrix(1.25); } } }
+            Rectangle { width: 28px; height: 20px; border-radius: 3px; background: fit-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "FIT"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } fit-touch := TipTouch { hint: "Fit the whole pattern in the matrix"; clicked => { root.fit-matrix(); } } }
+            Rectangle { width: 22px; height: 20px; border-radius: 3px; background: row-out.has-hover ? Theme.control-hover : Theme.control; Text { text: "V−"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } row-out := TipTouch { hint: "Make lane rows shorter (vertical zoom out)"; clicked => { root.matrix-row-zoom = Math.max(0.65, root.matrix-row-zoom * 0.85); } } }
+            Rectangle { width: 22px; height: 20px; border-radius: 3px; background: row-in.has-hover ? Theme.control-hover : Theme.control; Text { text: "V+"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } row-in := TipTouch { hint: "Make lane rows taller (vertical zoom in)"; clicked => { root.matrix-row-zoom = Math.min(1.55, root.matrix-row-zoom * 1.15); } } }
+            Rectangle { width: 76px; height: 20px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TipTouch { hint: "Keep the matrix scrolled to the playhead"; clicked => { root.follow-step = !root.follow-step; } } }
         }
         HorizontalLayout {
             spacing: 4px;
-            VerticalLayout {
-                spacing: 4px;
-                for track in root.tracks: Rectangle {
-                    width: 76px; height: 22px; border-radius: 3px;
-                    background: track.enabled ? Theme.control : Theme.cell-off;
-                    Text { x: 4px; width: parent.width - 8px; height: parent.height; text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55); font-size: 9px; vertical-alignment: center; overflow: elide; }
-                    TipTouch {
-                        hint: track.name + " · note " + track.note + " · click to enable or disable";
-                        clicked => { root.toggle-track(track.index); }
+            labels-scroll := ScrollView {
+                width: 76px; height: 210px;
+                vertical-scrollbar-policy: always-off;
+                horizontal-scrollbar-policy: always-off;
+                viewport-height: 14px + root.tracks.length * root.matrix-row-height + (root.tracks.length - 1) * 2px;
+                viewport-y <=> root.matrix-scroll-y;
+                VerticalLayout {
+                    spacing: 2px;
+                    Rectangle { height: 14px; }
+                    for track in root.tracks: Rectangle {
+                        width: 76px; height: root.matrix-row-height; border-radius: 3px;
+                        background: track.enabled ? Theme.control : Theme.cell-off;
+                        Text { x: 4px; width: parent.width - 8px; height: parent.height; text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55); font-size: 9px; vertical-alignment: center; overflow: elide; }
+                        TipTouch {
+                            hint: track.name + " · note " + track.note + " · click to enable or disable";
+                            clicked => { root.toggle-track(track.index); }
+                        }
                     }
                 }
             }
             matrix-scroll := ScrollView {
                 horizontal-stretch: 1; height: 210px;
-                vertical-scrollbar-policy: always-off;
+                vertical-scrollbar-policy: as-needed;
                 horizontal-scrollbar-policy: as-needed;
                 viewport-width: root.cells * root.matrix-cell-width;
+                viewport-height: 14px + root.tracks.length * root.matrix-row-height + (root.tracks.length - 1) * 2px;
                 viewport-x <=> root.matrix-x;
+                viewport-y <=> root.matrix-scroll-y;
                 // User drags/wheel disable following; the follow write lands on `follow-x()`.
                 scrolled() => {
                     if (Math.abs(root.matrix-x - root.follow-x()) > 2px) { root.follow-step = false; }
                 }
                 VerticalLayout {
                     width: root.cells * root.matrix-cell-width;
-                    spacing: 4px;
+                    spacing: 2px;
+                    // Bar/beat ruler. It scrolls with the matrix so labels stay over their columns.
+                    Rectangle {
+                        width: parent.width; height: 14px;
+                        background: Theme.surface.with-alpha(0.35);
+                        for b in root.bar-count: Rectangle {
+                            x: b * root.steps-per-bar * root.matrix-cell-width;
+                            width: 1px; height: parent.height;
+                            background: Theme.border;
+                        }
+                        for b in root.bar-count: Text {
+                            visible: root.matrix-cell-width * root.steps-per-bar >= 26px;
+                            x: b * root.steps-per-bar * root.matrix-cell-width + 2px;
+                            width: Math.max(20px, root.matrix-cell-width * root.steps-per-bar - 4px);
+                            height: parent.height;
+                            text: "\{b + 1}";
+                            color: Theme.text-muted; font-size: 8px; vertical-alignment: center;
+                        }
+                    }
                     for track in root.tracks: Rectangle {
-                        height: 22px;
+                        height: root.matrix-row-height;
                         HorizontalLayout {
                             spacing: 0px;
                             for cell in track.cells: Rectangle {
-                                width: root.matrix-cell-width; height: 20px;
-                                Rectangle {
+                                width: root.matrix-cell-width; height: parent.height;
+                                cell-box := Rectangle {
                                     x: 0px; y: 0px;
                                     width: parent.width - 1px; height: parent.height;
                                     border-radius: 2px;
-                                    background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : Theme.cell-off;
-                                    opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
-                                    border-width: cell.playing ? 2px : (cell.edited ? 1px : 0px); border-color: cell.playing ? Theme.hi : Theme.border;
-                                    // Velocity bar: height encodes velocity.
+                                    // Alternate bars so long patterns remain readable when zoomed out.
+                                    background: Math.mod(Math.floor(cell.step / root.steps-per-bar), 2) == 0
+                                        ? (cell.hit ? Theme.cell-off : Theme.surface.with-alpha(0.25))
+                                        : Theme.cell-off.with-alpha(cell.hit ? 0.55 : 0.30);
+                                    opacity: track.enabled ? 1.0 : 0.35;
+                                    border-width: cell.playing ? 2px : (cell.edited ? 1px : 0px);
+                                    border-color: cell.playing ? Theme.hi : Theme.border;
+                                    if cell.playing: Rectangle {
+                                        x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                        background: Theme.hi.with-alpha(0.08);
+                                    }
+                                    // Beat and bar separators.
+                                    if cell.step > 0 && Math.mod(cell.step, root.steps-per-beat) == 0: Rectangle {
+                                        x: 0px; y: 0px; width: 1px; height: parent.height;
+                                        background: Theme.border.with-alpha(0.55);
+                                    }
+                                    if cell.step > 0 && Math.mod(cell.step, root.steps-per-bar) == 0: Rectangle {
+                                        x: 0px; y: 0px; width: 1px; height: parent.height;
+                                        background: Theme.border;
+                                    }
+                                    // One note body per ratchet segment: width = gate/length,
+                                    // height = velocity, opacity = probability, lane colour = lane.
+                                    property <int> segments: cell.ratchet < 1 ? 1 : cell.ratchet;
+                                    property <length> body-x: 1px + (parent.width - 3px) * Math.min(0.9, cell.offset / 127.0);
+                                    property <length> body-w: Math.max(2px, (parent.width - 3px) * Math.min(cell.length, 1.0 - Math.min(0.9, cell.offset / 127.0)));
                                     if cell.hit: Rectangle {
-                                        x: 1px; y: parent.height - Math.max(2px, cell.velocity * (parent.height - 2px));
-                                        width: parent.width - 3px; height: Math.max(2px, cell.velocity * (parent.height - 2px));
-                                        border-radius: 1px;
-                                        background: Theme.hi.with-alpha(0.55);
+                                        x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                        for r in cell-box.segments: Rectangle {
+                                            x: cell-box.body-x + (cell-box.body-w / cell-box.segments) * r + 0.5px;
+                                            width: Math.max(1px, cell-box.body-w / cell-box.segments - 1px);
+                                            y: 2px + (1.0 - cell.velocity) * (parent.height - 4px);
+                                            height: Math.max(2px, cell.velocity * (parent.height - 4px));
+                                            border-radius: 1px;
+                                            background: Theme.lanes[Math.mod(track.index, 8)].with-alpha(0.30 + 0.70 * cell.probability);
+                                        }
                                     }
                                     // Probability indicator: top strip whose opacity encodes probability.
                                     if cell.hit && cell.probability < 1.0: Rectangle {
@@ -1314,9 +1410,21 @@ export component AppWindow inherits Window {
                             x: 0px; y: 0px; width: parent.width; height: parent.height;
                             background: transparent;
                             editor-ta := TouchArea {
-                                clicked => {
+                                pointer-event(e) => {
                                     let step = Math.floor(editor-ta.mouse-x / root.matrix-cell-width);
-                                    root.edit-step(track.index, step, root.edit-mode);
+                                    let fraction = (editor-ta.mouse-x / root.matrix-cell-width) - step;
+                                    if (root.edit-mode == 7) {
+                                        if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                                            root.length-dragging = true;
+                                            root.edit-length(track.index, step, root.snap-length(fraction), true);
+                                        } else if (e.kind == PointerEventKind.move && root.length-dragging) {
+                                            root.edit-length(track.index, step, root.snap-length(fraction), false);
+                                        } else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) {
+                                            root.length-dragging = false;
+                                        }
+                                    } else if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                                        root.edit-step(track.index, step, root.edit-mode);
+                                    }
                                 }
                             }
                         }
@@ -1449,12 +1557,30 @@ export component AppWindow inherits Window {
             }
             OptSlider { width: 230px; opt: root.opts[10]; mod-target: 12; changed(v) => { root.set-opt(10, v); } }
             Rectangle { horizontal-stretch: 1; }
-            Text { text: root.export-status; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide; }
             Rectangle {
                 width: 96px; height: 24px; border-radius: 4px;
                 background: export-touch.has-hover ? Theme.c2 : Theme.control;
                 Text { text: "EXPORT MIDI"; color: export-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
                 export-touch := TipTouch { hint: "Write one loop as a Standard MIDI File"; clicked => { root.export-midi(); } }
+            }
+        }
+        // Thin status strip: hover descriptions and edit/export feedback live here, clear of the
+        // pointer and out of the header.
+        Rectangle {
+            height: 20px; border-radius: 3px;
+            background: Theme.surface.with-alpha(0.55);
+            border-width: 1px; border-color: Theme.border.with-alpha(0.7);
+            Text {
+                x: 5px; width: parent.width - 10px; height: parent.height;
+                text: HoverTip.text != ""
+                    ? HoverTip.text
+                    : (root.mod-status != ""
+                        ? root.mod-status
+                        : (root.export-status != ""
+                            ? root.export-status
+                            : "height = velocity · width = length · opacity = probability · segments = ratchet · drag LEN to edit"));
+                color: HoverTip.text != "" ? Theme.text : Theme.text-muted;
+                font-size: 9px; vertical-alignment: center; overflow: elide;
             }
         }
     }

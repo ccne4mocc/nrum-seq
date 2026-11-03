@@ -1,9 +1,9 @@
 //! Slint GUI adapter, following the reference project's separation between pure geometry and UI glue.
+use crate::edits::{quantize_length, EditState, EditView};
 use crate::globals;
 use crate::keys;
 use crate::midi_export;
 use crate::modulation::{format_target_value, target_in_mask, LfoClock, LFO_COUNT, LFO_MAX_HZ};
-use crate::edits::{EditState, EditView};
 use crate::sequence::{generate_with, GenParams, Pattern, Rng, MAX_STEPS, MIN_MAX_STEPS, TRACKS};
 use crate::view::{self, View};
 use crate::{
@@ -21,7 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 slint::include_modules!();
 const WIDTH: u32 = 860;
-const HEIGHT: u32 = 740;
+const HEIGHT: u32 = 768;
 
 /// Built-in starting points. These are editor conveniences, not host parameters: applying one
 /// writes ordinary host parameters so the result remains automatable and saveable.
@@ -444,7 +444,7 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     // not change what another group received. Bounds follow the mode and length that survive.
     let mode = Mode::from_index(rng.below(<Mode as Enum>::variants().len()));
     let ceiling = p.step_ceiling();
-    let cells = 8 + rng.below(ceiling - 7); // 8..=ceiling
+    let cells = crate::randomize::length(ceiling, &mut rng);
     // Keep randomize on the grid; fractional spacing stays a deliberate user choice.
     let steps = cells as f32;
     // Bounds follow the values in force after the scope, so written counts stay in range.
@@ -456,17 +456,22 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
         Mode::Hilbert => 5,
         _ => cells_after,
     };
-    let pulses = rng.below(pulse_limit + 1) as i32;
+    let pulses = crate::randomize::pulses(
+        mode_after,
+        cells_after,
+        pulse_limit.max(1) as usize,
+        &mut rng,
+    ) as i32;
     let rotate = rng.below(cells_after) as i32;
-    let density = 0.15 + 0.85 * rng.unit();
+    let density = crate::randomize::pick(crate::randomize::DENSITIES, &mut rng);
     let seed = rng.unit();
     let phase = rng.unit();
     let osc_rate = 0.125 + (8.0 - 0.125) * rng.unit();
     let wave = OscWave::from_index(rng.below(crate::sequence::oscillator_wave_count));
     let ca_rule = rng.below(256) as i32;
     let symmetry = 1 + rng.below(8) as i32;
-    let probability = 0.35 + 0.65 * rng.unit();
-    let velocity = 0.45 + 0.55 * rng.unit();
+    let probability = crate::randomize::pick(crate::randomize::PROBABILITIES, &mut rng);
+    let velocity = crate::randomize::pick(crate::randomize::VELOCITIES, &mut rng);
     let rate = Rate::from_index(rng.below(14));
     // Leave swing alone: it is a feel setting, not a generator setting.
 
@@ -525,6 +530,10 @@ fn write_midi_file(p: &DrumParams, bpm: f64, folder: &str) -> Result<PathBuf, St
         swing: p.swing.value() as f64,
         velocity: p.velocity.value(),
         offsets: std::array::from_fn(|step| edits.offset_at(0, step).max(0.0)),
+        ratchets: std::array::from_fn(|tr| std::array::from_fn(|step| edits.ratchet_at(tr, step))),
+        lengths: std::array::from_fn(|tr| {
+            std::array::from_fn(|step| edits.length_at(tr, step).unwrap_or(0.0))
+        }),
         lanes,
     };
     let stamp = SystemTime::now()
@@ -803,6 +812,21 @@ impl Editor for SlintEditor {
                         }
                         _ => {}
                     }
+                });
+            }
+            {
+                // A length drag records one undo entry at pointer-down, then streams the value.
+                let (p, history) = (setup_params.clone(), edit_history_step.clone());
+                ui.on_edit_length(move |track, step, value, begin| {
+                    let lane = track.clamp(0, TRACKS as i32 - 1) as usize;
+                    let last = (p.cell_count().max(1) - 1) as i32;
+                    let step = step.clamp(0, last) as usize;
+                    if begin {
+                        if let Ok(mut history) = history.lock() {
+                            history.record(p.edit_overlay.snapshot());
+                        }
+                    }
+                    p.edit_overlay.set_length(lane, step, quantize_length(Some(value)));
                 });
             }
             {
@@ -1126,6 +1150,9 @@ impl Editor for SlintEditor {
             let gen_key = p.gen_params_at(update_shared.pattern_clock());
             let cur = update_shared.current_step.load(Relaxed);
             ui.set_current_step(cur);
+            let steps_per_beat = p.rate.value().steps_per_beat().max(1.0);
+            ui.set_steps_per_beat(steps_per_beat.round() as i32);
+            ui.set_steps_per_bar((steps_per_beat * 4.0).round() as i32);
             let mask = enabled_mask(p);
             let vel_key = velocity_key(p);
             let mut c = update_cache.lock().unwrap_or_else(|poisoned| {
@@ -1163,7 +1190,8 @@ impl Editor for SlintEditor {
                             || p.edit_overlay.accent(tr, i) != 0
                             || probability_override != 255
                             || p.edit_overlay.ratchet(tr, i) != 1
-                            || p.edit_overlay.offset(tr, i) != 0;
+                            || p.edit_overlay.offset(tr, i) != 0
+                            || p.edit_overlay.length(tr, i) != 0;
                         StepCell {
                             track: tr as i32,
                             step: i as i32,
@@ -1179,6 +1207,7 @@ impl Editor for SlintEditor {
                             edited,
                             ratchet: p.edit_overlay.ratchet(tr, i) as i32,
                             offset: p.edit_overlay.offset(0, i).max(0) as i32,
+                            length: p.edit_overlay.length_at(tr, i).unwrap_or(p.gate.value()),
                         }
                     }).collect::<Vec<_>>();
                     rows.push(TrackRow {
@@ -1197,7 +1226,7 @@ impl Editor for SlintEditor {
             let ui = AppWindow::new()?;
             Ok(ui)
         };
-        // The window never changes size: the editor reports a fixed 860x740 logical size.
+        // The window never changes size: the editor reports a fixed 860x768 logical size.
         log_line("editor spawn: opening parented Slint/baseview window");
         let window = SlintWindow::open_parented(&parent, options, factory, setup, update, |_, _| {});
         log_line("editor spawn: open_parented returned; native initialization may continue asynchronously");
@@ -1255,7 +1284,7 @@ mod tests {
         let state = |hit: u8| crate::edits::EditState {
             version: 1,
             cells: vec![EditCell {
-                lane: 0, step: 3, hit, accent: 0, probability: 255, ratchet: 1, offset: 0,
+                lane: 0, step: 3, hit, accent: 0, probability: 255, ratchet: 1, offset: 0, length: 0,
             }],
         };
         let mut history = EditHistory::default();
@@ -1276,7 +1305,7 @@ mod tests {
         let state = crate::edits::EditState {
             version: 1,
             cells: vec![EditCell {
-                lane: 1, step: 2, hit: 1, accent: 0, probability: 255, ratchet: 1, offset: 0,
+                lane: 1, step: 2, hit: 1, accent: 0, probability: 255, ratchet: 1, offset: 0, length: 0,
             }],
         };
         let mut history = EditHistory::default();

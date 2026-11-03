@@ -8,6 +8,7 @@ mod keys;
 mod midi_export;
 mod modes;
 mod modulation;
+mod randomize;
 mod sequence;
 mod view;
 
@@ -1122,7 +1123,11 @@ impl Plugin for NrumSeq {
                     // A ratchet must not overlap the next substep; otherwise one lane would need
                     // polyphony. Gate is therefore capped to its own substep spacing.
                     let lane_step = step_len / ratchet as f64;
-                    let gate = (schedule_note.gate as f64 * step_len).min(lane_step * 0.9);
+                    let gate_frac = self
+                        .edit_view
+                        .length_at(tr, idx)
+                        .unwrap_or(schedule_note.gate);
+                    let gate = (gate_frac as f64 * step_len).min(lane_step * 0.9);
                     self.active[tr] = Some(Active { note, off_beat: next_step + gate });
                 }
                 if sub + 1 < self.subdivisions {
@@ -1486,6 +1491,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn per_cell_length_controls_the_note_off() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        plugin.params.edit_overlay.set_length(0, 0, crate::edits::quantize_length(Some(0.25)));
+        run_playing(&mut plugin, &mut ctx, 12, 512);
+        let offs = ctx.note_offs();
+        assert!(!offs.is_empty(), "the kick was never released");
+        // 0.25 of a 5512.5-sample step is about 1384 samples after byte quantisation.
+        assert!((offs[0].0 as f64 - 1383.7).abs() <= 2.0, "off at {}", offs[0].0);
     }
 
     #[test]
