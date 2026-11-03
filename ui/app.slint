@@ -698,6 +698,7 @@ export component AppWindow inherits Window {
     in property <float> phase: 0.0;
     in property <float> osc-rate: 2.0;
     in property <float> ca-rule: 30;
+    in property <float> markov-bias: 0;
     in property <float> symmetry: 4;
     in property <int> rate: 3;
     in property <[string]> rate-names;
@@ -818,6 +819,7 @@ export component AppWindow inherits Window {
     callback set-rate(int);
     callback apply-preset(int);
     callback set-osc-wave(int);
+    callback set-markov-bias(float);
     callback set-lfo-enabled(int, bool);
     callback set-lfo-wave(int, int);
     callback set-lfo-rate-mode(int, int);
@@ -1016,7 +1018,8 @@ export component AppWindow inherits Window {
         { label: root.symmetry-label(root.mode), min: 1, max: 8, value: root.symmetry, text: root.symmetry-text(root.mode, root.symmetry), step: 1, number: "\{Math.round(root.symmetry)}", scale: 1 },
         { label: "Randomize after lengths", min: 0, max: 256, value: root.randomize-after-lengths, text: "\{Math.round(root.randomize-after-lengths)}", step: 1, number: "\{Math.round(root.randomize-after-lengths)}", scale: 1 },
         { label: "Swing", min: 0, max: 0.5, value: root.swing, text: "\{Math.round(root.swing * 300)}%", step: 0.01, number: "\{Math.round(root.swing * 300)}", scale: 1.0 / 300.0 },
-        { label: "Gate", min: 0.02, max: 1, value: root.gate, text: "\{Math.round(root.gate * 100)}%", step: 0.01, number: "\{Math.round(root.gate * 100)}", scale: 0.01 }
+        { label: "Gate", min: 0.02, max: 1, value: root.gate, text: "\{Math.round(root.gate * 100)}%", step: 0.01, number: "\{Math.round(root.gate * 100)}", scale: 0.01 },
+        { label: "Transition bias", min: 0, max: 255, value: root.markov-bias, text: "\{Math.round(root.markov-bias)}", step: 1, number: "\{Math.round(root.markov-bias)}", scale: 1 }
     ];
 
     // One fixed 860x740 coordinate space; the matrix scrolls fixed-width cells, so nothing reflows.
@@ -1134,6 +1137,7 @@ export component AppWindow inherits Window {
                     OptSlider { width: 82px; opt: root.opts[14]; mod-target: 10; changed(v) => { root.set-opt(15, v); } }
                 }
                 if root.shows-param(root.mode, 11): HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[11]; mod-target: 13; changed(v) => { root.set-opt(11, v); } } }
+                if root.mode == 7: HorizontalLayout { spacing: 5px; OptSlider { width: 170px; opt: root.opts[16]; changed(v) => { root.set-markov-bias(v); } } Text { horizontal-stretch: 1; text: "rest · repeat · role · novelty (2 bits each)"; color: Theme.text-muted; font-size: 8px; vertical-alignment: center; overflow: elide; } }
                 if root.mode == 4: HorizontalLayout {
                     WavePicker {
                         width: 200px; height: 28px;

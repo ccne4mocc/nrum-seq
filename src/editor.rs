@@ -641,6 +641,8 @@ impl Editor for SlintEditor {
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_set_markov_bias(move |v| set(&c, &p.markov_bias, (v.round() as i32).clamp(0, 255)));
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_set_osc_wave(move |v| {
                     set(&c, &p.osc_wave, OscWave::from_index(v.clamp(0, OscWave::variants().len() as i32 - 1) as usize));
                 });
@@ -1052,6 +1054,7 @@ impl Editor for SlintEditor {
             ui.set_osc_rate(p.osc_rate.value());
             ui.set_osc_wave(p.osc_wave.value().to_index() as i32);
             ui.set_ca_rule(p.ca_rule.value() as f32);
+            ui.set_markov_bias(p.markov_bias.value() as f32);
             ui.set_symmetry(p.symmetry.value() as f32);
             ui.set_rate(p.rate.value() as i32);
             let live_clock = update_shared.lfo_clock();

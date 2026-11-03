@@ -127,6 +127,8 @@ pub struct GenParams {
     pub mirror: bool,
     /// Per-lane generator override: 0 follows `kind`, otherwise 1 + the `Mode` index.
     pub lane_modes: [u8; TRACKS],
+    /// Markov transition bias: two bits each for rest, repeat, role-compatible and novelty.
+    pub markov_bias: u8,
     /// Revision of the manual edit overlay in this snapshot; part of the cache key.
     pub edit_rev: u32,
 }
@@ -138,6 +140,7 @@ impl Default for GenParams {
             density: 0.65, probability: 1.0, velocity: 1.0, seed: 0.271, phase: 0.0, osc_rate: 2.0,
             osc_wave: 0, ca_rule: 30, symmetry: 4, variation: 0, invert: false, mirror: false,
             lane_modes: [0; TRACKS],
+            markov_bias: 0,
             edit_rev: 0,
         }
     }
@@ -1102,6 +1105,17 @@ mod tests {
                     assert_eq!(state, tr + 1, "lane {tr} fired from state {state} at step {i}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn markov_bias_fields_change_the_transition_sequence() {
+        let states = |bias: u8| {
+            generate(&GenParams { kind: Mode::Markov, steps: 64, pulses: 8, density: 0.8, probability: 1.0, markov_bias: bias, ..GenParams::default() }).state
+        };
+        let neutral = states(0);
+        for (name, bias) in [("rest", 1u8), ("repeat", 4), ("role", 16), ("novelty", 64)] {
+            assert_ne!(states(bias), neutral, "{name} bias did not change the walk");
         }
     }
 

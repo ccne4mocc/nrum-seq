@@ -16,6 +16,23 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
             3 => { weights[3] = 10; weights[4] = 4; weights[1] = 2; weights[0] = 4; }
             _ => { weights[3] = 5; weights[2] = 3; weights[0] = 4; }
         }
+        // Four coarse biases make the hard-coded role preferences editable without a 9x9
+        // matrix: rest, self-repeat, role-compatible movement and novelty/diffusion.
+        let bias = p.markov_bias;
+        let rest = (bias & 0b11) as u32;
+        let repeat = ((bias >> 2) & 0b11) as u32;
+        let role = ((bias >> 4) & 0b11) as u32;
+        let novelty = ((bias >> 6) & 0b11) as u32;
+        weights[0] += rest * 2;
+        weights[state] += repeat * 3;
+        match state {
+            0 => { weights[1] += role * 2; weights[2] += role * 2; weights[3] += role * 3; }
+            1 | 2 => { weights[3] += role * 3; weights[1] += role; weights[2] += role; }
+            _ => { weights[3] += role * 2; weights[4] += role * 2; }
+        }
+        for (lane, weight) in weights.iter_mut().enumerate() {
+            if lane != 0 && lane != state { *weight += novelty; }
+        }
         let total: u32 = weights.iter().sum();
         let pulse_ratio = p.pulses as f32 / p.steps as f32;
         let event_chance = (p.density.clamp(0.0, 1.0) * (0.25 + pulse_ratio * 1.5)).clamp(0.0, 1.0);
