@@ -199,9 +199,18 @@ pub fn build(params: &GenParams, p: &Pattern, cur: i32) -> View {
             let x1 = x0 + cw * life_cols as f32; let y1 = y0 + ch * life_rows as f32;
             mv(&mut v.edges, x0, y0); ln(&mut v.edges, x1, y0); ln(&mut v.edges, x1, y1);
             ln(&mut v.edges, x0, y1); ln(&mut v.edges, x0, y0);
+            // The final grid is stored in generator-space columns 0..16. Rotation and mirror
+            // have already moved those cells to other display slots, so undo the transform for
+            // the drawing; otherwise a long pattern's variation rotation moves the whole grid
+            // outside the 16 sampled columns and the panel looks empty.
+            let slot_of = |col: usize| {
+                if n < life_cols { return col.min(n.saturating_sub(1)); }
+                let rotated = (col + p.rotation) % n;
+                if params.mirror { (n - 1 - rotated) % n } else { rotated }
+            };
             for row in 0..life_rows {
                 for col in 0..life_cols {
-                    let on = p.ca[row][col];
+                    let on = p.ca[row][slot_of(col)];
                     v.nodes.push(Node {
                         x: 13.0 + (col as f32 + 0.5) * cw,
                         y: 18.0 + (row as f32 + 0.5) * ch,
@@ -1011,6 +1020,21 @@ mod tests {
         unique.sort_by(|a, b| a.partial_cmp(b).unwrap());
         unique.dedup_by(|a, b| (*a - *b).abs() < 0.01);
         assert_eq!(unique.len(), TRACKS * 2, "arcs must not collapse onto one radius");
+    }
+
+    #[test]
+    fn life_panel_follows_rotation_at_long_patterns() {
+        for steps in [16usize, 64, MAX_STEPS] {
+            for (rotate, variation, mirror) in [(0usize, 0u32, false), (5, 37, false), (0, 23, true), (7, 0, true)] {
+                let g = GenParams {
+                    kind: Mode::Life, steps, pulses: 4, density: 0.5, probability: 1.0,
+                    rotate, variation, mirror, ..GenParams::default()
+                };
+                let view = build(&g, &generate(&g), 0);
+                assert!(view.nodes.iter().any(|node| node.on),
+                    "life panel is blank: steps={steps} rotate={rotate} variation={variation} mirror={mirror}");
+            }
+        }
     }
 
     #[test]
