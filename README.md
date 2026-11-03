@@ -2,6 +2,8 @@
 
 **Algorithmic percussion MIDI sequencer (CLAP + VST3), written in Rust.**
 
+![nrum seq demo](assets/nrum-seq.gif)
+
 nrum seq is a MIDI generator effect, not a synthesizer. Place it before a drum sampler or drum
 rack on an instrument track and it streams generated note events into the host. It does not
 produce audio, load samples or replace an instrument.
