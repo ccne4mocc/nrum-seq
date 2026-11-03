@@ -1367,6 +1367,25 @@ mod tests {
     }
 
     #[test]
+    fn manual_step_edits_reach_the_scheduler() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        // Force the kick off on the downbeat and back on at step 2, where the same pattern also
+        // has a kick. The revision must force a regeneration before the scheduler reads hits.
+        plugin.params.edit_overlay.set_hit(0, 0, crate::edits::HIT_OFF);
+        plugin.params.edit_overlay.set_hit(0, 2, crate::edits::HIT_ON);
+        run_playing(&mut plugin, &mut ctx, 48, 512);
+        let kicks: Vec<u64> = ctx
+            .note_ons()
+            .into_iter()
+            .filter(|(_, note, _)| *note == 36)
+            .map(|(at, _, _)| at)
+            .collect();
+        assert!(!kicks.iter().any(|at| *at <= 1), "the forced rest still sounded: {kicks:?}");
+        assert!(kicks.iter().any(|at| (*at as f64 - 11025.0).abs() <= 1.5),
+            "the forced hit at step 2 did not sound: {kicks:?}");
+    }
+
+    #[test]
     fn a_long_scheduler_run_stays_bounded() {
         let (mut plugin, mut ctx) = every_step_plugin();
         set_param(&plugin.params.steps, MAX_STEPS as f32);

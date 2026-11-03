@@ -21,7 +21,7 @@ export global Theme {
 export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string }
 export struct ModeEntry { group: string, index: int, header: bool }
 export struct ModeRow { header: bool, group: string, left: int, right: int, has-right: bool }
-export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float }
+export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float, hit-override: int, edited: bool }
 export struct TrackRow { index: int, name: string, enabled: bool, cells: [StepCell] }
 export struct Opt { label: string, min: float, max: float, value: float, text: string, step: float, number: string, scale: float }
 export struct ModRow { lfo: int, target-id: int, source: string, target: string, base: string, value: string, delta: string }
@@ -800,6 +800,8 @@ export component AppWindow inherits Window {
     in property <bool> logging-on: false;
     in property <bool> generate-on: false;
     in property <[TrackRow]> tracks;
+    /// 0 = editing off, 1 = toggle hit, 2 = cycle probability, 3 = cycle accent, 4 = clear cell.
+    in-out property <int> edit-mode: 0;
     in property <[ViewNode]> view-nodes;
     in property <string> view-edges: "M0 0";
     in property <string> view-lines: "M0 0";
@@ -822,6 +824,8 @@ export component AppWindow inherits Window {
     callback set-opt(int, float);
     callback toggle-round-steps();
     callback toggle-track(int);
+    callback edit-step(int, int, int);
+    callback clear-edits();
     callback toggle-free-run();
     callback toggle-invert();
     callback toggle-mirror();
@@ -1118,6 +1122,11 @@ export component AppWindow inherits Window {
         HorizontalLayout { spacing: 8px;
             Rectangle { width: 74px; height: 20px; border-radius: 3px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TouchArea { clicked => { root.toggle-invert(); } } }
             Rectangle { width: 74px; height: 20px; border-radius: 3px; background: root.mirror-on ? Theme.c3.with-alpha(0.35) : Theme.control; Text { text: "MIRROR"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } mirror-touch := TouchArea { clicked => { root.toggle-mirror(); } } }
+            Rectangle { width: 32px; height: 20px; border-radius: 3px; background: root.edit-mode == 1 ? Theme.c1.with-alpha(0.75) : Theme.control; Text { text: "HIT"; color: root.edit-mode == 1 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } hit-edit-touch := TouchArea { clicked => { root.edit-mode = root.edit-mode == 1 ? 0 : 1; } } }
+            Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 2 ? Theme.c2.with-alpha(0.75) : Theme.control; Text { text: "PROB"; color: root.edit-mode == 2 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } prob-edit-touch := TouchArea { clicked => { root.edit-mode = root.edit-mode == 2 ? 0 : 2; } } }
+            Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 3 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "ACC"; color: root.edit-mode == 3 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } acc-edit-touch := TouchArea { clicked => { root.edit-mode = root.edit-mode == 3 ? 0 : 3; } } }
+            Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 4 ? Theme.hi.with-alpha(0.75) : Theme.control; Text { text: "CLR"; color: root.edit-mode == 4 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clr-edit-touch := TouchArea { clicked => { root.edit-mode = root.edit-mode == 4 ? 0 : 4; } } }
+            Rectangle { width: 48px; height: 20px; border-radius: 3px; background: clear-edits-touch.has-hover ? Theme.hi : Theme.control; Text { text: "CLR ALL"; color: clear-edits-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clear-edits-touch := TouchArea { clicked => { root.clear-edits(); } } }
             Rectangle { horizontal-stretch: 1; }
             Rectangle { width: 92px; height: 20px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TouchArea { clicked => { root.follow-step = !root.follow-step; } } }
         }
@@ -1145,30 +1154,52 @@ export component AppWindow inherits Window {
                 VerticalLayout {
                     width: root.cells * root.matrix-cell-width;
                     spacing: 4px;
-                    for track in root.tracks: HorizontalLayout {
-                        height: 22px; spacing: 0px;
-                        for cell in track.cells: Rectangle {
-                            width: root.matrix-cell-width; height: 20px;
-                            Rectangle {
-                                x: 0px; y: 0px;
-                                width: parent.width - 1px; height: parent.height;
-                                border-radius: 2px;
-                                background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : Theme.cell-off;
-                                opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
-                                border-width: cell.playing ? 2px : 0px; border-color: Theme.hi;
-                                // Velocity bar: height encodes velocity.
-                                if cell.hit: Rectangle {
-                                    x: 1px; y: parent.height - Math.max(2px, cell.velocity * (parent.height - 2px));
-                                    width: parent.width - 3px; height: Math.max(2px, cell.velocity * (parent.height - 2px));
-                                    border-radius: 1px;
-                                    background: Theme.hi.with-alpha(0.55);
+                    for track in root.tracks: Rectangle {
+                        height: 22px;
+                        HorizontalLayout {
+                            spacing: 0px;
+                            for cell in track.cells: Rectangle {
+                                width: root.matrix-cell-width; height: 20px;
+                                Rectangle {
+                                    x: 0px; y: 0px;
+                                    width: parent.width - 1px; height: parent.height;
+                                    border-radius: 2px;
+                                    background: cell.hit ? (cell.velocity > 0.82 ? Theme.c1 : Theme.c2.with-alpha(0.85)) : Theme.cell-off;
+                                    opacity: track.enabled ? (cell.hit ? (0.25 + 0.75 * cell.velocity * cell.probability) : 1.0) : 0.35;
+                                    border-width: cell.playing ? 2px : (cell.edited ? 1px : 0px); border-color: cell.playing ? Theme.hi : Theme.border;
+                                    // Velocity bar: height encodes velocity.
+                                    if cell.hit: Rectangle {
+                                        x: 1px; y: parent.height - Math.max(2px, cell.velocity * (parent.height - 2px));
+                                        width: parent.width - 3px; height: Math.max(2px, cell.velocity * (parent.height - 2px));
+                                        border-radius: 1px;
+                                        background: Theme.hi.with-alpha(0.55);
+                                    }
+                                    // Probability indicator: top strip whose opacity encodes probability.
+                                    if cell.hit && cell.probability < 1.0: Rectangle {
+                                        x: 1px; y: 1px;
+                                        width: parent.width - 3px; height: 2px;
+                                        border-radius: 1px;
+                                        background: Theme.on-accent.with-alpha(0.9 * (1.0 - cell.probability));
+                                    }
+                                    // Manual edit markers: force-on bottom-right, force-off top-right.
+                                    if cell.hit-override == 1: Rectangle {
+                                        x: parent.width - 4px; y: parent.height - 4px; width: 3px; height: 3px;
+                                        border-radius: 1px; background: Theme.c2;
+                                    }
+                                    if cell.hit-override == 2: Rectangle {
+                                        x: parent.width - 4px; y: 1px; width: 3px; height: 3px;
+                                        border-radius: 1px; background: Theme.hi;
+                                    }
                                 }
-                                // Probability indicator: top strip whose opacity encodes probability.
-                                if cell.hit && cell.probability < 1.0: Rectangle {
-                                    x: 1px; y: 1px;
-                                    width: parent.width - 3px; height: 2px;
-                                    border-radius: 1px;
-                                    background: Theme.on-accent.with-alpha(0.9 * (1.0 - cell.probability));
+                            }
+                        }
+                        if root.edit-mode > 0: Rectangle {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height;
+                            background: transparent;
+                            editor-ta := TouchArea {
+                                clicked => {
+                                    let step = Math.floor(editor-ta.mouse-x / root.matrix-cell-width);
+                                    root.edit-step(track.index, step, root.edit-mode);
                                 }
                             }
                         }

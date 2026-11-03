@@ -663,6 +663,41 @@ impl Editor for SlintEditor {
                 });
             }
             {
+                let p = setup_params.clone();
+                ui.on_edit_step(move |track, step, mode| {
+                    let lane = track.clamp(0, TRACKS as i32 - 1) as usize;
+                    let last = (p.cell_count().max(1) - 1) as i32;
+                    let step = step.clamp(0, last) as usize;
+                    let store = &p.edit_overlay;
+                    match mode {
+                        1 => store.set_hit(lane, step, match store.hit(lane, step) {
+                            0 => 1,
+                            1 => 2,
+                            _ => 0,
+                        }),
+                        2 => store.set_probability(lane, step, match store.probability(lane, step) {
+                            255 => 254,
+                            254 => 191,
+                            191 => 127,
+                            127 => 64,
+                            _ => 255,
+                        }),
+                        3 => store.set_accent(lane, step, match store.accent(lane, step) {
+                            0 => 255,
+                            255 => 191,
+                            191 => 128,
+                            _ => 0,
+                        }),
+                        4 => store.clear_cell(lane, step),
+                        _ => {}
+                    }
+                });
+            }
+            {
+                let p = setup_params.clone();
+                ui.on_clear_edits(move || p.edit_overlay.clear_all());
+            }
+            {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_free_run(move || set(&c, &p.free_run, !p.free_run.value()));
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
@@ -975,13 +1010,27 @@ impl Editor for SlintEditor {
                 let mut rows = Vec::with_capacity(TRACKS);
                 for tr in 0..TRACKS {
                     let enabled = p.track_enabled(tr);
-                    let cells = (0..c.pattern.steps).map(|i| StepCell {
-                        track: tr as i32,
-                        step: i as i32,
-                        hit: enabled && c.pattern.hit[tr][i],
-                        playing: cur == i as i32,
-                        velocity: (p.track_velocity(tr) * gen_key.velocity * c.pattern.accent[tr][i]).clamp(0.0, 1.0),
-                        probability: gen_key.probability,
+                    let cells = (0..c.pattern.steps).map(|i| {
+                        let hit_override = p.edit_overlay.hit(tr, i);
+                        let probability_override = p.edit_overlay.probability(tr, i);
+                        let edited = hit_override != 0
+                            || p.edit_overlay.accent(tr, i) != 0
+                            || probability_override != 255
+                            || p.edit_overlay.ratchet(tr, i) != 1;
+                        StepCell {
+                            track: tr as i32,
+                            step: i as i32,
+                            hit: enabled && c.pattern.hit[tr][i],
+                            playing: cur == i as i32,
+                            velocity: (p.track_velocity(tr) * gen_key.velocity * c.pattern.accent[tr][i]).clamp(0.0, 1.0),
+                            probability: if probability_override == 255 {
+                                gen_key.probability
+                            } else {
+                                probability_override as f32 / 254.0
+                            },
+                            hit_override: hit_override as i32,
+                            edited,
+                        }
                     }).collect::<Vec<_>>();
                     rows.push(TrackRow {
                         index: tr as i32,
