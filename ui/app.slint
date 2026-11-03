@@ -826,6 +826,8 @@ export component AppWindow inherits Window {
     callback toggle-track(int);
     callback edit-step(int, int, int);
     callback clear-edits();
+    callback undo-edit();
+    callback redo-edit();
     callback toggle-free-run();
     callback toggle-invert();
     callback toggle-mirror();
@@ -1127,6 +1129,8 @@ export component AppWindow inherits Window {
             Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 3 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "ACC"; color: root.edit-mode == 3 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } acc-edit-touch := TouchArea { clicked => { root.edit-mode = root.edit-mode == 3 ? 0 : 3; } } }
             Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 4 ? Theme.hi.with-alpha(0.75) : Theme.control; Text { text: "CLR"; color: root.edit-mode == 4 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clr-edit-touch := TouchArea { clicked => { root.edit-mode = root.edit-mode == 4 ? 0 : 4; } } }
             Rectangle { width: 48px; height: 20px; border-radius: 3px; background: clear-edits-touch.has-hover ? Theme.hi : Theme.control; Text { text: "CLR ALL"; color: clear-edits-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clear-edits-touch := TouchArea { clicked => { root.clear-edits(); } } }
+            Rectangle { width: 38px; height: 20px; border-radius: 3px; background: undo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "UNDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } undo-touch := TouchArea { clicked => { root.undo-edit(); } } }
+            Rectangle { width: 38px; height: 20px; border-radius: 3px; background: redo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "REDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } redo-touch := TouchArea { clicked => { root.redo-edit(); } } }
             Rectangle { horizontal-stretch: 1; }
             Rectangle { width: 92px; height: 20px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TouchArea { clicked => { root.follow-step = !root.follow-step; } } }
         }

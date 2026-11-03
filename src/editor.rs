@@ -3,7 +3,7 @@ use crate::globals;
 use crate::keys;
 use crate::midi_export;
 use crate::modulation::{format_target_value, target_in_mask, LfoClock, LFO_COUNT, LFO_MAX_HZ};
-use crate::edits::EditView;
+use crate::edits::{EditState, EditView};
 use crate::sequence::{generate_with, GenParams, Pattern, Rng, MAX_STEPS, MIN_MAX_STEPS, TRACKS};
 use crate::view::{self, View};
 use crate::{
@@ -220,6 +220,37 @@ fn apply_mode(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
     );
     if wants_long && p.max_steps.value() < 256 {
         set(c, &p.max_steps, 256);
+    }
+}
+
+/// Editor-local undo stack for manual step edits. Host parameter changes are deliberately not
+/// part of this history; they remain owned by the host's own undo and automation.
+#[derive(Default)]
+struct EditHistory {
+    undo: Vec<EditState>,
+    redo: Vec<EditState>,
+}
+
+impl EditHistory {
+    const LIMIT: usize = 64;
+
+    fn record(&mut self, state: EditState) {
+        if self.undo.last().map(|last| &last.cells) == Some(&state.cells) { return; }
+        self.undo.push(state);
+        if self.undo.len() > Self::LIMIT { self.undo.remove(0); }
+        self.redo.clear();
+    }
+
+    fn undo(&mut self, current: EditState) -> Option<EditState> {
+        let previous = self.undo.pop()?;
+        self.redo.push(current);
+        Some(previous)
+    }
+
+    fn redo(&mut self, current: EditState) -> Option<EditState> {
+        let next = self.redo.pop()?;
+        self.undo.push(current);
+        Some(next)
     }
 }
 
@@ -515,6 +546,11 @@ impl Editor for SlintEditor {
         let setup_midi_dir = midi_dir.clone();
         let update_midi_dir = midi_dir.clone();
         let mod_rects = Arc::new(Mutex::new(Vec::<ModRect>::new()));
+        let edit_history = Arc::new(Mutex::new(EditHistory::default()));
+        let edit_history_step = edit_history.clone();
+        let edit_history_clear = edit_history.clone();
+        let edit_history_undo = edit_history.clone();
+        let edit_history_redo = edit_history.clone();
         let setup_mod_rects = mod_rects.clone();
         // Keep the host factor even when `set_scale_factor` is never called; the close path reads it.
         if scale > 0.0 && self.scale.load(Relaxed) == 0 { self.scale.store(scale.to_bits(), Relaxed); }
@@ -663,11 +699,14 @@ impl Editor for SlintEditor {
                 });
             }
             {
-                let p = setup_params.clone();
+                let (p, history) = (setup_params.clone(), edit_history_step.clone());
                 ui.on_edit_step(move |track, step, mode| {
                     let lane = track.clamp(0, TRACKS as i32 - 1) as usize;
                     let last = (p.cell_count().max(1) - 1) as i32;
                     let step = step.clamp(0, last) as usize;
+                    if let Ok(mut history) = history.lock() {
+                        history.record(p.edit_overlay.snapshot());
+                    }
                     let store = &p.edit_overlay;
                     match mode {
                         1 => store.set_hit(lane, step, match store.hit(lane, step) {
@@ -694,8 +733,35 @@ impl Editor for SlintEditor {
                 });
             }
             {
-                let p = setup_params.clone();
-                ui.on_clear_edits(move || p.edit_overlay.clear_all());
+                let (p, history) = (setup_params.clone(), edit_history_clear.clone());
+                ui.on_clear_edits(move || {
+                    if let Ok(mut history) = history.lock() {
+                        history.record(p.edit_overlay.snapshot());
+                    }
+                    p.edit_overlay.clear_all();
+                });
+            }
+            {
+                let (p, history) = (setup_params.clone(), edit_history_undo.clone());
+                ui.on_undo_edit(move || {
+                    let current = p.edit_overlay.snapshot();
+                    if let Ok(mut history) = history.lock() {
+                        if let Some(previous) = history.undo(current) {
+                            p.edit_overlay.apply(&previous);
+                        }
+                    }
+                });
+            }
+            {
+                let (p, history) = (setup_params.clone(), edit_history_redo.clone());
+                ui.on_redo_edit(move || {
+                    let current = p.edit_overlay.snapshot();
+                    if let Ok(mut history) = history.lock() {
+                        if let Some(next) = history.redo(current) {
+                            p.edit_overlay.apply(&next);
+                        }
+                    }
+                });
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
@@ -1086,6 +1152,42 @@ impl Editor for SlintEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn edit_history_undoes_and_redoes_in_order() {
+        use crate::edits::EditCell;
+        let state = |hit: u8| crate::edits::EditState {
+            version: 1,
+            cells: vec![EditCell {
+                lane: 0, step: 3, hit, accent: 0, probability: 255, ratchet: 1, offset: 0,
+            }],
+        };
+        let mut history = EditHistory::default();
+        let first = state(1);
+        let second = state(2);
+        history.record(first.clone());
+        history.record(second.clone());
+        let current = state(0);
+        assert_eq!(history.undo(current.clone()).unwrap().cells[0].hit, 2);
+        assert_eq!(history.undo(second.clone()).unwrap().cells[0].hit, 1);
+        assert_eq!(history.redo(first.clone()).unwrap().cells[0].hit, 2);
+        assert_eq!(history.redo(second).unwrap().cells[0].hit, 0);
+    }
+
+    #[test]
+    fn edit_history_does_not_duplicate_an_unchanged_snapshot() {
+        use crate::edits::EditCell;
+        let state = crate::edits::EditState {
+            version: 1,
+            cells: vec![EditCell {
+                lane: 1, step: 2, hit: 1, accent: 0, probability: 255, ratchet: 1, offset: 0,
+            }],
+        };
+        let mut history = EditHistory::default();
+        history.record(state.clone());
+        history.record(state);
+        assert_eq!(history.undo.len(), 1);
+    }
+
     #[test]
     fn track_mask_covers_eight_lanes() {
         let p = DrumParams::default();
