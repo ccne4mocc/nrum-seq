@@ -75,7 +75,7 @@ impl EditView {
 }
 
 /// One edited cell in the project state. Only non-default cells are serialized.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EditCell {
     pub lane: u8,
     pub step: u16,
