@@ -4,13 +4,28 @@
 
 ![nrum seq demo](assets/nrum-seq.gif)
 
-nrum seq is a MIDI generator effect, not a synthesizer. Place it before a drum sampler or drum
-rack on an instrument track and it streams generated note events into the host. It does not
-produce audio, load samples or replace an instrument.
+nrum seq is the percussive sibling of [nelody seq](https://github.com/ccne4mocc): the same
+architecture and editor layout, but with an eight-lane GM drum matrix instead of a right-to-left
+piano roll. It generates **MIDI note events, not audio**, over MIDI channel 10. Place it before a
+drum sampler or drum rack on an instrument track and use the plug-in as a generative drummer.
 
-The design favours deterministic, inspectable generators over random note soup. The same
-parameter snapshot and seed produce the same pattern, and every mode has its own visualisation
-and mode-specific controls.
+This plugin grew out of lot of interessents in the last years, especially by starting to teach myself piano play and getting my head stuck in endless rabbit holes in music production & electronic music (and birds... and sound design... and music theory and so on lol). I was kinda unsatisfied with sequencers and generative stuff, also some where really unstable (looking at you HY-RPE), on the other side a variaty of plugins/software like strudl, supercollider and some other euclidian sequencers were awesome and really hooked me.
+
+I wanted something inbetween that allowed me to play around and jam fast with concepts & ideas, polymeter creation and something  usable for funny / experimental piano instrument play but also technical production.
+One reason was also knowing talented drummers that turn off their heads when complicated words come... so I needed some tool that can bridge the ideas I want to commuinicate (you know... for when it gets esoteric with ideas) - but well who knows ... drummers^^
+
+The basis for this project were lot of other side projects/works and linux music projects, which brought me to the point to use my former IT experience to get back a bit into coding and use opencode to concretize, build and merge my sideproject mess & ideas into these 2 plugins. Cause I didn't plan to come so far from 5 smaller Projects and also uncertain to even publish, I messed up to have a cleaner longer history but whatever...
+
+Everything is deterministic and bounded for a given parameter snapshot and seed, so a pattern can
+be recalled, automated and exported without hidden state.
+
+The plugin still needs polish in many directions and I'm also planning to add more modes from time to time and partially slim it down. Some functionalities are rather rudimentary like internal lfos, since DAW LFO tools can be linked to the plugin parameters. Sequencer Matrix is also rather simple, cause I often record the midi or sound input directly into clips or just use the export midi function.
+Also it can get visually confusing with higher parameter values and some combinations, depending on modes. Nevertheless, having the limits loose was more fun (step ceiling can be increased in settings). Optimizing and giving more depth in the view/presentation is also somewhere on the list (first 1D/2D more work, but also 3D ideas). It's quite possible that I will smack both plugins to 1 package. Be also aware, switching theme to "Sketch" might burn your retina if you live in a cave like me.
+A reaper jsfx version is also on the way, but I'm not really fond of it right now.
+
+The windows variants are experimental, my focus is mainly on linux but they worked with my tests.
+
+Enjoy :3
 
 ## Highlights
 
@@ -64,20 +79,22 @@ randomization to Mode, Length, Rhythm, Tone or Feel.
 
 ## Modes
 
-Modes are grouped rather than listed exhaustively here. The full mapping, derivation and view
-geometry live in [`docs/REFERENCE_MAPPING.md`](docs/REFERENCE_MAPPING.md) and
+The 40 generators use the same category taxonomy as nelody seq, which adds the Acid group. The
+full mapping, derivation and view geometry live in
+[`docs/REFERENCE_MAPPING.md`](docs/REFERENCE_MAPPING.md) and
 [`docs/MODE_EXAMPLES.md`](docs/MODE_EXAMPLES.md).
 
-- **Rhythmic structures:** Euclidean, Euclidean-Swing, Phase Shift, Polyrhythm Stack,
-  Well-Formed, Phase Canon, Slowcat Rhythm, Weighted Syncopation.
-- **Stochastic and probabilistic:** Markov Walk, Bernoulli, Genetic Mutation, Toussaint
-  Distance.
-- **Physics, chaos and reaction systems:** Logistic Map, Lorenz Attractor, Reaction-Diffusion,
-  Cantor Set, Pebble Box, Kuramoto Lanes, Brownian Walk, Levy Flight, Tent Map, Henon Map.
-- **Mathematical and formal patterns:** Phyllotaxis, Cellular Automaton, Life-like CA,
-  Oscillator Phase, Crystallographic, Xenakis Sieve, Fibonacci, Sturmian Word, Eulerian Walk,
-  African Bell, Raised-Cos Threshold, L-System Grammar, Arnold Circle Map, Hilbert Curve,
-  Ulam Spiral Primes, Vuza Canon, Thue-Morse, Rudin-Shapiro.
+| Category | Modes | Count |
+|---|---|---:|
+| Rhythm | Euclidean · Oscillator / Phase · Raised-Cos Threshold · Slowcat Rhythm · Toussaint Distance · Well-Formed Rhythm · L-System Grammar · Phase Shift / Reich · Polyrhythm Stack · Weighted Syncopation · Euclidean-Swing Hybrid | 11 |
+| Stochastic | Markov Walk · Probabilistic (Bernoulli) · Genetic Mutation · Brownian Walk · Levy Flight | 5 |
+| Chaos / Physics | Logistic Map · Pebble Box · Kuramoto Lanes · Reaction-Diffusion · Lorenz Attractor · Arnold Circle Map · Tent Map · Henon Map | 8 |
+| Fractal | Cantor Set Rhythm | 1 |
+| Cellular | Cellular Automaton · Life-like CA | 2 |
+| Geometric | Eulerian Walk · Golden Ratio / Phyllotaxis · Crystallographic · Hilbert Curve · Ulam Spiral Primes | 5 |
+| Number Theory | Xenakis Sieve · Fibonacci/Sturmian · Sturmian Word · Vuza Canon · Thue-Morse · Rudin-Shapiro | 6 |
+| Music Theory | African Bell Patterns · Polymetric Phase Canon | 2 |
+| **Total** | | **40** |
 
 ## Build
 

@@ -23,6 +23,20 @@ These replacements prioritize relevant drum sequencing methods. The new names an
 
 The `Mode` enum in `src/modes.rs`, `Mode::GROUPS` (the one display order used by the dropdown and the header wheel) and the hardcoded mode indices in the UI's `shows-param`/`pulse-label` functions must match. Mode names are pushed from Rust, so there is no second list in Slint. Group labels and order are shared with nelody seq and must stay identical: Rhythm, Stochastic, Chaos / Physics, Fractal, Cellular, Geometric, Number Theory, Music Theory, Acid (nrum seq omits the empty Acid group):
 
+### Category summary
+
+| Category | Modes | Count |
+|---|---|---:|
+| Rhythm | Euclidean · Oscillator / Phase · Raised-Cos Threshold · Slowcat Rhythm · Toussaint Distance · Well-Formed Rhythm · L-System Grammar · Phase Shift / Reich · Polyrhythm Stack · Weighted Syncopation · Euclidean-Swing Hybrid | 11 |
+| Stochastic | Markov Walk · Probabilistic (Bernoulli) · Genetic Mutation · Brownian Walk · Levy Flight | 5 |
+| Chaos / Physics | Logistic Map · Pebble Box · Kuramoto Lanes · Reaction-Diffusion · Lorenz Attractor · Arnold Circle Map · Tent Map · Henon Map | 8 |
+| Fractal | Cantor Set Rhythm | 1 |
+| Cellular | Cellular Automaton · Life-like CA | 2 |
+| Geometric | Eulerian Walk · Golden Ratio / Phyllotaxis · Crystallographic · Hilbert Curve · Ulam Spiral Primes | 5 |
+| Number Theory | Xenakis Sieve · Fibonacci/Sturmian · Sturmian Word · Vuza Canon · Thue-Morse · Rudin-Shapiro | 6 |
+| Music Theory | African Bell Patterns · Polymetric Phase Canon | 2 |
+| **Total** | | **40** |
+
 | Index | Mode | Visualization |
 |---:|---|---|
 | 0 | Euclidean | Per-lane pulse rings, one ring per drum lane |
