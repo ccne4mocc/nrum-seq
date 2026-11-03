@@ -11,17 +11,19 @@
 - New `Gate` control in the feel row so it is user-editable and modulation-targetable.
 - Floating LFO drag badge, waveform-shape picker for both oscillator and LFO slots, active
   styling for the bipolar/unipolar chip, and a timed LFO status line.
-- Shared mode-group taxonomy with nelody sequencer: Rhythm, Stochastic, Chaos / Physics, Fractal,
+- Shared mode-group taxonomy with nelody seq: Rhythm, Stochastic, Chaos / Physics, Fractal,
   Cellular, Geometric, Number Theory, Music Theory and Acid (Acid is omitted here).
 
 ### Changed
 
+- Renamed the plug-in to `nrum seq`. The CLAP ID is now `com.nrumseq.nrumseq` and the VST3
+  class ID is `nrum-seq`; sessions created with the old IDs must replace the plug-in instance.
 - Credit / Contact rows are flush, with no inter-row spacing.
 - Mode entries in the mode picker are 11px (up 2px).
 - LFO drag points are 28×26.
 - Version is 1.2.0.
 
-## 1.1.0 — nelody sequencer migration
+## 1.1.0 — nelody seq migration
 
 ### Added
 
@@ -42,16 +44,16 @@
 - Arnold fires on phase wraps instead of an unrelated random draw.
 - Ulam walks a real square spiral from `phase`/`variation`, primes the cells and publishes the
   coordinates its panel draws.
-- Hilbert now follows nelody sequencer's sampling: `pulses` selects the order, `phase` rotates by quarter
+- Hilbert now follows nelody seq's sampling: `pulses` selects the order, `phase` rotates by quarter
   turns, `seed` shifts the lane mapping, and the panel draws the same rotated curve.
-- Arnold now matches nelody sequencer's parameter mapping: `pulses` is the rotation number Ω, `density`
+- Arnold now matches nelody seq's parameter mapping: `pulses` is the rotation number Ω, `density`
   is the coupling K `(1−density)·1.4`, and `phase`/`seed` set the start.
 - The seed control is hidden in modes whose generator never reads it (Oscillator, Well-Formed,
   Ulam, Thue–Morse, Rudin–Shapiro); it still affects the shared accent humanizer.
 - Sieve thins its members evenly instead of ranking them by jitter.
 - Cellular and Hilbert panels read the generator's own row/curve helpers.
 - Neon is the fresh default theme; version 1.1.0 is shown in Settings.
-- The header clock picker is labelled `CLOCK RATE` and matches nelody sequencer's field width.
+- The header clock picker is labelled `CLOCK RATE` and matches nelody seq's field width.
 
 ### Behaviour changes
 

@@ -25,8 +25,8 @@ pub(crate) struct GlobalSettings {
     pub midi_dir: Option<String>,
 }
 
-/// `$XDG_CONFIG_HOME/nrum-sequencer/settings.json`, falling back to
-/// `$HOME/.config/nrum-sequencer/settings.json`, or `%APPDATA%` on Windows. Returns `None`
+/// `$XDG_CONFIG_HOME/nrum-seq/settings.json`, falling back to
+/// `$HOME/.config/nrum-seq/settings.json`, or `%APPDATA%` on Windows. Returns `None`
 /// when no config directory can be determined — a host launched with neither `HOME` nor
 /// `XDG_CONFIG_HOME`, e.g. under a bare systemd unit. Settings then simply do not persist
 /// across sessions rather than failing the editor.
@@ -38,7 +38,7 @@ fn config_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
-    Some(base?.join("nrum-sequencer").join("settings.json"))
+    Some(base?.join("nrum-seq").join("settings.json"))
 }
 
 /// Human-readable location shown in Settings; uneditable so users can find the file without
@@ -136,6 +136,6 @@ mod tests {
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
         // No config home resolvable at all; there is nothing to compare against.
         let Some(home) = expected_home else { return };
-        assert_eq!(path, home.join("nrum-sequencer").join("settings.json"));
+        assert_eq!(path, home.join("nrum-seq").join("settings.json"));
     }
 }

@@ -16,9 +16,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Build CLAP + VST3
-        run: cargo xtask bundle nrum-sequencer --release --target ${{ matrix.target }}
+        run: cargo xtask bundle nrum-seq --release --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
-          name: nrum-sequencer-${{ matrix.target }}
+          name: nrum-seq-${{ matrix.target }}
           # nice-plug's xtask (like nih-plug's) always writes to target/bundled, whatever --target is.
           path: target/bundled

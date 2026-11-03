@@ -1,6 +1,6 @@
 # LFO system
 
-nrum sequencer has four runtime LFOs in a 2×2 rack below the step matrix. The LFOs never write host
+nrum seq has four runtime LFOs in a 2×2 rack below the step matrix. The LFOs never write host
 parameters. They compute an effective value from the base parameter plus the linked LFO signals,
 and the scheduler, preview and matrix all read that effective value.
 

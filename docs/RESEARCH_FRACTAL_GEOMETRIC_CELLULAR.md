@@ -1,7 +1,7 @@
 # Research: Fractal, Geometric / Sacred-Geometry and Cellular Generation
 
 Status: **research only — nothing in this document is implemented.** This is a shared reference
-for proofreading before the next mode wave. The companion document in nelody sequencer
+for proofreading before the next mode wave. The companion document in nelody seq
 (`_Nelody/_Nelody/docs/RESEARCH_FRACTAL_GEOMETRIC_CELLULAR.md`) carries the same algorithm
 review with melodic mappings.
 
@@ -34,18 +34,18 @@ Any new mode must respect the project invariants:
 
 The current parameter surface is enough for most candidates. `pulses`, `density`, `phase`,
 `seed`, `ca_rule`, `symmetry` and `osc_rate` are already overloaded per mode, as documented in
-`REFERENCE_MAPPING.md`. nrum sequencer has no `mode_data` bridge; a candidate that needs more than two
+`REFERENCE_MAPPING.md`. nrum seq has no `mode_data` bridge; a candidate that needs more than two
 independent knobs should either reuse `symmetry`/`ca_rule` or be deferred until the shared
 contract is extended.
 
 ## 2. Shared grouping taxonomy
 
-The presentation groups are now shared with nelody sequencer:
+The presentation groups are now shared with nelody seq:
 
 `Rhythm`, `Stochastic`, `Chaos / Physics`, `Fractal`, `Cellular`, `Geometric`,
 `Number Theory`, `Music Theory`, `Acid`.
 
-nrum sequencer has no acid modes, so `Acid` is omitted. `Cantor` moves to `Fractal`; `Cellular` moves to
+nrum seq has no acid modes, so `Acid` is omitted. `Cantor` moves to `Fractal`; `Cellular` moves to
 `Cellular`; `Eulerian`, `Phyllotaxis`, `Crystallographic`, `Hilbert` and `Ulam` move to
 `Geometric`. Adding the candidates below would extend the existing groups rather than create new
 ones, except where a candidate is intentionally rejected.
@@ -64,7 +64,7 @@ mechanism, not merely a chaotic map with a pretty name. Three families are pract
 
 ### 3.2 Candidates
 
-| Candidate | Mechanic | nrum sequencer mapping | Cost | Recommendation |
+| Candidate | Mechanic | nrum seq mapping | Cost | Recommendation |
 |---|---|---|---|---|
 | **Mandelbrot / Julia** | `z ← z² + c`, escape at `|z| > 2` | Step samples `c` (Mandelbrot) or `z₀` (Julia); escape band → lane/hit; smooth escape → accent | `steps × 64` complex iterations | **Wave 1** |
 | **Newton basins** | `z ← z − p(z)/p'(z)`, `p(z)=z^d−1` | Root index → lane/degree; convergence time → accent; basin boundary → onset | `steps × 32` | **Wave 2** |
@@ -112,7 +112,7 @@ sampled point.
   the set boundary. A density threshold thins the selected bands.
 - `accent = 0.55 + 0.45 * μ_norm`; interior points get the strongest accent or are treated as
   rests depending on `density`.
-- Lane: `band mod TRACKS` for nrum sequencer. This gives a deterministic distribution across the eight
+- Lane: `band mod TRACKS` for nrum seq. This gives a deterministic distribution across the eight
   lanes without a second random source.
 
 **View options**
@@ -231,7 +231,7 @@ Candidates already present or adjacent:
 
 ### 4.2 Candidates
 
-| Candidate | Mechanic | nrum sequencer mapping | Cost | Recommendation |
+| Candidate | Mechanic | nrum seq mapping | Cost | Recommendation |
 |---|---|---|---|---|
 | **Spirograph / Lissajous** | `x=cos(a t+δ)`, `y=sin(b t)` | y bucket → lane; extrema/crossings → onset; speed → accent | `steps` trig evaluations | **Wave 1** |
 | **Platonic-solid walk** | Traverse vertices/edges/faces of a Platonic solid | Projected vertex → lane; edge/face traversal → onset | `steps` table lookups | **Wave 2** |
@@ -318,7 +318,7 @@ Pick a start tile and follow the arc to the next tile. Each step is one tile mov
 - Onset on a turn or on every second tile; accent from run length.
 - Lane from movement direction (`N/E/S/W`) or tile type.
 - View: draw the arcs and the visited path.
-- Cheap, visual and nrum sequencer-friendly. A strong alternative to Platonic Walk if the latter feels too
+- Cheap, visual and nrum seq-friendly. A strong alternative to Platonic Walk if the latter feels too
   abstract.
 
 ### 4.7 Flower of Life / hex rosette — detailed design
@@ -350,7 +350,7 @@ This is a solid base. The missing families are 2-D, ant-like and multi-state aut
 
 ### 5.2 Candidates
 
-| Candidate | Mechanic | nrum sequencer mapping | Cost | Recommendation |
+| Candidate | Mechanic | nrum seq mapping | Cost | Recommendation |
 |---|---|---|---|---|
 | **Life-like 2-D CA** | `B/S` rules on a torus | Row/live count → lane; live cells → hits; neighbours → accent | `steps × grid²` | **Wave 1** |
 | **Langton's Ant** | Turn/flip/move on a torus | Direction → lane; cell flip → onset; run length → accent | `steps` moves | **Wave 2** |
@@ -364,7 +364,7 @@ This is a solid base. The missing families are 2-D, ant-like and multi-state aut
 
 Use a small torus, not a full-screen simulation:
 
-- `W × H` with `W = 16`, `H = 8` (nrum sequencer lanes) or `16 × 16` (more spatial detail).
+- `W × H` with `W = 16`, `H = 8` (nrum seq lanes) or `16 × 16` (more spatial detail).
 - One generation per pattern step, or a snapshot scan if the temporal mapping is preferred.
 - Presets selected by `ca_rule`:
   - 0: Life `B3/S23`
@@ -379,7 +379,7 @@ Use a small torus, not a full-screen simulation:
 
 - Each generation is one pattern step.
 - For each generation, collect live cells.
-- nrum sequencer lane `tr` fires if row `tr` has at least one live cell; velocity/accent scales with the
+- nrum seq lane `tr` fires if row `tr` has at least one live cell; velocity/accent scales with the
   live count. This gives all eight lanes a chance and makes the rhythm follow population waves.
 - Store a 16-column projection of the generation in `Pattern.ca[row][step]` for the view.
 
@@ -451,7 +451,7 @@ preset UI.
 
 ## 6. Cross-project mapping summary
 
-| Candidate | nrum sequencer (8 lanes) | nelody sequencer (mono voice) |
+| Candidate | nrum seq (8 lanes) | nelody seq (mono voice) |
 |---|---|---|
 | Mandelbrot / Julia | Escape band → lane; smooth escape → accent | Escape time → `u`; basin/quadrant → `slots`; boundary → onset |
 | Newton | Root index → lane; iterations → accent | Root index → degree; convergence → accent |
@@ -467,7 +467,7 @@ preset UI.
 | Langton Ant | Direction → lane; flip → onset | x/y → pitch; turn → contour |
 | Cyclic CA | State → lane; front → onset | State → degree; front → onset |
 
-nelody sequencer has `mode_data: [f32; 4]` for extra knobs; nrum sequencer does not. Prefer reusing existing
+nelody seq has `mode_data: [f32; 4]` for extra knobs; nrum seq does not. Prefer reusing existing
 parameters in both so the two implementations stay comparable.
 
 ## 7. Recommended waves
@@ -483,10 +483,10 @@ view. None requires a new `Pattern` field if the first view is a contour/strip.
 
 ### Wave 2 — stronger musical structure
 
-4. **Newton basins** (Fractal; especially strong for nelody sequencer)
+4. **Newton basins** (Fractal; especially strong for nelody seq)
 5. **Langton's Ant** (Cellular)
 6. **Platonic-solid walk** (Geometric)
-7. **Truchet path** (Geometric; nrum sequencer first)
+7. **Truchet path** (Geometric; nrum seq first)
 
 ### Wave 3 — richer but more expensive
 
@@ -537,7 +537,7 @@ Before any candidate is promoted to a mode:
    `ca_rule` preset?
 5. Is **Fractal** allowed to remain an empty group until Wave 1 lands? The UI already omits
    empty groups.
-6. Do we want `mode_data` in nrum sequencer before Wave 1, or is the current parameter reuse sufficient?
+6. Do we want `mode_data` in nrum seq before Wave 1, or is the current parameter reuse sufficient?
 
 ## 11. References
 

@@ -1,12 +1,12 @@
-# Reference project mapping: `_AlgoNemLody` → nrum sequencer
+# Reference project mapping: `_AlgoNemLody` → nrum seq
 
 This map records the supplied melody sequencer's existing view conventions so follow-up agents can preserve its design language instead of guessing.
 
 ## Reference modes and current counterparts
 
-The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`GenKind`), `src/view.rs` (`build()`), and `ui/app.slint` (`pulses-labels`, `shape-label`, `ModePanel`). nrum sequencer keeps one mode enum instead of the reference's two: `Mode` in `src/modes.rs` is both the host parameter and the generator's dispatch key.
+The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`GenKind`), `src/view.rs` (`build()`), and `ui/app.slint` (`pulses-labels`, `shape-label`, `ModePanel`). nrum seq keeps one mode enum instead of the reference's two: `Mode` in `src/modes.rs` is both the host parameter and the generator's dispatch key.
 
-| Reference mode | Reference generator | Reference view | nrum sequencer adaptation |
+| Reference mode | Reference generator | Reference view | nrum seq adaptation |
 |---|---|---|---|
 | Euclidean | `E(pulses, steps)` | Radial clock; active hit nodes and a playhead hand | **Euclidean** — one pulse ring per drum lane, so per-lane densities stay visible |
 | Golomb Ruler | Optimal Golomb ruler marks | Pitch/step strip only (`view_kind = 6`) | Replaced by **Crystallographic** — periodic motif with symmetry-lattice view |
@@ -21,7 +21,7 @@ These replacements prioritize relevant drum sequencing methods. The new names an
 
 ## New mode → view index
 
-The `Mode` enum in `src/modes.rs`, `Mode::GROUPS` (the one display order used by the dropdown and the header wheel) and the hardcoded mode indices in the UI's `shows-param`/`pulse-label` functions must match. Mode names are pushed from Rust, so there is no second list in Slint. Group labels and order are shared with nelody sequencer and must stay identical: Rhythm, Stochastic, Chaos / Physics, Fractal, Cellular, Geometric, Number Theory, Music Theory, Acid (nrum sequencer omits the empty Acid group):
+The `Mode` enum in `src/modes.rs`, `Mode::GROUPS` (the one display order used by the dropdown and the header wheel) and the hardcoded mode indices in the UI's `shows-param`/`pulse-label` functions must match. Mode names are pushed from Rust, so there is no second list in Slint. Group labels and order are shared with nelody seq and must stay identical: Rhythm, Stochastic, Chaos / Physics, Fractal, Cellular, Geometric, Number Theory, Music Theory, Acid (nrum seq omits the empty Acid group):
 
 | Index | Mode | Visualization |
 |---:|---|---|
@@ -55,7 +55,7 @@ The `Mode` enum in `src/modes.rs`, `Mode::GROUPS` (the one display order used by
 | 27 | Genetic Mutation | Mutated base pattern per lane |
 | 28 | Arnold Circle Map | Phasor trajectory; Ω from Pulses, K from Density, onsets are phase wraps |
 | 29 | Sturmian Word | Phase-controlled Sturmian slope |
-| 30 | Hilbert Curve | nelody sequencer sampling `i·total/n`; Pulses = order, Phase = quarter turns, Seed shifts the lane mapping; density thins curve cells |
+| 30 | Hilbert Curve | nelody seq sampling `i·total/n`; Pulses = order, Phase = quarter turns, Seed shifts the lane mapping; density thins curve cells |
 | 31 | Ulam Spiral Primes | Real square spiral from phase/variation; prime cells mapped by diagonal; Pulses sets target onsets |
 | 32 | Vuza Canon | Modulus rows; `ca_rule` picks N |
 | 33 | Thue-Morse | Lane-0 A010060 word strip plus eight lane onset bands |

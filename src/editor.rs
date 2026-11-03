@@ -22,13 +22,13 @@ slint::include_modules!();
 const WIDTH: u32 = 860;
 const HEIGHT: u32 = 760;
 
-/// Append one technical line to `nrum-sequencer.log` in the user's home directory. Called from
+/// Append one technical line to `nrum-seq.log` in the user's home directory. Called from
 /// the GUI update thread only; the audio path never touches the file system.
 fn log_line(text: &str) {
     use std::io::Write;
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
     let Some(home) = home else { return };
-    let path = PathBuf::from(home).join("nrum-sequencer.log");
+    let path = PathBuf::from(home).join("nrum-seq.log");
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{}", text);
     }
@@ -468,7 +468,7 @@ fn write_midi_file(p: &DrumParams, bpm: f64, folder: &str) -> Result<PathBuf, St
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let path = folder.join(format!("nrum-sequencer-{stamp}.mid"));
+    let path = folder.join(format!("nrum-seq-{stamp}.mid"));
     std::fs::write(&path, midi_export::smf(&pattern, &settings))
         .map_err(|e| format!("write {}: {e}", path.display()))?;
     Ok(path)
@@ -545,7 +545,7 @@ impl Editor for SlintEditor {
             setter.end_set_parameter(&self.params.theme);
         }
         let options = WindowOpenOptions {
-            title: "nrum sequencer".to_string(), size: Size::new(WIDTH as f64, HEIGHT as f64),
+            title: "nrum seq".to_string(), size: Size::new(WIDTH as f64, HEIGHT as f64),
             scale: if scale > 0.0 { WindowScalePolicy::ScaleFactor(scale as f64) } else { WindowScalePolicy::SystemScaleFactor },
             gl_config: Some(default_gl_config()),
         };
