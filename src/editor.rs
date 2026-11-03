@@ -815,9 +815,9 @@ impl Editor for SlintEditor {
                 });
             }
             {
-                // A length drag records one undo entry at pointer-down, then streams the value.
+                // A gate drag records one undo entry at pointer-down, then streams the value.
                 let (p, history) = (setup_params.clone(), edit_history_step.clone());
-                ui.on_edit_length(move |track, step, value, begin| {
+                ui.on_edit_gate(move |track, step, value, begin| {
                     let lane = track.clamp(0, TRACKS as i32 - 1) as usize;
                     let last = (p.cell_count().max(1) - 1) as i32;
                     let step = step.clamp(0, last) as usize;
@@ -1225,9 +1225,13 @@ impl Editor for SlintEditor {
             Ok(ui)
         };
         // The window never changes size: the editor reports a fixed 860x768 logical size.
-        log_line("editor spawn: opening parented Slint/baseview window");
+        if self.params.logging.value() {
+            log_line("editor spawn: opening parented Slint/baseview window");
+        }
         let window = SlintWindow::open_parented(&parent, options, factory, setup, update, |_, _| {});
-        log_line("editor spawn: open_parented returned; native initialization may continue asynchronously");
+        if self.params.logging.value() {
+            log_line("editor spawn: open_parented returned");
+        }
         Box::new(SlintEditorHandle {
             window,
             params: self.params.clone(),

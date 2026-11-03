@@ -65,7 +65,7 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 - QA can add invariant tests independently of UI polish.
 - A scheduler test harness can be developed in parallel with new algorithms.
 - `GenParams`, `Pattern`, mode enum order and the `StepCell`/`ViewNode` schemas are cross-layer contracts.
-- `vendor/slint-baseview` is a crates.io copy carrying a one-line fix for mouse-wheel delivery; see `vendor/slint-baseview/PATCH-NOTES.md`. Do not edit it casually, and check whether upstream has shipped a fix before carrying the fork further.
+- `vendor/slint-baseview` is a crates.io copy carrying local fixes for mouse-wheel delivery and Alt+wheel axis remapping; see `vendor/slint-baseview/PATCH-NOTES.md`. Do not edit it casually, and check whether upstream has shipped a fix before carrying the fork further.
 - The parameter struct and IDs in `src/lib.rs`, the `opts` mapping and callbacks in `ui/app.slint` + `src/editor.rs` must be changed as one task.
 - Changing `Rate`, `gate`, swing or ratchet semantics affects scheduling, UI description and timing tests together.
 - A per-lane generator selection was implemented and removed twice; see the Sequencing features section. If it returns, do not call eight full generators unconditionally — dispatch each *distinct* mode once instead.

@@ -520,11 +520,18 @@ impl<T: slint::ComponentHandle> baseview::WindowHandler for SlintWindowHandler<T
                             position: *self.last_cursor_pos.borrow(),
                         }
                     }
-                    baseview::MouseEvent::WheelScrolled { delta, .. } => {
-                        let (delta_x, delta_y) = match delta {
+                    baseview::MouseEvent::WheelScrolled { delta, modifiers, .. } => {
+                        let (mut delta_x, mut delta_y) = match delta {
                             baseview::ScrollDelta::Lines { x, y } => (x * 20.0, y * 20.0),
                             baseview::ScrollDelta::Pixels { x, y } => (x, y),
                         };
+                        // LOCAL PATCH: Alt+wheel scrolls the pattern matrix horizontally.
+                        // Slint's Flickable only maps Shift to the horizontal axis, and
+                        // ScrollView does not expose wheel modifiers to Slint code, so swap
+                        // the axes here where baseview still reports the modifier state.
+                        if modifiers.contains(keyboard_types::Modifiers::ALT) {
+                            std::mem::swap(&mut delta_x, &mut delta_y);
+                        }
                         // LOCAL PATCH: baseview's `WheelScrolled` carries no position, so
                         // this used to hardcode (0,0). Slint hit-tests scroll events by
                         // position, so every wheel notch was delivered to whatever sits in

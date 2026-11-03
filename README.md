@@ -14,17 +14,18 @@ nrum seq grew out of many other interests and projects. `_AlgoNemLody`, its dire
 - Lane-independent hit generation; each lane has its own density profile, phase origin, enable/note/velocity host parameter.
 - Per-step editing: hit overrides, probability, accent, ratchets (1–4), step-wide microtiming and
   per-cell gate length, with undo/redo and a `CLR ALL` reset. Edits are display-space and survive
-  rotation, mirror and Generate. The matrix draws width = length, height = velocity,
+  rotation, mirror and Generate. The matrix draws width = gate, height = velocity,
   opacity = probability and one segment per ratchet, over a bar/beat ruler.
 - Matrix navigation: horizontal and vertical zoom (`+`, `−`, `FIT`), native scrollbars,
-  follow-mode centering and a lane-label column that scrolls with the rows.
+  wheel-to-scroll vertically, Alt+wheel for horizontal panning, follow-mode centering and a
+  lane-label column that scrolls with the rows.
 - Hover descriptions and edit/export feedback appear in a thin bottom status strip, keeping the
   header clear and the text away from the pointer.
 - Automatic regeneration and per-length randomization with a scope mask (Mode / Length / Rhythm / Tone / Feel). Randomize draws from mode-aware palettes, so lengths, pulse counts, density and probability land on musically legible values instead of uniform noise.
 - One-loop MIDI export to a timestamped SMF in a user-chosen folder.
 - **Four runtime LFOs** in a 2×2 rack below the step matrix: waveform, Hz (0.01–10) or beat-synced speed, depth (0–200%), phase, bipolar / unipolar / unipolar-negative polarity and per-LFO enable. Drag an LFO point onto any numeric parameter to link it; linked controls show a depth band plus a second animated value bar, and the matrix shows/removes links.
 - Built-in starting-point presets for house, broken beat, polyrhythm, deep and glitch material. Presets write ordinary host parameters.
-- Four colour themes: Neon (default), Sketch (light), Lava, Forest.
+- Four colour themes: Lava (default), Sketch (light), Neon, Forest.
 - Technical logging toggle; when enabled, mode and parameter snapshots are appended to `~/nrum-seq.log` (`%USERPROFILE%\nrum-seq.log` on Windows).
 
 ## Modes

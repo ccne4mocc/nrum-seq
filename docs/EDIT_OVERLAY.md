@@ -59,8 +59,8 @@ Consequences:
 
 ## Editor
 
-The matrix header has edit modes: `HIT`, `PROB`, `ACC`, `CLR`, `RAT`, `TIME`, `LEN`, plus
-`CLR ALL`, `UNDO`, `REDO` and a length snap selector (`1/16` … `1/2` of a step).
+The matrix header has edit modes: `HIT`, `PROB`, `ACC`, `CLR`, `RAT`, `TIME`, `GATE`, plus
+`CLR ALL`, `UNDO`, `REDO` and a gate snap selector (`1/4`, `1/2`, `3/4` or one step).
 
 - Editing is disabled until a mode is selected, so normal scrolling is unaffected.
 - `HIT` cycles auto → on → off.
@@ -68,20 +68,21 @@ The matrix header has edit modes: `HIT`, `PROB`, `ACC`, `CLR`, `RAT`, `TIME`, `L
 - `ACC` cycles auto → 100 → 75 → 50 percent.
 - `RAT` cycles 1 → 2 → 3 → 4.
 - `TIME` cycles 0 → 1/8 → 1/4 → 1/2 of a step.
-- `LEN` drags a step's gate length; the value snaps to the selected grid and one undo entry covers
-  the whole drag.
+- `GATE` drags a step's gate length; the value snaps to the selected fraction of one step and
+  one undo entry covers the whole drag.
 - `CLR` clears every overlay field on the clicked cell.
 - `CLR ALL` clears the whole overlay.
 - Undo/redo is editor-local and covers overlay edits only. Host parameter changes remain owned by
   the host's undo and automation.
 
 The UI receives `hit-override`, effective `probability`, `ratchet`, `offset`, effective `length`
-and `edited` per cell. Note bodies encode width = length, height = velocity, opacity = probability
+and `edited` per cell. Note bodies encode width = gate, height = velocity, opacity = probability
 and one segment per ratchet. Force-on and force-off cells are marked, and beat/bar lines plus a
 bar ruler make the grid readable at any zoom.
 
-The matrix supports horizontal and vertical zoom (`+`, `−`, `FIT`), native scrollbars, follow-mode
-centering and a vertical scroll shared with the lane-label column.
+The matrix supports horizontal and vertical zoom (`+`, `−`, `FIT`), native scrollbars,
+wheel-to-scroll vertically, Alt+wheel for horizontal panning, follow-mode centering and a
+vertical scroll shared with the lane-label column.
 
 ## Tests
 

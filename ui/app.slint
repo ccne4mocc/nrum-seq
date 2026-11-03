@@ -1,23 +1,23 @@
 import { ScrollView } from "std-widgets.slint";
 // nrum seq: algorithm-first MIDI drum sequencer. Rust pushes deterministic pattern and view data.
 export global Theme {
-    in-out property <color> c1: #a67c00;
-    in-out property <color> c2: #3f6591;
-    in-out property <color> c3: #9c4f43;
-    in-out property <color> hi: #a93226;
-    in-out property <color> bg1: #f3eee2;
-    in-out property <color> bg2: #eee7d8;
-    in-out property <color> bg3: #e8dfcd;
-    in-out property <color> surface: #faf5e9;
-    in-out property <color> control: #e5dcc9;
-    in-out property <color> control-hover: #d7ccb5;
-    in-out property <color> text: #2f2b25;
-    in-out property <color> text-muted: #7a7061;
-    in-out property <color> border: #c7bca8;
-    in-out property <color> cell-off: #ded5c3;
-    in-out property <color> on-accent: #fdf9f0;
+    in-out property <color> c1: #fde047;
+    in-out property <color> c2: #f97316;
+    in-out property <color> c3: #dc2626;
+    in-out property <color> hi: #38bdf8;
+    in-out property <color> bg1: #1b1010;
+    in-out property <color> bg2: #201113;
+    in-out property <color> bg3: #180e13;
+    in-out property <color> surface: #221416;
+    in-out property <color> control: #332024;
+    in-out property <color> control-hover: #4a2c2f;
+    in-out property <color> text: #f3e8e0;
+    in-out property <color> text-muted: #b09a94;
+    in-out property <color> border: #4a3134;
+    in-out property <color> cell-off: #2a1a1c;
+    in-out property <color> on-accent: #1a0d0d;
     // Eight distinguishable lane colours used by the phyllotaxis rosettes.
-    in-out property <[color]> lanes: [#3f6591, #9c4f43, #a67c00, #4f7a4a, #7a4f91, #2f7a74, #a93226, #5c5c5c];
+    in-out property <[color]> lanes: [#fde047, #f97316, #dc2626, #38bdf8, #f472b6, #f3e8e0, #ffa87a, #e0a020];
 }
 
 export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string, lane: int }
@@ -731,6 +731,11 @@ export component AppWindow inherits Window {
     property <length> base-cell-width: root.cells < 64 ? Math.max(14px, 780px / root.cells) : 14px;
     in-out property <float> matrix-zoom: 1.0;
     property <length> matrix-cell-width: root.base-cell-width * root.matrix-zoom;
+    // Keep every step visible when the pattern is zoomed out: below 3px a 1px gap would eat the
+    // cell entirely, so the gap collapses and only the beat/bar separators remain.
+    property <length> matrix-cell-gap: root.matrix-cell-width >= 3px ? 1px : 0px;
+    property <length> matrix-cell-radius: root.matrix-cell-width >= 6px ? 2px : 0px;
+    property <bool> show-beat-lines: root.matrix-cell-width * root.steps-per-beat >= 4px;
     in-out property <float> matrix-row-zoom: 1.0;
     property <length> matrix-row-height: 22px * root.matrix-row-zoom;
     in-out property <length> matrix-scroll-y: 0px;
@@ -738,9 +743,9 @@ export component AppWindow inherits Window {
     in property <int> steps-per-beat: 4;
     in property <int> steps-per-bar: 16;
     property <int> bar-count: Math.ceil(root.cells / root.steps-per-bar);
-    // Length edits snap to a fraction of one step.
-    in-out property <int> snap-index: 1;
-    in-out property <bool> length-dragging: false;
+    // Gate drags snap to a musical fraction of one step.
+    in-out property <int> gate-snap-index: 1;
+    in-out property <bool> gate-dragging: false;
     in-out property <int> current-step: 0;
     in-out property <bool> follow-step: true;
     in-out property <bool> regen-pulse: false;
@@ -775,14 +780,14 @@ export component AppWindow inherits Window {
         root.follow-step = false;
         root.matrix-x = 0px;
     }
-    pure function snap-unit() -> float {
-        if (root.snap-index == 0) { return 0.0625; }
-        if (root.snap-index == 1) { return 0.125; }
-        if (root.snap-index == 2) { return 0.25; }
-        return 0.5;
+    pure function gate-snap-unit() -> float {
+        if (root.gate-snap-index == 0) { return 0.25; }
+        if (root.gate-snap-index == 1) { return 0.5; }
+        if (root.gate-snap-index == 2) { return 0.75; }
+        return 1.0;
     }
-    pure function snap-length(value: float) -> float {
-        let unit = root.snap-unit();
+    pure function gate-snap-length(value: float) -> float {
+        let unit = root.gate-snap-unit();
         return Math.max(unit, Math.min(1.0, Math.round(value / unit) * unit));
     }
     in property <float> pulses: 5;
@@ -871,7 +876,9 @@ export component AppWindow inherits Window {
     // Any text field with keyboard focus. Rust reads this each frame (see `keys.rs`).
     out property <bool> text-focused: midi-input.has-focus || max-steps-box.editing || lfo1-cell.editing || lfo2-cell.editing || lfo3-cell.editing || lfo4-cell.editing;
     in-out property <string> export-status: "";
-    in property <int> theme-index: 0;
+    // -1 forces the first update tick to push the real palette (project or global setting)
+    // instead of leaving the Slint defaults visible.
+    in property <int> theme-index: -1;
     in-out property <bool> mode-menu-open: false;
     in property <[ModeEntry]> mode-entries;
     in property <[ModeRow]> mode-rows;
@@ -927,8 +934,8 @@ export component AppWindow inherits Window {
     callback toggle-round-steps();
     callback toggle-track(int);
     callback edit-step(int, int, int);
-    /// track, step, length fraction (0.02..1.0), begin-gesture.
-    callback edit-length(int, int, float, bool);
+    /// track, step, gate fraction (0.02..1.0), begin-gesture.
+    callback edit-gate(int, int, float, bool);
     callback clear-edits();
     callback undo-edit();
     callback redo-edit();
@@ -1272,10 +1279,10 @@ export component AppWindow inherits Window {
             Rectangle { width: 44px; height: 20px; border-radius: 3px; background: clear-edits-touch.has-hover ? Theme.hi : Theme.control; Text { text: "CLR ALL"; color: clear-edits-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clear-edits-touch := TipTouch { hint: "Clear all manual step edits in this pattern"; clicked => { root.clear-edits(); } } }
             Rectangle { width: 28px; height: 20px; border-radius: 3px; background: root.edit-mode == 5 ? Theme.c1.with-alpha(0.75) : Theme.control; Text { text: "RAT"; color: root.edit-mode == 5 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } rat-edit-touch := TipTouch { hint: "Edit mode: cycle 1–4 ratchet substeps on a step"; clicked => { root.edit-mode = root.edit-mode == 5 ? 0 : 5; } } }
             Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 6 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "TIME"; color: root.edit-mode == 6 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } time-edit-touch := TipTouch { hint: "Edit mode: delay a step by 0, 1/8, 1/4 or 1/2 step"; clicked => { root.edit-mode = root.edit-mode == 6 ? 0 : 6; } } }
-            Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 7 ? Theme.c2.with-alpha(0.75) : Theme.control; Text { text: "LEN"; color: root.edit-mode == 7 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } len-edit-touch := TipTouch { hint: "Edit mode: drag a step to set its gate length"; clicked => { root.edit-mode = root.edit-mode == 7 ? 0 : 7; } } }
+            Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 7 ? Theme.c2.with-alpha(0.75) : Theme.control; Text { text: "GATE"; color: root.edit-mode == 7 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } gate-edit-touch := TipTouch { hint: "Edit mode: drag a step to set its gate length"; clicked => { root.edit-mode = root.edit-mode == 7 ? 0 : 7; } } }
             Rectangle { width: 34px; height: 20px; border-radius: 3px; background: undo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "UNDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } undo-touch := TipTouch { hint: "Undo the last manual step edit"; clicked => { root.undo-edit(); } } }
             Rectangle { width: 34px; height: 20px; border-radius: 3px; background: redo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "REDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } redo-touch := TipTouch { hint: "Redo the last undone step edit"; clicked => { root.redo-edit(); } } }
-            Rectangle { width: 44px; height: 20px; border-radius: 3px; background: Theme.control; Text { text: root.snap-index == 0 ? "1/16" : (root.snap-index == 1 ? "1/8" : (root.snap-index == 2 ? "1/4" : "1/2")); color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } snap-touch := TipTouch { hint: "Length snap grid: click to cycle 1/16, 1/8, 1/4, 1/2 of a step"; clicked => { root.snap-index = Math.mod(root.snap-index + 1, 4); } } }
+            Rectangle { width: 40px; height: 20px; border-radius: 3px; background: Theme.control; Text { text: root.gate-snap-index == 0 ? "1/4" : (root.gate-snap-index == 1 ? "1/2" : (root.gate-snap-index == 2 ? "3/4" : "1")); color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } gate-snap-touch := TipTouch { hint: "Gate snap: click to cycle 1/4, 1/2, 3/4 or 1 step"; clicked => { root.gate-snap-index = Math.mod(root.gate-snap-index + 1, 4); } } }
             Rectangle { horizontal-stretch: 1; }
             Rectangle { width: 20px; height: 20px; border-radius: 3px; background: zoom-out.has-hover ? Theme.control-hover : Theme.control; Text { text: "−"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; } zoom-out := TipTouch { hint: "Zoom the matrix out"; clicked => { root.zoom-matrix(0.8); } } }
             Rectangle { width: 20px; height: 20px; border-radius: 3px; background: zoom-in.has-hover ? Theme.control-hover : Theme.control; Text { text: "+"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; } zoom-in := TipTouch { hint: "Zoom the matrix in"; clicked => { root.zoom-matrix(1.25); } } }
@@ -1328,7 +1335,13 @@ export component AppWindow inherits Window {
                         for b in root.bar-count: Rectangle {
                             x: b * root.steps-per-bar * root.matrix-cell-width;
                             width: 1px; height: parent.height;
-                            background: Theme.border;
+                            background: Theme.text-muted.with-alpha(0.55);
+                        }
+                        for i in root.bar-count * 4: Rectangle {
+                            visible: Math.mod(i, 4) > 0 && root.show-beat-lines;
+                            x: (Math.floor(i / 4) * root.steps-per-bar + Math.mod(i, 4) * root.steps-per-beat) * root.matrix-cell-width;
+                            width: 1px; height: parent.height;
+                            background: Theme.text-muted.with-alpha(0.24);
                         }
                         for b in root.bar-count: Text {
                             visible: root.matrix-cell-width * root.steps-per-bar >= 26px;
@@ -1347,12 +1360,12 @@ export component AppWindow inherits Window {
                                 width: root.matrix-cell-width; height: parent.height;
                                 cell-box := Rectangle {
                                     x: 0px; y: 0px;
-                                    width: parent.width - 1px; height: parent.height;
-                                    border-radius: 2px;
+                                    width: parent.width - root.matrix-cell-gap; height: parent.height;
+                                    border-radius: root.matrix-cell-radius;
                                     // Alternate bars so long patterns remain readable when zoomed out.
                                     background: Math.mod(Math.floor(cell.step / root.steps-per-bar), 2) == 0
                                         ? (cell.hit ? Theme.cell-off : Theme.surface.with-alpha(0.25))
-                                        : Theme.cell-off.with-alpha(cell.hit ? 0.55 : 0.30);
+                                        : Theme.cell-off.with-alpha(cell.hit ? 0.62 : 0.38);
                                     opacity: track.enabled ? 1.0 : 0.35;
                                     border-width: cell.playing ? 2px : (cell.edited ? 1px : 0px);
                                     border-color: cell.playing ? Theme.hi : Theme.border;
@@ -1360,20 +1373,21 @@ export component AppWindow inherits Window {
                                         x: 0px; y: 0px; width: parent.width; height: parent.height;
                                         background: Theme.hi.with-alpha(0.08);
                                     }
-                                    // Beat and bar separators.
-                                    if cell.step > 0 && Math.mod(cell.step, root.steps-per-beat) == 0: Rectangle {
+                                    // Beat and bar separators. Steps keep the cell gap at usable
+                                    // zoom; at tiny widths only the musically stronger lines stay.
+                                    if cell.step > 0 && root.show-beat-lines && Math.mod(cell.step, root.steps-per-beat) == 0: Rectangle {
                                         x: 0px; y: 0px; width: 1px; height: parent.height;
-                                        background: Theme.border.with-alpha(0.55);
+                                        background: Theme.text-muted.with-alpha(0.30);
                                     }
                                     if cell.step > 0 && Math.mod(cell.step, root.steps-per-bar) == 0: Rectangle {
                                         x: 0px; y: 0px; width: 1px; height: parent.height;
-                                        background: Theme.border;
+                                        background: Theme.text-muted.with-alpha(0.60);
                                     }
-                                    // One note body per ratchet segment: width = gate/length,
+                                    // One note body per ratchet segment: width = gate,
                                     // height = velocity, opacity = probability, lane colour = lane.
                                     property <int> segments: cell.ratchet < 1 ? 1 : cell.ratchet;
                                     property <length> body-x: 1px + (parent.width - 3px) * Math.min(0.9, cell.offset / 127.0);
-                                    property <length> body-w: Math.max(2px, (parent.width - 3px) * Math.min(cell.length, 1.0 - Math.min(0.9, cell.offset / 127.0)));
+                                    property <length> body-w: Math.min(parent.width, Math.max(2px, (parent.width - 3px) * Math.min(cell.length, 1.0 - Math.min(0.9, cell.offset / 127.0))));
                                     if cell.hit: Rectangle {
                                         x: 0px; y: 0px; width: parent.width; height: parent.height;
                                         for r in cell-box.segments: Rectangle {
@@ -1413,12 +1427,12 @@ export component AppWindow inherits Window {
                                     let fraction = (editor-ta.mouse-x / root.matrix-cell-width) - step;
                                     if (root.edit-mode == 7) {
                                         if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
-                                            root.length-dragging = true;
-                                            root.edit-length(track.index, step, root.snap-length(fraction), true);
-                                        } else if (e.kind == PointerEventKind.move && root.length-dragging) {
-                                            root.edit-length(track.index, step, root.snap-length(fraction), false);
+                                            root.gate-dragging = true;
+                                            root.edit-gate(track.index, step, root.gate-snap-length(fraction), true);
+                                        } else if (e.kind == PointerEventKind.move && root.gate-dragging) {
+                                            root.edit-gate(track.index, step, root.gate-snap-length(fraction), false);
                                         } else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) {
-                                            root.length-dragging = false;
+                                            root.gate-dragging = false;
                                         }
                                     } else if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                                         root.edit-step(track.index, step, root.edit-mode);
@@ -1576,7 +1590,7 @@ export component AppWindow inherits Window {
                         ? root.mod-status
                         : (root.export-status != ""
                             ? root.export-status
-                            : "height = velocity · width = length · opacity = probability · segments = ratchet · drag LEN to edit"));
+                            : "height = velocity · width = gate · opacity = probability · segments = ratchet · drag GATE to edit"));
                 color: HoverTip.text != "" ? Theme.text : Theme.text-muted;
                 font-size: 9px; vertical-alignment: center; overflow: elide;
             }
