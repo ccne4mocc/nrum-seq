@@ -873,6 +873,7 @@ export component AppWindow inherits Window {
         if (mode == 3) { return 15; } // cellular generation
         if (mode == 17) { return 2; } // 0 = silent, 1-2 = union terms
         if (mode == 30) { return 5; } // Hilbert order
+        if (mode == 39) { return 64; } // warm-up generations
         return root.cells;
     }
     pure function pulse-label(mode: int) -> string {
@@ -936,6 +937,7 @@ export component AppWindow inherits Window {
     pure function ca-label(mode: int) -> string {
         if (mode == 16) { return "Gravity"; }
         if (mode == 17) { return "Sieve moduli"; }
+        if (mode == 39) { return "Rule preset"; }
         return "CA rule";
     }
     pure function regen-label(mode: int) -> string {
