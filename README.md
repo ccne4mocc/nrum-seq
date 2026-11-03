@@ -114,8 +114,8 @@ rustup target add x86_64-pc-windows-msvc
 cargo xtask bundle nrum-seq --release --target x86_64-pc-windows-msvc
 ```
 
-MSVC builds are not verified on a real Windows system. The Windows bundle workflow is manual
-and only runs on GitHub Actions.
+MSVC builds are not verified on a real Windows system. The `Bundles` workflow builds Linux and
+Windows artifacts on `v*` tags and can also be dispatched manually from GitHub Actions.
 
 ## Compatibility
 
@@ -174,9 +174,10 @@ vendor/               vendored Slint/baseview adapter
 
 - Author: `ccne4mocc / feN`
 - Copyright (C) 2026 ccne4mocc / feN
-- Derived from the `_AlgoNemLody` reference project.
 - License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
 
 ## Support
 
-If this project is useful to you, you can buy me a coffee: <https://buymeacoffee.com/awpe6kbwk9>
+<a href="https://buymeacoffee.com/awpe6kbwk9">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="180">
+</a>

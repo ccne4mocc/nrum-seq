@@ -14,6 +14,10 @@
 - Pruned completed wishlist entries and refreshed host-verification counts and status.
 - Updated the nrum architecture document for mode 39, the `GATE` edit mode and the current
   contact metadata.
+- Split CI into tests and a tag-driven `Bundles` workflow that builds Linux/Windows artifacts and
+  attaches them to the matching GitHub release.
+- Replaced the README support text with a Buy Me A Coffee banner and removed the single-project
+  derivation claim.
 
 ## 1.3.0 — Editor, randomize and release cleanup
 

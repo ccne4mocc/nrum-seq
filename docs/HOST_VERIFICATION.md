@@ -42,9 +42,9 @@ combination. Everything else is **untested**, even when the plug-in bundles and 
 Run every row in `RELEASE_CHECKLIST.md` and record `pass`, `fail` or `n/a` with a note. Do not
 mark a host verified from a successful scan alone.
 
-The Windows bundle workflow is manual-only. It cross-compiles MSVC artifacts on GitHub Actions,
-but those artifacts are still unverified on real Windows hardware. The Linux and macOS jobs run
-tests and checks on every push; the bundle artifact is Linux-only.
+The `Bundles` workflow builds Linux and Windows artifacts on `v*` tags and can also be dispatched
+manually. MSVC artifacts are still unverified on real Windows hardware. The `CI` workflow runs
+tests and checks on pushes to `main` and on pull requests; bundles are built separately.
 
 ## Reproduce the automated checks
 
