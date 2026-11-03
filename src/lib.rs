@@ -1959,6 +1959,38 @@ mod tests {
     }
 
     #[test]
+    fn lfo_polarity_and_depth_move_the_target_both_ways() {
+        let base = |polarity, depth| DrumParams {
+            lfo1_links: AtomicU64::new(target_bit(ModTarget::Swing)),
+            lfo1_wave: EnumParam::new("LFO 1 Wave", OscWave::Sine),
+            lfo1_rate_mode: EnumParam::new("LFO 1 Rate Mode", LfoRateMode::Hz),
+            lfo1_freq: hz_param("LFO 1 Frequency", 1.0),
+            lfo1_depth: FloatParam::new("LFO 1 Depth", depth, FloatRange::Linear { min: 0.0, max: LFO_MAX_DEPTH }),
+            lfo1_polarity: EnumParam::new("LFO 1 Polarity", polarity),
+            swing: FloatParam::new("Swing", 0.25, FloatRange::Linear { min: 0.0, max: 0.5 }),
+            ..DrumParams::default()
+        };
+        let at = |p: &DrumParams, beat: f64| {
+            p.target_value(ModTarget::Swing, &p.lfo_signals(LfoClock { beat, seconds: beat * 0.5 }))
+        };
+        let bipolar = base(LfoPolarity::Bipolar, 1.0);
+        assert!((at(&bipolar, 0.5) - 0.5).abs() < 1e-4, "bipolar peak {}", at(&bipolar, 0.5));
+        assert!(at(&bipolar, 1.5) <= 1e-4, "bipolar trough {}", at(&bipolar, 1.5));
+        let up = base(LfoPolarity::Unipolar, 1.0);
+        assert!((at(&up, 0.5) - 0.5).abs() < 1e-4);
+        assert!((at(&up, 1.5) - 0.25).abs() < 1e-4);
+        let down = base(LfoPolarity::UnipolarNegative, 1.0);
+        assert!(at(&down, 0.5) <= 1e-4, "negative peak {}", at(&down, 0.5));
+        assert!((at(&down, 1.5) - 0.25).abs() < 1e-4, "negative trough {}", at(&down, 1.5));
+        // 200% is overdrive: it clips at the target bounds, never wraps or exceeds them.
+        let over = base(LfoPolarity::Bipolar, 2.0);
+        for beat in [0.0, 0.5, 1.0, 1.5, 2.0] {
+            let value = at(&over, beat);
+            assert!((0.0..=0.5).contains(&value), "overdriven swing {value} at beat {beat}");
+        }
+    }
+
+    #[test]
     fn every_target_modulation_stays_inside_its_range() {
         for target in ModTarget::ALL {
             let p = DrumParams {
