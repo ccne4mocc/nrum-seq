@@ -14,14 +14,34 @@ pub(crate) fn selected_row(p: &GenParams, tr: usize) -> usize {
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let mut rng = Rng::new(p.seed, p.variation, 0xCA30_0001);
-    // Seed at `density`, then force a gap unless the ring is too short: a solid row maps to 0
-    // under rule 30 and would silence every lane.
+    // `symmetry` is free in this mode, so it selects the initial row policy. The default 4 keeps
+    // the historical random-density seed; 1-3 are deterministic starting shapes.
     let mut live = 0usize;
-    for i in 0..p.steps {
-        out.ca[0][i] = rng.unit() < p.density.clamp(0.0, 1.0);
-        live += out.ca[0][i] as usize;
+    match p.symmetry {
+        1 => {
+            // A single centre seed: the cleanest way to watch the rule propagate.
+            if p.steps > 0 { out.ca[0][p.steps / 2] = true; live = 1; }
+        }
+        2 => {
+            // Alternating stripes.
+            for i in 0..p.steps { out.ca[0][i] = i % 2 == 0; live += out.ca[0][i] as usize; }
+        }
+        3 => {
+            // Solid row with one gap: a dense, asymmetric start.
+            for i in 0..p.steps { out.ca[0][i] = true; live += 1; }
+            if p.steps > 1 { out.ca[0][0] = false; live -= 1; }
+        }
+        _ => {
+            for i in 0..p.steps {
+                out.ca[0][i] = rng.unit() < p.density.clamp(0.0, 1.0);
+                live += out.ca[0][i] as usize;
+            }
+            // A solid row maps to 0 under rule 30 and would silence every lane.
+            if live == p.steps && p.steps > 1 { out.ca[0][rng.below(p.steps)] = false; live -= 1; }
+        }
     }
-    if live == p.steps && p.steps > 1 { out.ca[0][rng.below(p.steps)] = false; }
+    // Every policy must leave at least one live cell.
+    if live == 0 && p.steps > 0 { out.ca[0][p.steps / 2] = true; }
     for row in 1..CA_ROWS {
         for i in 0..p.steps {
             let left = out.ca[row - 1][(i + p.steps - 1) % p.steps] as u8;

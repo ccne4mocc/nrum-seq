@@ -1223,6 +1223,25 @@ mod tests {
     }
 
     #[test]
+    fn cellular_initial_state_policies_are_deterministic_and_audible() {
+        let n = 16usize;
+        let pat = |symmetry| generate(&GenParams { kind: Mode::Cellular, steps: n, pulses: 5, symmetry, density: 0.5, ..GenParams::default() });
+        let centre = pat(1);
+        assert_eq!(centre.ca[0][..n].iter().filter(|&&cell| cell).count(), 1);
+        assert!(centre.hit.iter().any(|lane| lane[..n].iter().any(|hit| *hit)));
+        let stripes = pat(2);
+        assert_eq!(stripes.ca[0][..n].iter().filter(|&&cell| cell).count(), n / 2);
+        let solid = pat(3);
+        assert_eq!(solid.ca[0][..n].iter().filter(|&&cell| cell).count(), n - 1);
+        for symmetry in 1..=4 {
+            let a = pat(symmetry);
+            let b = pat(symmetry);
+            assert_eq!(a.hit, b.hit, "policy {symmetry} is not deterministic");
+            assert!(a.hit.iter().any(|lane| lane[..n].iter().any(|hit| *hit)), "policy {symmetry} is silent");
+        }
+    }
+
+    #[test]
     fn per_lane_modes_copy_only_their_assigned_lanes() {
         let global = GenParams { kind: Mode::Euclidean, steps: 16, pulses: 5, density: 1.0, probability: 1.0, ..GenParams::default() };
         let euclidean = generate(&GenParams { lane_modes: [0; TRACKS], ..global });
