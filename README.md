@@ -12,8 +12,15 @@ nrum seq grew out of many other interests and projects. `_AlgoNemLody`, its dire
 - Fixed-size audio scheduler with no allocation or locking; generation runs on the editor thread and snapshots parameters.
 - Real-time safe audio path: no file I/O, allocations, locks, or unbounded loops inside `Plugin::process()`.
 - Lane-independent hit generation; each lane has its own density profile, phase origin, enable/note/velocity host parameter.
-- Per-step editing: hit overrides, probability, accent, ratchets (1–4) and step-wide microtiming, with undo/redo and a `CLR ALL` reset. Edits are display-space and survive rotation, mirror and Generate.
-- Automatic regeneration and per-length randomization with a scope mask (Mode / Length / Rhythm / Tone / Feel).
+- Per-step editing: hit overrides, probability, accent, ratchets (1–4), step-wide microtiming and
+  per-cell gate length, with undo/redo and a `CLR ALL` reset. Edits are display-space and survive
+  rotation, mirror and Generate. The matrix draws width = length, height = velocity,
+  opacity = probability and one segment per ratchet, over a bar/beat ruler.
+- Matrix navigation: horizontal and vertical zoom (`+`, `−`, `FIT`), native scrollbars,
+  follow-mode centering and a lane-label column that scrolls with the rows.
+- Hover descriptions and edit/export feedback appear in a thin bottom status strip, keeping the
+  header clear and the text away from the pointer.
+- Automatic regeneration and per-length randomization with a scope mask (Mode / Length / Rhythm / Tone / Feel). Randomize draws from mode-aware palettes, so lengths, pulse counts, density and probability land on musically legible values instead of uniform noise.
 - One-loop MIDI export to a timestamped SMF in a user-chosen folder.
 - **Four runtime LFOs** in a 2×2 rack below the step matrix: waveform, Hz (0.01–10) or beat-synced speed, depth (0–200%), phase, bipolar / unipolar / unipolar-negative polarity and per-LFO enable. Drag an LFO point onto any numeric parameter to link it; linked controls show a depth band plus a second animated value bar, and the matrix shows/removes links.
 - Built-in starting-point presets for house, broken beat, polyrhythm, deep and glitch material. Presets write ordinary host parameters.
@@ -53,7 +60,7 @@ cargo test --lib
 cargo xtask bundle nrum-seq --release
 ```
 
-`nice-plug` is pinned to a git commit (see `Cargo.toml`), not a crates.io version. The crates.io `nice-plug 0.4.x` line uses a different, `baseview 0.4` based editor API that the vendored `slint-baseview` does not target; moving to it means writing a new Slint adapter. [`docs/MIGRATION_nice-plug.md`](docs/MIGRATION_nice-plug.md) records what changed from nice-plug and why. Rust 1.88+ is required (nice-plug itself uses edition 2024).
+`nice-plug` is pinned to a commit in the `ccne4mocc/nice-plug` fork (see `Cargo.toml`), not a crates.io version; the fork carries the state-loading and Carla-compatible activation fixes. The crates.io `nice-plug 0.4.x` line uses a different, `baseview 0.4` based editor API that the vendored `slint-baseview` does not target; moving to it means writing a new Slint adapter. [`docs/MIGRATION_nice-plug.md`](docs/MIGRATION_nice-plug.md) records what changed from nice-plug and why. Rust 1.88+ is required (nice-plug itself uses edition 2024).
 
 Optional debug aid: `cargo xtask bundle nrum-seq --features assert_process_allocs` builds a plug-in that aborts if `process()` allocates (it bundles fine; `cargo test` with this feature is unsupported because the tests install their own counting allocator). Caveat found by running `clap-validator` against such a build: all well-formed processing tests pass, but malformed host events (wrong parameter namespace, inconsistent notes) make nice-plug's *own* wrapper log from the audio thread, and that logging allocates, so the guard aborts. That is framework behaviour, not this plug-in's code. Use the guarded build for development, never ship it.
 
@@ -83,12 +90,11 @@ The Windows bundle workflow is manual-only (`workflow_dispatch`) and GitHub-spec
 ## Limitations
 
 - Not release-certified; needs thorough host smoke-testing (CLAP and VST3 hosts).
-- `clap-validator` currently reports three `state-reproducibility-*` failures and a
-  `state-invalid-random` crash on the unchanged baseline; CLAP project/preset state compatibility
-  is therefore unverified.
+- `clap-validator 0.4.1` passes 33 tests with 11 skipped and 0 failures on the pinned nice-plug
+  fork. Host-side state round-trips still need manual verification in each DAW.
 - Windows builds are cross-compilable and load correctly under Wine/REAPER (see Build below), but have never been run on a real Windows system; REAPER bridge mode for the VST3 editor is known to fail there.
 - macOS build is not configured.
-- Fixed UI size 860×740; no scaling preference beyond what Slint offers by default.
+- Fixed UI size 860×768; no scaling preference beyond what Slint offers by default.
 - The plug-in generates MIDI rather than audio; it cannot be assigned to a bus and will not do anything without an instrument track.
 - Export MIDI outputs one loop and uses the plug-in process working directory, not the DAW project path.
 - Microtiming is step-wide and only positive delays are scheduled; per-lane timing and negative offsets are future work. Ratchets are capped at four.
@@ -98,11 +104,12 @@ The Windows bundle workflow is manual-only (`workflow_dispatch`) and GitHub-spec
 ```text
 src/
   lib.rs              nice-plug parameters, transport scheduler, CLAP/VST3 exports
-  modes.rs            the 39 generation modes, grouped display order and host id/name metadata
+  modes.rs            the 40 generation modes, grouped display order and host id/name metadata
   editor.rs           Slint adapter and host parameter callbacks
   globals.rs          cross-component shared state (settings, runtime locks)
   help.rs             mode math text shown in the editor
   modulation.rs       LFO clocks, signals, target metadata and link masks
+  randomize.rs        mode-aware value vocabularies for the Randomize button
   midi_export.rs      Standard MIDI File writer
   view.rs             pure geometry for each global/panel view
   sequence/           one file per generator, each with its own unit tests

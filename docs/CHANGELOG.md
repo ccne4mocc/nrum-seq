@@ -7,18 +7,28 @@
 - Unipolar-negative LFO polarity (downward only) beside bipolar and unipolar-up.
 - LFO depth now runs 0–200%, where 100% is one full parameter range.
 - Per-step edit overlay: hit overrides, probability, accent, ratchets (1–4), step-wide
-  microtiming, `CLR ALL`, and editor-local undo/redo. Edits are project state and are applied in
-  display space, so they survive Rotate, Mirror and Generate.
+  microtiming, **per-cell gate length**, `CLR ALL`, and editor-local undo/redo. Edits are project
+  state and are applied in display space, so they survive Rotate, Mirror and Generate.
+- Matrix navigation: horizontal/vertical zoom, `FIT`, native scrollbars, follow-mode centering and
+  a lane-label column synchronized with the vertical scroll.
+- Grid ruler with bar numbers, beat/bar separators and alternating bar shading.
+- Rich step visuals: width = gate length, height = velocity, opacity = probability, one segment
+  per ratchet, microtiming offset, and a playhead column highlight.
+- Thin bottom status strip for hover descriptions, LFO status and export feedback.
 - Built-in starting-point presets (House, Break, Poly, Deep, Glitch) that write ordinary host
   parameters.
 - Lane labels show MIDI note numbers.
 - Eight-lane phyllotaxis rosettes with a per-theme lane palette.
 - Life-like cellular automaton mode (index 39): a 16×8 torus with Life, HighLife, Seeds, Day & Night and a dense survival rule, plus selectable initial shapes.
 - Cellular initial-state policies, L-system grammar-family selection and four Markov transition bias fields.
+- Mode-aware Randomize palettes: lengths, pulses, density, probability and velocity snap to
+  musically legible sets, and the pulse vocabulary is keyed on the mode that survives the scope.
 - CI workflow for Linux, macOS and Windows, plus a release checklist and host verification matrix.
 
 ### Fixed
 
+- MIDI export now expands per-step ratchets and keeps the substep gate inside its own spacing,
+  matching the scheduler.
 - Default ceiling is 256 steps instead of 1024. Selecting a mode raises the loop (and the
   ceiling, if it was lowered) to that mode's functionality floor: attractors, walks, word modes
   and the long-form figures ask for 24–81 steps while closed-form rhythms are untouched. Saved

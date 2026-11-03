@@ -16,18 +16,19 @@ Run this against a clean checkout of the release commit. Record host/API/OS resu
 
 ## 2. Automated validation
 
-- [ ] `clap-validator validate target/bundled/nrum-seq.clap` passes, if available. The three
-      `state-reproducibility-*` failures and `state-invalid-random` crash currently reproduce on
-      the pre-edit baseline; resolve or document them before claiming state compatibility.
+- [ ] `clap-validator validate target/bundled/nrum-seq.clap` passes, if available. The expected
+      result is 33 passed, 0 failed, 11 skipped.
 - [ ] `pluginval` passes on the VST3, if available.
 - [ ] `carla-discovery-native CLAP target/bundled/nrum-seq.clap` reports the expected name,
       label, category and extensions.
+- [ ] `carla-discovery-native VST3 target/bundled/nrum-seq.vst3` reports the expected metadata.
+- [ ] `ldd -r` on both binaries reports no unresolved symbols or missing libraries.
 
 ## 3. Host smoke test (each host/API/OS)
 
 - [ ] Plug-in scan completes and the plug-in appears under the expected name/vendor.
 - [ ] Load into an instrument track routed to a drum sampler or rack.
-- [ ] Editor opens at the fixed 860×740 size and is not clipped.
+- [ ] Editor opens at the fixed 860×768 size and is not clipped.
 - [ ] Editor closes and reopens; no stale text focus or stuck notes.
 - [ ] Mode changes, Generate, Randomize and Randomize scope work.
 - [ ] Host automation moves `mode`, `steps`, `density`, `gate` and a lane note.

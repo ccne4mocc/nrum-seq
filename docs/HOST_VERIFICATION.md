@@ -16,8 +16,9 @@ combination. Everything else is **untested**, even when the plug-in bundles and 
 | Check | Result | Notes |
 |---|---|---|
 | Carla CLAP discovery | **pass** | `carla-discovery-native CLAP target/bundled/nrum-seq.clap` reports name `nrum seq`, label `com.nrumseq.nrumseq`, category `utility`, and the expected CLAP extensions (`clap.gui`, `clap.params`, `clap.latency`, …). |
-| Carla VST3 discovery | **fail** | `carla-discovery-native VST3 target/bundled/nrum-seq.vst3` hits `Carla assertion failure: "res == V3_OK"` in `carla-discovery.cpp`. This may be Carla's scanner rather than the plug-in; it is not evidence that the VST3 is broken. |
-| CLAP validator | **partial** | `clap-validator 0.4.1`: 29 passed, 11 skipped, 3 `state-reproducibility-*` failed, and `state-invalid-random` crashed with an absurd allocation from random JSON. The same failures reproduce on commit `8d7257c` without the edit-overlay changes, so they are framework/state-handling issues, not regressions from this work. |
+| Carla VST3 discovery | **pass** | `carla-discovery-native VST3 target/bundled/nrum-seq.vst3` reports name `nrum seq`, label, maker and 84 input parameters. Requires the pinned nice-plug fork that defers activation until `setupProcessing()`. |
+| CLAP validator | **pass** | `clap-validator 0.4.1`: **33 passed, 0 failed, 11 skipped**. The pinned nice-plug fork bounds malformed state lengths and rescans parameter values after a state load. |
+| Shared-library resolution | **pass** | `ldd -r` on the `.clap` and VST3 `.so`: no unresolved symbols or missing libraries. Hard dependencies are libc/libm/libgcc/libfontconfig plus their transitive libraries. |
 | VST3 validator | **not run** | `pluginval` is not installed on the test machine. |
 
 ## Manual host matrix
@@ -28,7 +29,7 @@ combination. Everything else is **untested**, even when the plug-in bundles and 
 | REAPER | 7.83 | Linux x86_64 | VST3 | untested | Bundle builds; not yet scanned/loaded interactively. |
 | Bitwig Studio | installed | Linux x86_64 | CLAP | untested | Not exercised. |
 | Carla | installed | Linux x86_64 | CLAP | untested | Discovery passes; load/editor/MIDI not exercised. |
-| Carla | installed | Linux x86_64 | VST3 | untested | Discovery fails in Carla; host load not exercised. |
+| Carla | installed | Linux x86_64 | VST3 | untested | Discovery passes; host load/editor/MIDI not exercised. |
 | REAPER | 7.83 | Windows x64 under Wine 11.5 | CLAP | **verified on 2026-10-28** | Cross-compiled MinGW build scans, loads, processes and shows the full editor. |
 | REAPER | 7.83 | Windows x64 under Wine 11.5 | VST3 | **verified on 2026-10-28** | Same build; editor unbridged. |
 | REAPER | 7.83 | real Windows x64 | CLAP/VST3 | untested | No real Windows machine available. |
