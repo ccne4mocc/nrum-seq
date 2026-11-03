@@ -865,8 +865,6 @@ export component AppWindow inherits Window {
     in property <string> settings-path: "";
     in property <string> credit-author: "";
     in property <string> credit-github: "";
-    in property <string> credit-support: "";
-    in property <string> credit-email: "";
     in property <string> midi-folder: "";
     // DAW track hosting this instance; empty when the host does not report one.
     in property <string> track-name: "";
@@ -1691,8 +1689,6 @@ export component AppWindow inherits Window {
                 Text { text: "CREDITS / CONTACT"; color: Theme.text-muted; font-size: 9px; }
                 Text { text: "\{root.credit-author}  ·  nrum seq"; color: Theme.text; font-size: 10px; }
                 TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }
-                TextInput { read-only: true; text: root.credit-support; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }
-                TextInput { read-only: true; text: root.credit-email; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }
                 Text { text: "v" + root.version; color: Theme.text-muted; font-size: 9px; horizontal-alignment: right; }
             }
         }

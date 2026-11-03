@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 — Editor, randomize and release cleanup
 
 ### Added
 
@@ -24,6 +24,12 @@
 - Mode-aware Randomize palettes: lengths, pulses, density, probability and velocity snap to
   musically legible sets, and the pulse vocabulary is keyed on the mode that survives the scope.
 - CI workflow for Linux, macOS and Windows, plus a release checklist and host verification matrix.
+
+### Changed
+
+- The plug-in credits and CLAP metadata now expose only the author and GitHub profile. The
+  contact email and Buy Me a Coffee link moved out of the plug-in; the support link lives in the
+  README.
 
 ### Fixed
 

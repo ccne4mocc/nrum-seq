@@ -3,6 +3,9 @@ name: Windows bundles
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   bundle:
     strategy:
@@ -22,3 +25,4 @@ jobs:
           name: nrum-seq-${{ matrix.target }}
           # nice-plug's xtask (like nih-plug's) always writes to target/bundled, whatever --target is.
           path: target/bundled
+          if-no-files-found: error

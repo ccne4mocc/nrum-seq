@@ -875,15 +875,13 @@ impl NrumSeq {
 pub mod contact {
     pub const AUTHOR: &str = "ccne4mocc / feN";
     pub const GITHUB: &str = "https://github.com/ccne4mocc";
-    pub const SUPPORT: &str = "";
-    pub const EMAIL: &str = "";
 }
 
 impl Plugin for NrumSeq {
     const NAME: &'static str = "nrum seq";
     const VENDOR: &'static str = contact::AUTHOR;
     const URL: &'static str = contact::GITHUB;
-    const EMAIL: &'static str = contact::EMAIL;
+    const EMAIL: &'static str = "";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout { main_input_channels: None, main_output_channels: None, ..AudioIOLayout::const_default() }];
     // Input is drained and discarded in `process`, so advertising CC input would only make
@@ -1150,7 +1148,7 @@ impl ClapPlugin for NrumSeq {
     const CLAP_ID: &'static str = "com.nrumseq.nrumseq";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("Algorithmic percussion MIDI sequencer with eight drum lanes");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(contact::GITHUB);
-    const CLAP_SUPPORT_URL: Option<&'static str> = Some(contact::SUPPORT);
+    const CLAP_SUPPORT_URL: Option<&'static str> = None;
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::NoteEffect, ClapFeature::Utility];
 }
 impl Vst3Plugin for NrumSeq {
@@ -1672,8 +1670,6 @@ mod tests {
     fn contact_details_are_the_published_ones() {
         assert_eq!(contact::AUTHOR, "ccne4mocc / feN");
         assert_eq!(contact::GITHUB, "https://github.com/ccne4mocc");
-        assert_eq!(contact::SUPPORT, "");
-        assert_eq!(contact::EMAIL, "");
         assert_eq!(<NrumSeq as Plugin>::VENDOR, contact::AUTHOR);
     }
 
@@ -1693,7 +1689,7 @@ mod tests {
         // These strings are project state and host scan identity. Changing one breaks sessions.
         assert_eq!(<NrumSeq as Plugin>::NAME, "nrum seq");
         assert_eq!(<NrumSeq as Plugin>::VENDOR, contact::AUTHOR);
-        assert_eq!(<NrumSeq as Plugin>::VERSION, "1.2.0");
+        assert_eq!(<NrumSeq as Plugin>::VERSION, "1.3.0");
         assert_eq!(<NrumSeq as ClapPlugin>::CLAP_ID, "com.nrumseq.nrumseq");
         assert_eq!(<NrumSeq as Vst3Plugin>::VST3_CLASS_ID, *b"nrum-seq\0\0\0\0\0\0\0\0");
     }
@@ -1763,7 +1759,7 @@ mod tests {
     #[test]
     fn neon_is_the_fresh_default_theme() {
         assert_eq!(DrumParams::default().theme.value(), Theme::Neon);
-        assert_eq!(<NrumSeq as Plugin>::VERSION, "1.2.0");
+        assert_eq!(<NrumSeq as Plugin>::VERSION, "1.3.0");
     }
 
     #[test]

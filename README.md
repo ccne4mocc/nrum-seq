@@ -47,7 +47,7 @@ Many modes draw a panel tied specifically to their algorithm: pulse rings, the C
 
 ## Compatibility
 
-Version 1.2.0 uses the new host identity `com.nrumseq.nrumseq` (CLAP) and `nrum-seq` (VST3 class
+Version 1.3.0 uses the new host identity `com.nrumseq.nrumseq` (CLAP) and `nrum-seq` (VST3 class
 ID). Sessions created with the old `com.ndrum.ndrum` / `nDrum` IDs must replace the plug-in instance.
 
 ## Build
@@ -125,3 +125,7 @@ xtask/                bundle and assembly runner
 - Derived from the `_AlgoNemLody` reference project.
 - Inspired by countless online articles, forum threads and prior prototypes; exact citations are listed in [`docs/ALGORITHM_RESEARCH.md`](docs/ALGORITHM_RESEARCH.md).
 - License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
+
+## Support
+
+If this project is useful to you, you can buy me a coffee: <https://buymeacoffee.com/awpe6kbwk9>
