@@ -4,7 +4,9 @@
 
 ![nrum seq demo](assets/nrum-seq.gif)
 
-So... first of all, yes its partially less and partially heavier created with LLM assistance.
+So... first of all: **AI-assisted, human-tested, maintained and used.** The code was written with
+heavy LLM assistance, but every release is reviewed, built and smoke-tested in real hosts by a
+human who uses the plugins in actual productions.
 
 nrum seq is the percussive sibling of [nelody seq](https://github.com/ccne4mocc): the same
 architecture and editor layout, but with an eight-lane GM drum matrix instead of a right-to-left
@@ -141,7 +143,7 @@ Windows artifacts on `v*` tags and can also be dispatched manually from GitHub A
 
 ## Compatibility
 
-Version 1.3.1 uses the host identity `com.nrumseq.nrumseq` (CLAP) and `nrum-seq` (VST3 class ID).
+Version 1.0.0 uses the host identity `com.nrumseq.nrumseq` (CLAP) and `nrum-seq` (VST3 class ID).
 Sessions created with the old `com.ndrum.ndrum` / `nDrum` IDs must replace the plug-in instance.
 
 ## Status and limitations
