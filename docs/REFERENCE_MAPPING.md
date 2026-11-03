@@ -72,6 +72,31 @@ to a `Pattern` field or a generator helper, the panel is drawing a decoration, n
 
 When adding or reordering a mode, update together: the `Mode` enum in `src/modes.rs`, dispatch in `sequence::generate()`, `view::build()`, the `Mode` labels in Slint, the mode indices the UI hardcodes, the editor's `from_index()` bound, and the expected parameter/view tests.
 
+## Crystallographic mode: what is actually a group action
+
+The generator is deliberately named after crystallographic language, but the implementation is a
+one-dimensional periodic motif with artistic symmetry operations, not a faithful space-group
+action. Its operations (`src/sequence/crystallographic.rs`) are:
+
+| `symmetry` | Code path | Honest description |
+|---:|---|---|
+| 1 | `offset` | p1 translation: every cell is the same motif. This is a real translation action on the ring. |
+| 2 | reverse every other cell | Alternating mirror. It is not a closed group action on the ring. |
+| 3 | half-cell shift on odd cells | Glide-like phase offset, not a glide plane. |
+| 4 | reverse by the cell index | Motif inversion around a moving centre. |
+| 5 | add the cell index | Screw-like phase drift. |
+| 6 | alternate half-cell shift | Centering-like alternation. |
+| 7 | reverse with a cell-index shift | Alternating reflection with drift. |
+| 8 | staggered lattice | A second lattice phase; the odd cells also invert at high density. |
+
+The motif cell is `steps / symmetry` wide (or the whole pattern when that leaves fewer than two
+slots). The smallest possible change in hit count is therefore one cell, so the density control is
+structurally steppy rather than smooth. That is a property of the quantisation, not a tuning bug.
+
+The panel draws the same unit-cell axes and lane lattice. Future work could split `symmetry` into
+an order control and a separate operation selector, but that adds a host parameter and changes
+existing patterns, so it is not part of this pass.
+
 ## Per-mode controls
 
 Every mode also shows Steps, Rotate, Probability, Velocity, Regenerate after, Randomize after
