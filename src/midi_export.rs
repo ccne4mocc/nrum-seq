@@ -25,6 +25,8 @@ pub(crate) struct ExportSettings {
     pub gate: f64,
     pub swing: f64,
     pub velocity: f32,
+    /// Step-wide microtiming in fractions of one step (0..0.9), applied to every lane.
+    pub offsets: [f32; MAX_STEPS],
     pub lanes: [Lane; TRACKS],
 }
 
@@ -56,7 +58,8 @@ pub(crate) fn smf(pattern: &Pattern, settings: &ExportSettings) -> Vec<u8> {
 
     let mut events = Vec::new();
     for i in 0..steps {
-        let onset = i as f64 * step_len + if i % 2 == 1 { swing } else { 0.0 };
+        let offset = settings.offsets[i].clamp(0.0, 0.9) as f64 * step_len;
+        let onset = i as f64 * step_len + if i % 2 == 1 { swing } else { 0.0 } + offset;
         for tr in 0..TRACKS {
             let lane = settings.lanes[tr];
             if !lane.enabled || !pattern.hit[tr][i] {
@@ -142,6 +145,7 @@ mod tests {
             gate: 0.5,
             swing: 0.0,
             velocity: 1.0,
+            offsets: [0.0; MAX_STEPS],
             lanes,
         };
         (pattern, settings)
@@ -193,6 +197,15 @@ mod tests {
         assert_eq!(at_120.len(), 2);
         assert_eq!(at_120[0].1, 0x89, "note off must sort first");
         assert_eq!(at_120[1].1, 0x99);
+    }
+
+    #[test]
+    fn microtiming_shifts_the_exported_tick() {
+        let (pattern, mut settings) = for_one_lane(36, 4, &[(0, true), (1, true)]);
+        settings.offsets[0] = 0.5;
+        let events = channel_events(&smf(&pattern, &settings)[22..]);
+        assert_eq!(events[0].0, 60, "half a step is 60 ticks at 480 PPQ and 1/16");
+        assert_eq!(events[2].0, 120, "the next step must not inherit the delay");
     }
 
     #[test]

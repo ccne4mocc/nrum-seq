@@ -479,6 +479,7 @@ fn write_midi_file(p: &DrumParams, bpm: f64, folder: &str) -> Result<PathBuf, St
         gate: p.gate.value() as f64,
         swing: p.swing.value() as f64,
         velocity: p.velocity.value(),
+        offsets: std::array::from_fn(|step| edits.offset_at(0, step).max(0.0)),
         lanes,
     };
     let stamp = SystemTime::now()
@@ -734,6 +735,17 @@ impl Editor for SlintEditor {
                             3 => 4,
                             _ => 1,
                         }),
+                        6 => {
+                            // Microtiming is step-wide; write the same offset to every lane so a
+                            // later scheduler can stay one-event-per-step.
+                            let next = match store.offset(0, step).max(0) {
+                                0 => 16,
+                                16 => 32,
+                                32 => 64,
+                                _ => 0,
+                            };
+                            for tr in 0..TRACKS { store.set_offset(tr, step, next); }
+                        }
                         _ => {}
                     }
                 });
@@ -1088,7 +1100,8 @@ impl Editor for SlintEditor {
                         let edited = hit_override != 0
                             || p.edit_overlay.accent(tr, i) != 0
                             || probability_override != 255
-                            || p.edit_overlay.ratchet(tr, i) != 1;
+                            || p.edit_overlay.ratchet(tr, i) != 1
+                            || p.edit_overlay.offset(tr, i) != 0;
                         StepCell {
                             track: tr as i32,
                             step: i as i32,
@@ -1103,6 +1116,7 @@ impl Editor for SlintEditor {
                             hit_override: hit_override as i32,
                             edited,
                             ratchet: p.edit_overlay.ratchet(tr, i) as i32,
+                            offset: p.edit_overlay.offset(0, i).max(0) as i32,
                         }
                     }).collect::<Vec<_>>();
                     rows.push(TrackRow {

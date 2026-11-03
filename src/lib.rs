@@ -803,6 +803,8 @@ pub struct NrumSeq {
     subdivisions: u8,
     /// Ratchet count per lane for the current step, read from the edit overlay.
     ratchets: [u8; TRACKS],
+    /// Step-wide microtiming delay in beats for the carried step.
+    step_delay: f64,
     /// Set by `reset`, which has no `ProcessContext` to send NoteOffs with. The next
     /// `process` flushes them, so a host transport reset cannot leave notes hanging.
     pending_reset: bool,
@@ -820,7 +822,7 @@ impl Default for NrumSeq {
             last_key: None, last_base_key: None, pattern: Pattern::default(),
             edit_view: EditView::default(), last_edit_rev: 0, loop_length: 16.0, last_generate: None,
             active: [None; TRACKS], expected_beat: None, next_step: None, next_sub: 0,
-            subdivisions: 1, ratchets: [1; TRACKS], pending_reset: false, free_beat: 0.0,
+            subdivisions: 1, ratchets: [1; TRACKS], step_delay: 0.0, pending_reset: false, free_beat: 0.0,
             last_regen_cycle: None, last_randomize_cycle: None, last_mod_cycle: None, sample_rate: 44100.0,
         }
     }
@@ -883,6 +885,7 @@ impl Plugin for NrumSeq {
         self.next_sub = 0;
         self.subdivisions = 1;
         self.ratchets = [1; TRACKS];
+        self.step_delay = 0.0;
         self.free_beat = 0.0;
         self.last_regen_cycle = None;
         self.last_randomize_cycle = None;
@@ -995,9 +998,19 @@ impl Plugin for NrumSeq {
             let nominal_clock = LfoClock::from_beat(nominal_beat, bpm);
             let swing = p.schedule_at(nominal_clock).swing.clamp(0.0, 0.5) as f64 * step_len;
             let sub_len = step_len / self.subdivisions.max(1) as f64;
+            if sub == 0 {
+                // Microtiming is step-wide: the editor writes the same offset to every lane so
+                // the scheduler can keep one onset per step. Negative values are accepted by the
+                // store but ignored until a lookahead scheduler exists.
+                let idx = step_index(k, self.loop_length) as usize;
+                let idx = idx.min(self.pattern.steps.saturating_sub(1));
+                let offset = self.edit_view.offset[0][idx].max(0) as f64 / 127.0;
+                self.step_delay = (offset * step_len).min(step_len * 0.9);
+            }
             let next_step = if (k as f64) < s1 + 1.0 {
                 nominal_beat
                     + if k.rem_euclid(2) != 0 { swing } else { 0.0 }
+                    + self.step_delay
                     + sub as f64 * sub_len
             } else {
                 f64::INFINITY
@@ -1441,6 +1454,26 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn microtiming_delays_the_step_without_moving_the_grid() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        plugin.params.edit_overlay.set_offset(0, 0, 64);
+        run_playing(&mut plugin, &mut ctx, 48, 512);
+        let kicks: Vec<u64> = ctx
+            .note_ons()
+            .into_iter()
+            .filter(|(_, note, _)| *note == 36)
+            .map(|(at, _, _)| at)
+            .collect();
+        assert!(!kicks.iter().any(|at| *at <= 1), "the delayed step still sounded on the grid: {kicks:?}");
+        let expected = 64.0 / 127.0 * 5512.5;
+        assert!(kicks.iter().any(|at| (*at as f64 - expected).abs() <= 1.5),
+            "the delayed kick is missing: {kicks:?}, expected ≈{expected}");
+        // The next step is not delayed, so the loop still lands on its nominal grid.
+        assert!(kicks.iter().any(|at| (*at as f64 - 5512.5).abs() <= 1.5),
+            "the following step moved with the delayed one: {kicks:?}");
     }
 
     #[test]

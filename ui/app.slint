@@ -21,7 +21,7 @@ export global Theme {
 export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string }
 export struct ModeEntry { group: string, index: int, header: bool }
 export struct ModeRow { header: bool, group: string, left: int, right: int, has-right: bool }
-export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float, hit-override: int, edited: bool, ratchet: int }
+export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float, hit-override: int, edited: bool, ratchet: int, offset: int }
 export struct TrackRow { index: int, name: string, enabled: bool, cells: [StepCell] }
 export struct Opt { label: string, min: float, max: float, value: float, text: string, step: float, number: string, scale: float }
 export struct ModRow { lfo: int, target-id: int, source: string, target: string, base: string, value: string, delta: string }
@@ -800,7 +800,7 @@ export component AppWindow inherits Window {
     in property <bool> logging-on: false;
     in property <bool> generate-on: false;
     in property <[TrackRow]> tracks;
-    /// 0 = off, 1 = hit, 2 = probability, 3 = accent, 4 = clear cell, 5 = ratchet.
+    /// 0 = off, 1 = hit, 2 = probability, 3 = accent, 4 = clear cell, 5 = ratchet, 6 = microtiming.
     in-out property <int> edit-mode: 0;
     in property <[ViewNode]> view-nodes;
     in property <string> view-edges: "M0 0";
@@ -1130,6 +1130,7 @@ export component AppWindow inherits Window {
             Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 4 ? Theme.hi.with-alpha(0.75) : Theme.control; Text { text: "CLR"; color: root.edit-mode == 4 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clr-edit-touch := TouchArea { clicked => { root.edit-mode = root.edit-mode == 4 ? 0 : 4; } } }
             Rectangle { width: 48px; height: 20px; border-radius: 3px; background: clear-edits-touch.has-hover ? Theme.hi : Theme.control; Text { text: "CLR ALL"; color: clear-edits-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clear-edits-touch := TouchArea { clicked => { root.clear-edits(); } } }
             Rectangle { width: 32px; height: 20px; border-radius: 3px; background: root.edit-mode == 5 ? Theme.c1.with-alpha(0.75) : Theme.control; Text { text: "RAT"; color: root.edit-mode == 5 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } rat-edit-touch := TouchArea { clicked => { root.edit-mode = root.edit-mode == 5 ? 0 : 5; } } }
+            Rectangle { width: 38px; height: 20px; border-radius: 3px; background: root.edit-mode == 6 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "TIME"; color: root.edit-mode == 6 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } time-edit-touch := TouchArea { clicked => { root.edit-mode = root.edit-mode == 6 ? 0 : 6; } } }
             Rectangle { width: 38px; height: 20px; border-radius: 3px; background: undo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "UNDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } undo-touch := TouchArea { clicked => { root.undo-edit(); } } }
             Rectangle { width: 38px; height: 20px; border-radius: 3px; background: redo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "REDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } redo-touch := TouchArea { clicked => { root.redo-edit(); } } }
             Rectangle { horizontal-stretch: 1; }
