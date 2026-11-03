@@ -430,42 +430,18 @@ pub fn generate(p: &GenParams) -> Pattern {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::alloc::{GlobalAlloc, Layout, System};
-
-    // Counting allocator for invariant #1. Thread-local so parallel tests cannot leak allocations
-    // into the count.
-    std::thread_local! {
-        static ALLOCS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    }
-    struct Counting;
-    unsafe impl GlobalAlloc for Counting {
-        unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-            let _ = ALLOCS.try_with(|c| c.set(c.get() + 1));
-            System.alloc(l)
-        }
-        unsafe fn dealloc(&self, p: *mut u8, l: Layout) { System.dealloc(p, l) }
-        unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
-            let _ = ALLOCS.try_with(|c| c.set(c.get() + 1));
-            System.realloc(p, l, n)
-        }
-    }
-    #[global_allocator]
-    static ALLOCATOR: Counting = Counting;
 
     #[test]
     fn generation_never_allocates() {
-        // One `try_with` so the counter is read on this thread only.
-        ALLOCS.with(|c| {
-            c.set(0);
-            for kind in Mode::all() {
-                for steps in [1usize, 2, 7, 16, 32, MAX_STEPS] {
-                    let p = GenParams { kind, steps, length: steps as f32, pulses: steps / 2, density: 0.8, probability: 1.0, ..GenParams::default() };
-                    std::hint::black_box(generate(&p));
-                }
+        crate::test_alloc::reset();
+        for kind in Mode::all() {
+            for steps in [1usize, 2, 7, 16, 32, MAX_STEPS] {
+                let p = GenParams { kind, steps, length: steps as f32, pulses: steps / 2, density: 0.8, probability: 1.0, ..GenParams::default() };
+                std::hint::black_box(generate(&p));
             }
-            let used = c.get();
-            assert_eq!(used, 0, "generate() allocated {used} times on the audio path");
-        });
+        }
+        let used = crate::test_alloc::count();
+        assert_eq!(used, 0, "generate() allocated {used} times on the audio path");
     }
 
     #[test]

@@ -1048,6 +1048,38 @@ impl Vst3Plugin for NrumSeq {
 nice_export_clap!(NrumSeq);
 nice_export_vst3!(NrumSeq);
 
+/// Test-only allocation counter shared by every module's tests. There can only be one
+/// `#[global_allocator]` per test binary, so it lives here instead of inside one test module.
+/// The counter is thread-local so parallel tests cannot leak allocations into each other.
+#[cfg(test)]
+pub(crate) mod test_alloc {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        static ALLOCS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(crate) struct Counting;
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let _ = ALLOCS.try_with(|count| count.set(count.get() + 1));
+            System.alloc(layout)
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) { System.dealloc(ptr, layout) }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let _ = ALLOCS.try_with(|count| count.set(count.get() + 1));
+            System.realloc(ptr, layout, new_size)
+        }
+    }
+
+    #[global_allocator]
+    static ALLOCATOR: Counting = Counting;
+
+    pub(crate) fn reset() { ALLOCS.with(|count| count.set(0)); }
+    pub(crate) fn count() -> usize { ALLOCS.with(|count| count.get()) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1060,6 +1092,9 @@ mod tests {
         transport: Transport,
         events: Vec<(u64, PluginNoteEvent<NrumSeq>)>,
         total_samples: u64,
+        /// Off during the allocation test: recording an event would allocate and hide a real
+        /// allocation in the plug-in.
+        record: bool,
     }
 
     impl MockContext {
@@ -1068,8 +1103,10 @@ mod tests {
             transport.playing = true;
             transport.tempo = Some(120.0);
             transport.pos_beats = Some(0.0);
-            Self { transport, events: Vec::new(), total_samples: 0 }
+            Self { transport, events: Vec::new(), total_samples: 0, record: true }
         }
+
+        fn set_recording(&mut self, record: bool) { self.record = record; }
 
         fn process(&mut self, plugin: &mut NrumSeq, samples: usize) {
             let mut buffer = Buffer::default();
@@ -1110,6 +1147,7 @@ mod tests {
         fn transport(&self) -> &Transport { &self.transport }
         fn next_event(&mut self) -> Option<PluginNoteEvent<NrumSeq>> { None }
         fn send_event(&mut self, event: PluginNoteEvent<NrumSeq>) {
+            if !self.record { return; }
             let at = self.total_samples + event.timing() as u64;
             self.events.push((at, event));
         }
@@ -1283,6 +1321,27 @@ mod tests {
         set_param(&plugin.params.pulses, 1);
         run_playing(&mut plugin, &mut ctx, 8, 512);
         assert!(!ctx.note_ons().is_empty(), "a one-step pattern was silent");
+    }
+
+    #[test]
+    fn process_never_allocates() {
+        // Invariant #1 covers the whole audio callback, not just `sequence::generate()`. The mock
+        // keeps recording off so its own event log cannot allocate during the measurement.
+        for kind in Mode::all() {
+            let (mut plugin, mut ctx) = every_step_plugin();
+            set_param(&plugin.params.mode, kind);
+            set_param(&plugin.params.steps, 16.0);
+            set_param(&plugin.params.pulses, 5);
+            set_param(&plugin.params.density, 0.65);
+            set_param(&plugin.params.probability, 1.0);
+            ctx.set_recording(false);
+            // First block generates the initial pattern and primes the LFO/regeneration state.
+            run_playing(&mut plugin, &mut ctx, 1, 64);
+            crate::test_alloc::reset();
+            run_playing(&mut plugin, &mut ctx, 16, 64);
+            let used = crate::test_alloc::count();
+            assert_eq!(used, 0, "process() allocated {used} times with {kind:?} on the audio thread");
+        }
     }
 
     #[test]
