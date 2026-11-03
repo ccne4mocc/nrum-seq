@@ -139,6 +139,19 @@ fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
     }
 }
 
+fn lane_mode_param(p: &DrumParams, lane: i32) -> &IntParam {
+    match lane {
+        0 => &p.lane1_mode,
+        1 => &p.lane2_mode,
+        2 => &p.lane3_mode,
+        3 => &p.lane4_mode,
+        4 => &p.lane5_mode,
+        5 => &p.lane6_mode,
+        6 => &p.lane7_mode,
+        _ => &p.lane8_mode,
+    }
+}
+
 fn lfo_enabled_param(p: &DrumParams, slot: i32) -> &BoolParam {
     match slot { 1 => &p.lfo1_enabled, 2 => &p.lfo2_enabled, 3 => &p.lfo3_enabled, _ => &p.lfo4_enabled }
 }
@@ -700,6 +713,13 @@ impl Editor for SlintEditor {
                 });
             }
             {
+                let (p, c) = (setup_params.clone(), setup_ctx.clone());
+                ui.on_set_lane_mode(move |lane, value| {
+                    let lane = lane.clamp(0, TRACKS as i32 - 1);
+                    set(&c, lane_mode_param(&p, lane), value.clamp(0, 39));
+                });
+            }
+            {
                 let (p, history) = (setup_params.clone(), edit_history_step.clone());
                 ui.on_edit_step(move |track, step, mode| {
                     let lane = track.clamp(0, TRACKS as i32 - 1) as usize;
@@ -932,6 +952,26 @@ impl Editor for SlintEditor {
                 ui.set_track_name(SharedString::from(name.as_str()));
             }
             ui.set_mode(p.mode.value() as i32);
+            {
+                let lane_modes = [
+                    p.lane1_mode.value().clamp(0, 39),
+                    p.lane2_mode.value().clamp(0, 39),
+                    p.lane3_mode.value().clamp(0, 39),
+                    p.lane4_mode.value().clamp(0, 39),
+                    p.lane5_mode.value().clamp(0, 39),
+                    p.lane6_mode.value().clamp(0, 39),
+                    p.lane7_mode.value().clamp(0, 39),
+                    p.lane8_mode.value().clamp(0, 39),
+                ];
+                let model = ui.get_lane_modes();
+                if model.row_count() == lane_modes.len() {
+                    for (i, value) in lane_modes.iter().enumerate() {
+                        if model.row_data(i) != Some(*value) { model.set_row_data(i, *value); }
+                    }
+                } else {
+                    ui.set_lane_modes(ModelRc::new(VecModel::from(lane_modes.to_vec())));
+                }
+            }
             let selected_theme = p.theme.value();
             let theme_index = selected_theme.to_index() as i32;
             let update_scale = f32::from_bits(update_scale_cell.load(Relaxed));

@@ -800,6 +800,10 @@ export component AppWindow inherits Window {
     in property <bool> logging-on: false;
     in property <bool> generate-on: false;
     in property <[TrackRow]> tracks;
+    /// 0 = follow the global mode, otherwise 1 + the mode index for that lane.
+    in property <[int]> lane-modes: [0,0,0,0,0,0,0,0];
+    in-out property <bool> lane-mode-menu-open: false;
+    in-out property <int> lane-mode-menu-lane: 0;
     /// 0 = off, 1 = hit, 2 = probability, 3 = accent, 4 = clear cell, 5 = ratchet, 6 = microtiming.
     in-out property <int> edit-mode: 0;
     in property <[ViewNode]> view-nodes;
@@ -825,6 +829,7 @@ export component AppWindow inherits Window {
     callback toggle-round-steps();
     callback toggle-track(int);
     callback edit-step(int, int, int);
+    callback set-lane-mode(int, int);
     callback clear-edits();
     callback undo-edit();
     callback redo-edit();
@@ -1143,8 +1148,21 @@ export component AppWindow inherits Window {
                 for track in root.tracks: Rectangle {
                     width: 76px; height: 22px; border-radius: 3px;
                     background: track.enabled ? Theme.control : Theme.cell-off;
-                    Text { x: 4px; width: parent.width - 8px; height: parent.height; text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55); font-size: 9px; vertical-alignment: center; overflow: elide; }
+                    Text { x: 4px; width: parent.width - 40px; height: parent.height; text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55); font-size: 9px; vertical-alignment: center; overflow: elide; }
                     TouchArea { clicked => { root.toggle-track(track.index); } }
+                    // Per-lane generator badge: G = follow the global mode, M = override.
+                    Rectangle {
+                        x: parent.width - 34px; y: 3px; width: 16px; height: 16px; border-radius: 3px;
+                        background: root.lane-modes[track.index] > 0 ? Theme.c2.with-alpha(0.8) : Theme.surface;
+                        Text { text: root.lane-modes[track.index] > 0 ? "M" : "G"; color: root.lane-modes[track.index] > 0 ? Theme.on-accent : Theme.text-muted; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
+                        lane-mode-touch := TouchArea { clicked => { root.lane-mode-menu-lane = track.index; root.lane-mode-menu-open = true; } }
+                    }
+                    if root.lane-modes[track.index] > 0: Rectangle {
+                        x: parent.width - 16px; y: 3px; width: 14px; height: 16px; border-radius: 3px;
+                        background: lane-clear-touch.has-hover ? Theme.hi : Theme.control;
+                        Text { text: "×"; color: lane-clear-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                        lane-clear-touch := TouchArea { clicked => { root.set-lane-mode(track.index, 0); } }
+                    }
                 }
             }
             matrix-scroll := ScrollView {
@@ -1368,6 +1386,20 @@ export component AppWindow inherits Window {
         y: Math.min(root.mode-menu-y, root.base-height - 432px);
         rows: root.mode-rows; names: root.mode-names; current: root.mode;
         selected(i) => { root.set-mode(i); root.mode-menu-open = false; }
+    }
+    if root.lane-mode-menu-open: Rectangle {
+        x: 0px; y: 0px; width: root.base-width; height: root.base-height;
+        background: #00000033;
+        TouchArea { clicked => { root.lane-mode-menu-open = false; } }
+    }
+    if root.lane-mode-menu-open: ModeDropdown {
+        x: 200px; y: 154px;
+        rows: root.mode-rows; names: root.mode-names;
+        current: root.lane-modes[root.lane-mode-menu-lane] - 1;
+        selected(i) => {
+            root.set-lane-mode(root.lane-mode-menu-lane, i + 1);
+            root.lane-mode-menu-open = false;
+        }
     }
 
     // Parked off-screen when closed so the closing animation can play. Tie the scrim to the
