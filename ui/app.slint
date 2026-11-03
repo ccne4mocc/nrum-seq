@@ -70,8 +70,8 @@ component TipTouch inherits TouchArea {
     moved => {
         if (root.has-hover) {
             HoverTip.text = root.hint;
-            HoverTip.x = root.absolute-position.x;
-            HoverTip.y = root.absolute-position.y + root.height + 3px;
+            HoverTip.x = root.absolute-position.x + root.mouse-x;
+            HoverTip.y = root.absolute-position.y + root.mouse-y;
             HoverTip.owner-x = root.absolute-position.x;
             HoverTip.owner-y = root.absolute-position.y;
         }
@@ -79,8 +79,8 @@ component TipTouch inherits TouchArea {
     changed has-hover => {
         if (root.has-hover) {
             HoverTip.text = root.hint;
-            HoverTip.x = root.absolute-position.x;
-            HoverTip.y = root.absolute-position.y + root.height + 3px;
+            HoverTip.x = root.absolute-position.x + root.mouse-x;
+            HoverTip.y = root.absolute-position.y + root.mouse-y;
             HoverTip.owner-x = root.absolute-position.x;
             HoverTip.owner-y = root.absolute-position.y;
         } else if (HoverTip.owner-x == root.absolute-position.x && HoverTip.owner-y == root.absolute-position.y) {
@@ -219,8 +219,8 @@ component OptSlider inherits Rectangle {
         pointer-event(e) => {
             if (root.hint != "") {
                 HoverTip.text = root.hint;
-                HoverTip.x = root.absolute-position.x;
-                HoverTip.y = root.absolute-position.y + root.height + 3px;
+                HoverTip.x = root.absolute-position.x + ta.mouse-x;
+                HoverTip.y = root.absolute-position.y + ta.mouse-y;
                 HoverTip.owner-x = root.absolute-position.x;
                 HoverTip.owner-y = root.absolute-position.y;
             }
@@ -249,8 +249,8 @@ component OptSlider inherits Rectangle {
     changed tip-hover => {
         if (tip-hover) {
             HoverTip.text = root.hint;
-            HoverTip.x = root.absolute-position.x;
-            HoverTip.y = root.absolute-position.y + root.height + 3px;
+            HoverTip.x = root.absolute-position.x + ta.mouse-x;
+            HoverTip.y = root.absolute-position.y + ta.mouse-y;
             HoverTip.owner-x = root.absolute-position.x;
             HoverTip.owner-y = root.absolute-position.y;
         } else if (HoverTip.owner-x == root.absolute-position.x && HoverTip.owner-y == root.absolute-position.y) {
@@ -1714,11 +1714,19 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Hover description. A fixed status line cannot sit under the pointer and steal hover from
-    // the control that just opened it, which made the old floating tip flicker or vanish.
+    // Hover description follows the pointer. It is offset to the right/left and above/below so
+    // it never covers the cursor or the control being described, and it has no TouchArea so it
+    // cannot steal hover from that control.
     if HoverTip.text != "": Rectangle {
-        x: 8px; y: root.base-height - 26px;
-        width: root.base-width - 16px; height: 20px;
+        property <length> tip-w: 280px;
+        property <length> tip-h: 20px;
+        x: HoverTip.x + 14px + tip-w <= root.base-width
+            ? HoverTip.x + 14px
+            : Math.max(6px, HoverTip.x - tip-w - 14px);
+        y: HoverTip.y + 22px + tip-h <= root.base-height
+            ? HoverTip.y + 22px
+            : Math.max(6px, HoverTip.y - tip-h - 12px);
+        width: tip-w; height: tip-h;
         border-radius: 3px; background: Theme.surface;
         border-width: 1px; border-color: Theme.border;
         drop-shadow-blur: 8px; drop-shadow-color: #00000055;
