@@ -1095,6 +1095,8 @@ mod tests {
         /// Off during the allocation test: recording an event would allocate and hide a real
         /// allocation in the plug-in.
         record: bool,
+        /// Counts every event even when `record` is off, so stress tests stay allocation-free.
+        sent: u64,
     }
 
     impl MockContext {
@@ -1103,7 +1105,7 @@ mod tests {
             transport.playing = true;
             transport.tempo = Some(120.0);
             transport.pos_beats = Some(0.0);
-            Self { transport, events: Vec::new(), total_samples: 0, record: true }
+            Self { transport, events: Vec::new(), total_samples: 0, record: true, sent: 0 }
         }
 
         fn set_recording(&mut self, record: bool) { self.record = record; }
@@ -1147,6 +1149,7 @@ mod tests {
         fn transport(&self) -> &Transport { &self.transport }
         fn next_event(&mut self) -> Option<PluginNoteEvent<NrumSeq>> { None }
         fn send_event(&mut self, event: PluginNoteEvent<NrumSeq>) {
+            self.sent += 1;
             if !self.record { return; }
             let at = self.total_samples + event.timing() as u64;
             self.events.push((at, event));
@@ -1342,6 +1345,45 @@ mod tests {
             let used = crate::test_alloc::count();
             assert_eq!(used, 0, "process() allocated {used} times with {kind:?} on the audio thread");
         }
+    }
+
+    #[test]
+    fn a_long_scheduler_run_stays_bounded() {
+        let (mut plugin, mut ctx) = every_step_plugin();
+        set_param(&plugin.params.steps, MAX_STEPS as f32);
+        set_param(&plugin.params.max_steps, MAX_STEPS as i32);
+        set_param(&plugin.params.pulses, MAX_STEPS as i32);
+        set_param(&plugin.params.density, 1.0);
+        ctx.set_recording(false);
+        let blocks = 2_000usize;
+        run_playing(&mut plugin, &mut ctx, blocks, 32);
+        assert!(ctx.sent > 0, "the long run produced no events");
+        // Eight lanes can at most produce a note on and an off per step, and a 32-sample block
+        // cannot contain a whole step at these tempos.
+        assert!(ctx.sent <= (blocks * 16 + 32) as u64, "event count {} looks unbounded", ctx.sent);
+    }
+
+    #[test]
+    #[ignore = "timing run; use cargo test --release bench_process_at_max_steps -- --ignored --nocapture"]
+    fn bench_process_at_max_steps() {
+        use std::time::Instant;
+        let (mut plugin, mut ctx) = every_step_plugin();
+        set_param(&plugin.params.steps, MAX_STEPS as f32);
+        set_param(&plugin.params.max_steps, MAX_STEPS as i32);
+        set_param(&plugin.params.pulses, 32);
+        set_param(&plugin.params.density, 0.8);
+        ctx.set_recording(false);
+        // Warm up: the first block generates the pattern and primes the clock.
+        run_playing(&mut plugin, &mut ctx, 4, 32);
+        let mut times = [0u64; 200];
+        for time in times.iter_mut() {
+            let start = Instant::now();
+            ctx.process(&mut plugin, 32);
+            *time = start.elapsed().as_nanos() as u64;
+        }
+        times.sort_unstable();
+        println!("process() at {MAX_STEPS} steps: median {:.1} us, max {:.1} us per 32-sample block",
+            times[100] as f64 / 1000.0, times[199] as f64 / 1000.0);
     }
 
     #[test]
