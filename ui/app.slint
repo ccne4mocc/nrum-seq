@@ -1121,7 +1121,14 @@ export component AppWindow inherits Window {
             height: 34px; spacing: 6px;
             Text { text: "nrum seq"; color: Theme.text; font-family: "Consolas"; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
             Text { visible: root.track-name != ""; text: "· \{root.track-name}"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide; }
-            Rectangle { horizontal-stretch: 1; }
+            // Hover descriptions live in the header. This is always at the top, cannot sit under the
+            // pointer, and costs no overlay or hover hit-testing.
+            Text {
+                horizontal-stretch: 1;
+                text: HoverTip.text;
+                color: Theme.text-muted; font-size: 9px;
+                vertical-alignment: center; overflow: elide;
+            }
             Text { text: "CLOCK RATE"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; }
             // Clock-rate picker: sized like nelody seq's rate field.
             Rectangle {
@@ -1714,24 +1721,6 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Hover description follows the pointer. It is offset to the right/left and above/below so
-    // it never covers the cursor or the control being described, and it has no TouchArea so it
-    // cannot steal hover from that control.
-    if HoverTip.text != "": Rectangle {
-        property <length> tip-w: 280px;
-        property <length> tip-h: 20px;
-        x: HoverTip.x + 14px + tip-w <= root.base-width
-            ? HoverTip.x + 14px
-            : Math.max(6px, HoverTip.x - tip-w - 14px);
-        y: HoverTip.y + 22px + tip-h <= root.base-height
-            ? HoverTip.y + 22px
-            : Math.max(6px, HoverTip.y - tip-h - 12px);
-        width: tip-w; height: tip-h;
-        border-radius: 3px; background: Theme.surface;
-        border-width: 1px; border-color: Theme.border;
-        drop-shadow-blur: 8px; drop-shadow-color: #00000055;
-        Text { x: 8px; width: parent.width - 16px; height: parent.height; text: HoverTip.text; color: Theme.text; font-size: 9px; vertical-alignment: center; overflow: elide; }
-    }
     if ModHover.target >= 0 && ModView.view(ModHover.target).linked && !root.matrix-open && ModDrag.lfo == 0: Rectangle {
         x: Math.max(6px, Math.min(ModHover.x, root.base-width - 326px));
         y: Math.min(ModHover.y + 2px, root.base-height - 26px);
