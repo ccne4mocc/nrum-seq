@@ -6,7 +6,7 @@ The binding rules live in `AGENTS.md` and `docs/ARCHITECTURE.md`.
 
 ## Build and host verification
 
-- Bundle CLAP + VST3 with `cargo xtask bundle nrum-sequencer --release` and open the result in one CLAP host and one VST3 host. Nothing here has been run in a host yet.
+- Bundle CLAP + VST3 with `cargo xtask bundle nrum-sequencer --release` and open the result in one CLAP host and one VST3 host. Linux host verification is still pending; the Windows/Wine run below is the only verified path.
 - Check no-audio MIDI-effect routing into a sampler, host parameter automation, plug-in scan, editor close/reopen, tempo changes, loop points, stop/start and free-run.
 - A repeatable smoke-test checklist with host/version/OS, distinguishing untested from passing.
 - Run CI for Linux, macOS and Windows; package CLAP + VST3 in release artifacts.

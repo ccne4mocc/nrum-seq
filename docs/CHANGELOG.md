@@ -18,7 +18,7 @@
 
 - Credit / Contact rows are flush, with no inter-row spacing.
 - Mode entries in the mode picker are 11px (up 2px).
-- LFO drag points are 30×28, matching the bipolar/unipolar chip.
+- LFO drag points are 28×26.
 - Version is 1.2.0.
 
 ## 1.1.0 — nelody sequencer migration

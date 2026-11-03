@@ -65,7 +65,7 @@ rustup target add x86_64-pc-windows-msvc
 cargo xtask bundle nrum-sequencer --release --target x86_64-pc-windows-msvc
 ```
 
-There is no CI in this repository regardless of what older revisions said. Artifacts always land under `target/bundled/` — the xtask does not move them for cross-compiled targets.
+The Windows bundle workflow is manual-only (`workflow_dispatch`) and GitHub-specific. MSVC builds remain unverified on real Windows. Artifacts always land under `target/bundled/` — the xtask does not move them for cross-compiled targets.
 
 ### Host verification status (2026-10-28)
 
@@ -103,6 +103,7 @@ xtask/                bundle and assembly runner
 ## Credits & License
 
 - Author: `ccne4mocc / feN`
+- Copyright (C) 2026 `ccne4mocc / feN`.
 - Derived from the `_AlgoNemLody` reference project.
 - Inspired by countless online articles, forum threads and prior prototypes; exact citations are listed in [`docs/ALGORITHM_RESEARCH.md`](docs/ALGORITHM_RESEARCH.md).
 - License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
