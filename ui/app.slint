@@ -478,10 +478,10 @@ component LfoCell inherits Rectangle {
     }
     height: 28px;
     HorizontalLayout {
-        // 2px keeps the 28x26 drag points inside the 822px rack width.
+        // 2px gaps and the 30px handle slot keep the 28x26 drag points inside the 822px rack width.
         spacing: 2px;
         Rectangle {
-            width: 28px; height: 28px; background: transparent;
+            width: 30px; height: 28px; background: transparent;
             Rectangle {
                 y: 1px; width: 28px; height: 26px; border-radius: 4px;
                 background: root.accent;
@@ -654,7 +654,7 @@ export component AppWindow inherits Window {
     title: "nrum seq";
     // Fixed layout size: the window never resizes, so the host cannot fight over it.
     in property <length> base-width: 860px;
-    in property <length> base-height: 760px;
+    in property <length> base-height: 740px;
     preferred-width: root.base-width; preferred-height: root.base-height;
     background: @linear-gradient(135deg, Theme.bg1 0%, Theme.bg2 50%, Theme.bg3 100%);
     in property <int> mode: 0;
@@ -762,7 +762,6 @@ export component AppWindow inherits Window {
     in property <bool> scope-feel: true;
     in property <string> settings-path: "";
     in property <string> credit-author: "";
-    in property <string> credit-website: "";
     in property <string> credit-github: "";
     in property <string> credit-support: "";
     in property <string> credit-email: "";
@@ -984,7 +983,7 @@ export component AppWindow inherits Window {
         { label: "Gate", min: 0.02, max: 1, value: root.gate, text: "\{Math.round(root.gate * 100)}%", step: 0.01, number: "\{Math.round(root.gate * 100)}", scale: 0.01 }
     ];
 
-    // One fixed 860x760 coordinate space; the matrix scrolls fixed-width cells, so nothing reflows.
+    // One fixed 860x740 coordinate space; the matrix scrolls fixed-width cells, so nothing reflows.
     Rectangle {
         width: root.base-width; height: root.base-height;
 
@@ -1049,7 +1048,7 @@ export component AppWindow inherits Window {
             height: 300px; spacing: 10px;
             ModePanel { nodes: root.view-nodes; edges: root.view-edges; lines: root.view-lines; hand: root.view-hand; }
             VerticalLayout {
-                spacing: 3px;
+                spacing: 3px; alignment: start;
                 mode-header := Rectangle {
                     height: 30px; border-radius: 4px;
                     background: mode-menu-touch.has-hover ? Theme.control-hover : Theme.control;
@@ -1407,7 +1406,6 @@ export component AppWindow inherits Window {
                 spacing: 0px;
                 Text { text: "CREDITS / CONTACT"; color: Theme.text-muted; font-size: 9px; }
                 Text { text: "\{root.credit-author}  ·  nrum seq"; color: Theme.text; font-size: 10px; }
-                TextInput { read-only: true; text: root.credit-website; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }
                 TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }
                 TextInput { read-only: true; text: root.credit-support; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }
                 TextInput { read-only: true; text: root.credit-email; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }

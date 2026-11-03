@@ -20,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 slint::include_modules!();
 const WIDTH: u32 = 860;
-const HEIGHT: u32 = 760;
+const HEIGHT: u32 = 740;
 
 /// Append one technical line to `nrum-seq.log`; GUI thread only, never the audio path.
 fn log_line(text: &str) {
@@ -772,7 +772,6 @@ impl Editor for SlintEditor {
             ui.set_mode_rows(ModelRc::new(VecModel::from(rows)));
             ui.set_settings_path(SharedString::from(crate::globals::config_path_display()));
             ui.set_credit_author(SharedString::from(crate::contact::AUTHOR));
-            ui.set_credit_website(SharedString::from(crate::contact::WEBSITE));
             ui.set_credit_github(SharedString::from(crate::contact::GITHUB));
             ui.set_credit_support(SharedString::from(crate::contact::SUPPORT));
             ui.set_credit_email(SharedString::from(crate::contact::EMAIL));
@@ -994,7 +993,7 @@ impl Editor for SlintEditor {
             let ui = AppWindow::new()?;
             Ok(ui)
         };
-        // The window never changes size: the editor reports a fixed 860x760 logical size.
+        // The window never changes size: the editor reports a fixed 860x740 logical size.
         log_line("editor spawn: opening parented Slint/baseview window");
         let window = SlintWindow::open_parented(&parent, options, factory, setup, update, |_, _| {});
         log_line("editor spawn: open_parented returned; native initialization may continue asynchronously");
