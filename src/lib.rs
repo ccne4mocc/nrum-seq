@@ -1689,7 +1689,7 @@ mod tests {
         // These strings are project state and host scan identity. Changing one breaks sessions.
         assert_eq!(<NrumSeq as Plugin>::NAME, "nrum seq");
         assert_eq!(<NrumSeq as Plugin>::VENDOR, contact::AUTHOR);
-        assert_eq!(<NrumSeq as Plugin>::VERSION, "1.0.0");
+        assert_eq!(<NrumSeq as Plugin>::VERSION, "1.0.1");
         assert_eq!(<NrumSeq as ClapPlugin>::CLAP_ID, "com.nrumseq.nrumseq");
         assert_eq!(<NrumSeq as Vst3Plugin>::VST3_CLASS_ID, *b"nrum-seq\0\0\0\0\0\0\0\0");
     }
@@ -1759,7 +1759,7 @@ mod tests {
     #[test]
     fn lava_is_the_fresh_default_theme() {
         assert_eq!(DrumParams::default().theme.value(), Theme::Lava);
-        assert_eq!(<NrumSeq as Plugin>::VERSION, "1.0.0");
+        assert_eq!(<NrumSeq as Plugin>::VERSION, "1.0.1");
     }
 
     #[test]

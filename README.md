@@ -162,7 +162,7 @@ Windows artifacts on `v*` tags and can also be dispatched manually from GitHub A
 
 ## Compatibility
 
-Version 1.0.0 uses the host identity `com.nrumseq.nrumseq` (CLAP) and `nrum-seq` (VST3 class ID).
+The 1.0.x line uses the host identity `com.nrumseq.nrumseq` (CLAP) and `nrum-seq` (VST3 class ID).
 Sessions created with the old `com.ndrum.ndrum` / `nDrum` IDs must replace the plug-in instance.
 
 ## Status and limitations
