@@ -99,6 +99,12 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Write checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create or update the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

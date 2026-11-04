@@ -137,7 +137,7 @@ pub(crate) fn math(p: &GenParams) -> String {
         Mode::Bernoulli => format!("n={n}: hit(i)=Bernoulli(d·p) with d={d:.2}, p={:.2}; each step is independent per lane", p.probability),
         Mode::AfricanBell => format!("n={n}: 12-step bell [x..x..x..x..] rotated by a seeded offset per lane; probability={:.2}", p.probability),
         Mode::PhaseCanon => format!("n={n}: base pulse train of {pulses} onsets, each lane shifted by lane·n/8; density={d:.2}, probability={:.2}", p.probability),
-        Mode::ReactionDiffusion => format!("n={n}: activator a(i)=sin(2π·i/n·(1+0.1·lane)+0.7·lane); hit when a≥1−d ({:.2}) and Bernoulli(p={:.2})", 1.0 - d, p.probability),
+        Mode::ReactionDiffusion => format!("n={n}: sine activator a(i)=sin(2π·i/n·(1+0.1·lane)+0.7·lane); hit when a≥1−d ({:.2}) and Bernoulli(p={:.2}); approximation, not a solved reaction-diffusion system", 1.0 - d, p.probability),
         Mode::Lorenz => format!("n={n}: Lorenz σ=10, ρ=28, β=8/3, dt=0.01×10 per step; lane hits on z local peaks; probability={:.2}, density={d:.2}", p.probability),
         Mode::Cantor => format!("n={n}: Cantor set membership at depth 2+lane; hit when x∈Cantor and Bernoulli(d·p={:.2}×{:.2})", d, p.probability),
         Mode::Fibonacci => {
@@ -157,7 +157,10 @@ pub(crate) fn math(p: &GenParams) -> String {
             format!("n={n}: Hilbert order {order} ({} cells), sampled at i·total/n, {turn} quarter turn(s); lane=(x+2y+i+seed) mod 8; density={d:.2} thins each lane", 1usize << (2 * order))
         }
         Mode::Ulam => format!("n={n}: Ulam spiral from integer {}; prime cells, lane=(x−y) mod 8; density={d:.2}", 1 + (p.phase * 64.0).round() as usize + 5 * (p.variation as usize % 1024)),
-        Mode::Vuza => format!("n={n}: Vuza canon modulus {}; probability={:.2} — Recommended N (Hájos groups): 72, 108, 120, 144, 168", p.ca_rule, p.probability),
+        Mode::Vuza => {
+            let m = p.ca_rule.clamp(8, 32);
+            format!("n={n}: seeded attack set A⊂Z_{m} (m=clamp(ca_rule,8,32)={m}), lanes rotate the cycle by lane·m/8; hit when residue∈A and Bernoulli(p={:.2}); Vuza-style subset, not a tiling canon", p.probability)
+        }
         Mode::ThueMorse => format!("n={n}: t(i)=popcount(i) mod 2 (A010060), window +{}; onsets on 1s spread to the lane target; infinity-series accents", (p.phase * 16.0).round() as usize + (p.variation as usize % 1024)),
         Mode::RudinShapiro => format!("n={n}: parity of overlapping 11-pairs (A020985), window +{}; onsets on 1s spread to the lane target", (p.phase * 16.0).round() as usize + (p.variation as usize % 1024)),
         Mode::Brownian => format!("n={n}: Gaussian step σ={:.3}, start=frac(0.5+phase+lane/8); largest |step| per lane become onsets", crate::sequence::brownian_sigma(d)),

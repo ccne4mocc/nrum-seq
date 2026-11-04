@@ -497,6 +497,13 @@ mod tests {
         assert_eq!(used, 0, "generate() allocated {used} times on the audio path");
     }
 
+    /// `docs/ARCHITECTURE.md` quotes this number to explain the per-instance footprint. Pin it so
+    /// a new `Pattern` array cannot silently grow the audio-thread copy.
+    #[test]
+    fn pattern_size_matches_the_documented_footprint() {
+        assert_eq!(std::mem::size_of::<Pattern>(), 104_464);
+    }
+
     #[test]
     #[ignore = "timing run; use cargo test --release bench_generation_at_max_steps -- --ignored --nocapture"]
     fn bench_generation_at_max_steps() {

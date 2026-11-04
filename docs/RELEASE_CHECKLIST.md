@@ -54,6 +54,6 @@ Run this against a clean checkout of the release commit. Record host/API/OS resu
 
 ## 5. Artifacts and notes
 
-- [ ] Bundles are attached to the release with SHA-256 checksums.
+- [ ] Bundles are attached to the release with SHA-256 checksums (`SHA256SUMS`).
 - [ ] Release notes list behavior changes, host limitations and the exact verification status.
 - [ ] `HOST_VERIFICATION.md` is updated with the release date and results.

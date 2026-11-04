@@ -1,10 +1,10 @@
 # Reference project mapping: `_AlgoNemLody` → nrum seq
 
-This map records the supplied melody sequencer's existing view conventions so follow-up agents can preserve its design language instead of guessing.
+This map records the view conventions of the melody sequencer this project grew out of, so the design language is preserved deliberately instead of guessed at.
 
 ## Reference modes and current counterparts
 
-The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`GenKind`), `src/view.rs` (`build()`), and `ui/app.slint` (`pulses-labels`, `shape-label`, `ModePanel`). nrum seq keeps one mode enum instead of the reference's two: `Mode` in `src/modes.rs` is both the host parameter and the generator's dispatch key.
+The reference is explicit in `src/lib.rs` (`Mode::kind()`), `src/pattern.rs` (`GenKind`), `src/view.rs` (`build()`), and `ui/app.slint` (`pulses-labels`, `shape-label`, `ModePanel`) of that prototype. Those paths are from the private reference project, not from this repository. nrum seq keeps one mode enum instead of the reference's two: `Mode` in `src/modes.rs` is both the host parameter and the generator's dispatch key.
 
 | Reference mode | Reference generator | Reference view | nrum seq adaptation |
 |---|---|---|---|

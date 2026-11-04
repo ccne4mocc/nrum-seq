@@ -5,8 +5,10 @@
 ![nrum seq demo](assets/nrum-seq.gif)
 
 So... first of all: **AI-assisted, human-tested, maintained and used.** The code was written with
-heavy LLM assistance, but every release is reviewed, built and smoke-tested in real hosts by a
-human who uses the plugins in actual productions.
+heavy LLM assistance. I build every release myself and use the plugins in actual productions, but
+what has actually been loaded in which host is listed in
+[`docs/HOST_VERIFICATION.md`](docs/HOST_VERIFICATION.md), not assumed from a successful build.
+Native Linux host testing is still partial and the Windows build has only been loaded under Wine.
 
 **This is an EARLY phase! Clock, generation, mode logic/function-wise, aswell as overall architecture and documents will be updated/polished over time.**
 
@@ -104,8 +106,9 @@ parameter to create a link; linked controls show a depth band and a second anima
 The modulation matrix lists every link and removes them with a per-row ×.
 
 Randomize draws from mode-aware palettes instead of uniform noise, so lengths, pulse counts,
-density, probability and velocity land on musically useful values. The scope mask can restrict
-randomization to Mode, Length, Rhythm, Tone or Feel.
+density, probability and velocity land on musically useful values. The scope mask has one bit per
+group (Mode, Length, Rhythm, Tone, Clock, Phase, Acid, Feel), so randomize can be narrowed to any
+subset; the Acid group is inherited from nelody seq and does not touch this plug-in's parameters.
 
 ## Modes
 
@@ -128,8 +131,8 @@ full mapping, derivation and view geometry live in
 
 ## Build
 
-Requirements: Rust 1.88 or newer, a C/C++ build toolchain, and the usual Slint windowing
-dependencies on Linux.
+Requirements: Rust 1.90 or newer (the locked dependencies need it, and CI checks this floor), a
+C/C++ build toolchain, and the usual Slint windowing dependencies on Linux.
 
 ```sh
 cargo check --lib
@@ -162,7 +165,9 @@ cargo xtask bundle nrum-seq --release --target x86_64-pc-windows-msvc
 ```
 
 MSVC builds are not verified on a real Windows system. The `Bundles` workflow builds Linux and
-Windows artifacts on `v*` tags and can also be dispatched manually from GitHub Actions.
+Windows artifacts on `v*` tags and can also be dispatched manually from GitHub Actions. The MinGW
+build described above is the one that has been loaded under Wine; the release zip is an MSVC build
+and has not been loaded anywhere yet.
 
 ## Compatibility
 
@@ -175,8 +180,10 @@ Sessions created with the old `com.ndrum.ndrum` / `nDrum` IDs must replace the p
 - `clap-validator` passes 33 tests with 11 skipped and 0 failures on the pinned `nice-plug`
   fork; host-side state round-trips still need manual verification.
 - Windows/MinGW builds scan, load and process under Wine/REAPER, but have not been run on real
-  Windows. REAPER's bridged VST3 editor path is a known failure mode; run unbridged.
-- macOS is not configured.
+  Windows, and the released MSVC build has not been loaded at all. REAPER's bridged VST3 editor
+  path is a known failure mode; run unbridged.
+- No macOS bundle is produced or tested. CI compiles and tests the library on macOS, but no
+  plug-in has been built or loaded there.
 - Fixed UI size (860×768), with no separate scaling preference.
 - MIDI export writes one loop and uses the plug-in process working directory, not the DAW
   project path.

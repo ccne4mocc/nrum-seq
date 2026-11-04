@@ -37,7 +37,7 @@ DrumParams + host tempo ---> editor-side MIDI export
 
 ### Why this split
 
-The reference `_AlgoNemLody` project has a strong seam between pure generation (`src/pattern.rs`), pure visualization geometry (`src/view.rs`), and Slint host glue (`src/editor.rs`). nrum seq preserves that seam and replaces pitch-oriented output with a multi-lane drum event matrix.
+The reference `_AlgoNemLody` project (a private prototype, not a dependency) has a strong seam between pure generation (`src/pattern.rs`), pure visualization geometry (`src/view.rs`), and Slint host glue (`src/editor.rs`). nrum seq preserves that seam and replaces pitch-oriented output with a multi-lane drum event matrix.
 
 `sequence::Pattern` is a fixed 104464-byte data structure on 64-bit targets: eight hit arrays at up to 1024 steps, eight accent arrays, and the mode visualization state (CA history, logistic orbit, symbolic word, normalized pebble-box frames, and the Kuramoto phase bank). Algorithms are deterministic: parameter snapshots contain seed and a persisted variation counter; no entropy source is consulted during playback. Rotation and mirror are shared post-transforms and apply to every per-step array, including `orbit`, `theta`, `u`, the symbolic word, the CA history, the phase bank and the current step, so the playhead and every panel stay aligned with what is drawn. Rotation happens before mirror; a view that redraws generator geometry maps a display slot back through `view::src_index` (undo mirror, then rotation) instead of restating the formula.
 

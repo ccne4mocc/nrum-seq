@@ -174,7 +174,7 @@ pub enum LfoPolarity {
     #[id = "unipolar_neg"] #[name = "Unipolar Negative"] UnipolarNegative,
 }
 
-/// Which parameter groups RANDOMIZE is allowed to touch. One host parameter, five bits.
+/// Which parameter groups RANDOMIZE is allowed to touch. One host parameter, eight bits.
 pub mod scope {
     pub const MODE: i32 = 1 << 0;
     pub const LENGTH: i32 = 1 << 1;

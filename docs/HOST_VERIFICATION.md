@@ -11,11 +11,16 @@ combination. Everything else is **untested**, even when the plug-in bundles and 
 - Build command: `cargo xtask bundle nrum-seq --release`
 - Date: 2026-11-03
 
+The host rows below were recorded against the 1.0.0 code; 1.0.1 changes documentation and
+packaging only. Each manual row carries the date it was run, and the Windows rows refer to the
+MinGW cross-built bundle. The `Bundles` workflow uploads an MSVC build instead, which has not been
+loaded in any host.
+
 ## Automated checks
 
 | Check | Result | Notes |
 |---|---|---|
-| `cargo test --lib` | **pass** | 233 passed, 2 ignored (2026-11-03). |
+| `cargo test --lib` | **pass** | 234 passed, 2 ignored (2026-11-04, Rust 1.99). |
 | Carla CLAP discovery | **pass** | `carla-discovery-native CLAP target/bundled/nrum-seq.clap` reports name `nrum seq`, label `com.nrumseq.nrumseq`, category `utility`, and the expected CLAP extensions (`clap.gui`, `clap.params`, `clap.latency`, …). |
 | Carla VST3 discovery | **pass** | `carla-discovery-native VST3 target/bundled/nrum-seq.vst3` reports name `nrum seq`, label, maker and 84 input parameters. Requires the pinned nice-plug fork that defers activation until `setupProcessing()`. |
 | CLAP validator | **pass** | `clap-validator 0.4.1`: **33 passed, 0 failed, 11 skipped**. The pinned nice-plug fork bounds malformed state lengths and rescans parameter values after a state load. |
@@ -31,11 +36,12 @@ combination. Everything else is **untested**, even when the plug-in bundles and 
 | Bitwig Studio | installed | Linux x86_64 | CLAP | untested | Not exercised. |
 | Carla | installed | Linux x86_64 | CLAP | untested | Discovery passes; load/editor/MIDI not exercised. |
 | Carla | installed | Linux x86_64 | VST3 | untested | Discovery passes; host load/editor/MIDI not exercised. |
-| REAPER | 7.83 | Windows x64 under Wine 11.5 | CLAP | **verified on 2026-10-28** | Cross-compiled MinGW build scans, loads, processes and shows the full editor. |
-| REAPER | 7.83 | Windows x64 under Wine 11.5 | VST3 | **verified on 2026-10-28** | Same build; editor unbridged. |
+| REAPER | 7.83 | Windows x64 under Wine 11.5 | CLAP | **verified on 2026-10-28** | MinGW build scans, loads, processes and shows the full editor. |
+| REAPER | 7.83 | Windows x64 under Wine 11.5 | VST3 | **verified on 2026-10-28** | Same MinGW build; editor unbridged. |
 | REAPER | 7.83 | real Windows x64 | CLAP/VST3 | untested | No real Windows machine available. |
 | REAPER | 7.83 | Windows x64 | VST3 | **known failure in bridge mode** | The editor does not appear when REAPER bridges the VST3. Run unbridged until the editor-parenting path is investigated. |
-| macOS | — | macOS | CLAP/VST3 | untested | No macOS build has been produced or loaded. |
+| Windows MSVC (shipped artifact) | 7.83 | any | CLAP/VST3 | untested | The `Bundles` workflow uploads an MSVC build that nobody has loaded yet. |
+| macOS | — | macOS | CLAP/VST3 | untested | CI compiles and tests the library, but no bundle has been produced or loaded. |
 
 ## Manual checklist per host/API
 
