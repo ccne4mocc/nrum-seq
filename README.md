@@ -8,6 +8,10 @@ So... first of all: **AI-assisted, human-tested, maintained and used.** The code
 heavy LLM assistance, but every release is reviewed, built and smoke-tested in real hosts by a
 human who uses the plugins in actual productions.
 
+**This is an EARLY phase! Clock, generation, mode logic/function-wise, aswell as overall architecture and documents will be updated/polished over time.**
+
+**The actual version is in concept & preperation status.**
+
 nrum seq is the percussive sibling of [nelody seq](https://github.com/ccne4mocc): the same
 architecture and editor layout, but with an eight-lane GM drum matrix instead of a right-to-left
 piano roll. It generates **MIDI note events, not audio**, over MIDI channel 10. Place it before a
