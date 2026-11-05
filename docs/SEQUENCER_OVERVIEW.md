@@ -33,7 +33,7 @@ This is a working reference for changing mode calculations. It separates **what 
 | `invert` | `invert` | After rotation: flips every hit/rest on every lane. | Post-transform |
 | `mirror` | `mirror` | After invert: reverses every per-step array. | Post-transform |
 | `edit_overlay` | `edit_rev` | Revision is part of the cache key. A plain `EditView` is passed to `generate_with()`; hit/accent/probability are display-space and win over the algorithm. Length/ratchet/offset are scheduler-only. | Generation + scheduler |
-| `rate` | — | `steps_per_beat`: 1/4=1, 1/8=2, 1/16=4, 1/32=8, 1/64=16, dotted = `/1.5`, triplet = ×1.5. `step_len = 1 / steps_per_beat` beats. | Scheduler |
+| `mode` | — | `Mode::step_unit()` owns the subdivision: most modes 1/16, textural/Slowcat modes 1/8. `step_len = 1 / steps_per_quarter` beats. No rate parameter exists. | Scheduler, editor, MIDI export |
 | `gate` (.02..1) | — | Note length as a fraction of one step. Per-step edit length overrides it. Ratchet gate is capped to the substep spacing. | Scheduler |
 | `swing` (0..0.5) | — | Only odd steps are delayed, by `swing × step_len` beats. | Scheduler |
 | `regenerate_every` (0..256) | — | Counted in complete loop lengths, not grid cells. `cycle = floor(step_index / length)`; fires when `cycle > 0`, `cycle % every == 0`, and not already fired. | Scheduler |

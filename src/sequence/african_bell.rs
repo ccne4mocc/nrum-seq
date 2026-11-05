@@ -6,7 +6,11 @@ const BELL: [bool; 12] = [true,false,false,true,false,false,true,false,false,tru
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let n = p.steps.max(1);
+    // The 12-step bell is the mode's own period; longer pattern lengths preview extra cells
+    // but playback loops on the bell.
+    let period = if n >= BELL.len() { BELL.len() as u16 } else { n as u16 };
     for tr in 0..TRACKS {
+        out.lane_periods[tr] = period;
         let mut rng = Rng::new(p.seed, p.variation, 0xAF31_0000 + tr as u64);
         let rot = rng.below(n);
         for i in 0..n {

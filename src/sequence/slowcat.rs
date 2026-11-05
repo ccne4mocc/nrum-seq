@@ -6,24 +6,23 @@ pub(crate) fn motif_len(tr: usize, count: usize, steps: usize) -> usize {
     (2 + (tr + count) % 7).min(steps).max(1)
 }
 
-/// Slowcat-style rhythm: rotate through lane motifs over successive slow subdivisions.
+/// Slowcat-style rhythm: every lane repeats its own motif, and the motifs have different
+/// lengths. The generator publishes those lengths as lane periods, so the scheduler creates a
+/// real polymeter; the shared pattern length only bounds how much is generated at once.
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let count = p.pulses.max(1);
     for tr in 0..TRACKS {
         let motif = motif_len(tr, count, p.steps);
         let shift = ((p.seed * 997.0) as usize + tr * 3 + p.variation as usize) % motif;
-        for i in 0..p.steps {
+        for i in 0..motif {
             let slot = (i + shift) % motif;
-            let phrase = (i / motif + tr) % (tr % 3 + 2);
-            // A pattern no longer than the first motif never reaches phrase 1. Let lane 0 sound
-            // in that first phrase instead of tiling silence across the whole lane.
-            let first_phrase = p.steps <= motif;
             let hit = (slot * count + tr) % motif < count.min(motif)
-                && (phrase != 0 || first_phrase)
-                && ((i + tr) % 4 == 0 || p.density > 0.35);
-            set_hit(&mut out, tr, i, hit && ((i + tr * 2) % 7 != 6 || p.density > 0.75), if i % 4 == 0 { 1.0 } else { 0.66 });
+                && ((i + tr) % 4 == 0 || p.density > 0.35)
+                && ((i + tr * 2) % 7 != 6 || p.density > 0.75);
+            set_hit(&mut out, tr, i, hit, if i % 4 == 0 { 1.0 } else { 0.66 });
         }
+        out.lane_periods[tr] = motif as u16;
     }
     out
 }

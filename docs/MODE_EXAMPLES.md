@@ -49,3 +49,20 @@ Generate for a new variation.
 
 The examples are suggestions, not presets. Built-in starting-point presets in Settings use
 ordinary host parameters, so applying one leaves the project fully automatable and saveable.
+
+## Mode-derived timing
+
+There is no meter or clock-rate setting. Each mode chooses its step unit and the generated
+pattern implies the bar:
+
+| Mode | Step | Try | Implied timing |
+|---|---|---|---|
+| Euclidean | 1/16 | 16 steps | 4/4, loop 16 |
+| Euclidean | 1/16 | 13 steps | 13/16, loop 13 |
+| Slowcat | 1/8 | 16 steps / 5 pulses | Polymetric: lane motifs 7, 8, 2, 3, 4, 5, 6, 7 eighths at 5 pulses; loop 840 |
+| African Bell | 1/8 | 16 steps | 12/8, loop 12 (the 12-step bell) |
+| Vuza Canon | 1/16 | 32 steps / rule 30 | 15/8, loop 30 (the translation modulus) |
+| Polyrhythm Stack | 1/16 | 16 steps / 8 | 3:2, 5:4, … pulse trains inside 4/4; shared loop 16 |
+
+The matrix derives its bar lines from those values; when the loop is longer than the generation
+window (Slowcat) it tiles the lane periods automatically and every lane shows its cycle length.

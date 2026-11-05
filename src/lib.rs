@@ -1,5 +1,6 @@
 //! nrum seq: algorithmic multichannel percussion pattern generation, emitted as MIDI.
 //! The plug-in intentionally has no audio renderer: route it to a drum sampler / rack.
+mod clock;
 mod editor;
 mod edits;
 mod globals;
@@ -21,7 +22,8 @@ use modulation::{
 };
 use nice_plug::prelude::*;
 use sequence::{
-    generate_with, GenParams, Pattern, DEFAULT_MAX_STEPS, MAX_STEPS, MIN_MAX_STEPS, TRACKS,
+    generate_with, GenParams, Pattern, DEFAULT_MAX_STEPS, MAX_LOOP_STEPS, MAX_STEPS,
+    MIN_MAX_STEPS, TRACKS,
 };
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
@@ -94,57 +96,6 @@ impl Theme {
 
 }
 
-#[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
-pub enum Rate {
-    #[id = "1_4"] #[name = "1/4"] Quarter,
-    #[id = "1_8"] #[name = "1/8"] Eighth,
-    #[id = "1_8t"] #[name = "1/8T"] EighthTriplet,
-    #[id = "1_16"] #[name = "1/16"] Sixteenth,
-    #[id = "1_16t"] #[name = "1/16T"] SixteenthTriplet,
-    #[id = "1_32"] #[name = "1/32"] ThirtySecond,
-    #[id = "1_4_dot"] #[name = "1/4."] QuarterDotted,
-    #[id = "1_8_dot"] #[name = "1/8."] EighthDotted,
-    #[id = "1_16_dot"] #[name = "1/16."] SixteenthDotted,
-    #[id = "1_32t"] #[name = "1/32T"] ThirtySecondTriplet,
-    #[id = "1_32_dot"] #[name = "1/32."] ThirtySecondDotted,
-    #[id = "1_64"] #[name = "1/64"] SixtyFourth,
-    #[id = "1_64t"] #[name = "1/64T"] SixtyFourthTriplet,
-    #[id = "1_64_dot"] #[name = "1/64."] SixtyFourthDotted,
-}
-#[allow(dead_code)]
-impl Rate {
-    pub(crate) fn steps_per_beat(self) -> f64 {
-        match self {
-            Self::Quarter => 1.0,
-            Self::QuarterDotted => 1.0 / 1.5,
-            Self::Eighth => 2.0,
-            Self::EighthDotted => 2.0 / 1.5,
-            Self::EighthTriplet => 3.0,
-            Self::Sixteenth => 4.0,
-            Self::SixteenthDotted => 4.0 / 1.5,
-            Self::SixteenthTriplet => 6.0,
-            Self::ThirtySecond => 8.0,
-            Self::ThirtySecondDotted => 8.0 / 1.5,
-            Self::ThirtySecondTriplet => 12.0,
-            Self::SixtyFourth => 16.0,
-            Self::SixtyFourthDotted => 16.0 / 1.5,
-            Self::SixtyFourthTriplet => 24.0,
-        }
-    }
-    const RATE_ORDER: [Rate; 14] = [
-        Rate::Quarter, Rate::QuarterDotted,
-        Rate::Eighth, Rate::EighthDotted, Rate::EighthTriplet,
-        Rate::Sixteenth, Rate::SixteenthDotted, Rate::SixteenthTriplet,
-        Rate::ThirtySecond, Rate::ThirtySecondDotted, Rate::ThirtySecondTriplet,
-        Rate::SixtyFourth, Rate::SixtyFourthDotted, Rate::SixtyFourthTriplet,
-    ];
-    pub(crate) fn stepped(self, delta: i32) -> Rate {
-        let pos = Self::RATE_ORDER.iter().position(|r| *r == self).unwrap_or(0) as i32;
-        let last = Self::RATE_ORDER.len() as i32 - 1;
-        Self::RATE_ORDER[(pos + delta).clamp(0, last) as usize]
-    }
-}
-
 /// Oscillator waveform. The ids are stable host state; new shapes are appended, never renumbered.
 #[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum OscWave {
@@ -180,6 +131,7 @@ pub mod scope {
     pub const LENGTH: i32 = 1 << 1;
     pub const RHYTHM: i32 = 1 << 2;
     pub const TONE: i32 = 1 << 3;
+    /// Retired: timing is derived from the mode. Kept so old masks keep their other bits.
     pub const CLOCK: i32 = 1 << 4;
     pub const PHASE: i32 = 1 << 5;
     pub const ACID: i32 = 1 << 6;
@@ -188,6 +140,19 @@ pub mod scope {
     pub const ALL: i32 = MODE | LENGTH | RHYTHM | TONE | CLOCK | PHASE | ACID | FEEL;
 }
 
+
+/// How lane cycles are chosen when a generator publishes a repeating binary word.
+#[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
+pub enum PeriodMode {
+    /// Every lane follows the generated pattern window.
+    #[id = "master"]
+    #[name = "Master Loop"]
+    Master,
+    /// Publish each lane's minimal repeating period when the mode supports it.
+    #[id = "minimal"]
+    #[name = "Minimal Periods"]
+    Minimal,
+}
 
 #[derive(Params)]
 pub struct DrumParams {
@@ -199,12 +164,14 @@ pub struct DrumParams {
     #[persist = "edit_overlay"]
     pub edit_overlay: Arc<edits::EditStore>,
     #[id = "mode"] pub mode: EnumParam<Mode>,
-    /// Pattern length in steps; fractional values wrap between grid cells.
+    /// Pattern length in whole steps. Decimal input is rounded.
     #[id = "steps"] pub steps: FloatParam,
     /// Ceiling for `steps`/`pulses`/`rotate`, 64–1024. Pattern arrays always hold the maximum.
     #[id = "max_steps"] pub max_steps: IntParam,
-    /// Snap the pattern length to whole steps. Off allows fractional step spacing.
+    /// Deprecated host id retained for project compatibility. Always snaps to whole steps.
     #[id = "round_steps"] pub round_steps: BoolParam,
+    /// Master loop or derived minimal lane periods.
+    #[id = "period_mode"] pub period_mode: EnumParam<PeriodMode>,
     #[id = "pulses"] pub pulses: IntParam,
     #[id = "rotate"] pub rotate: IntParam,
     #[id = "density"] pub density: FloatParam,
@@ -223,7 +190,6 @@ pub struct DrumParams {
     /// Markov transition bias: 2 bits each for rest, repeat, role and novelty.
     #[id = "markov_bias"] pub markov_bias: IntParam,
     #[id = "theme"] pub theme: EnumParam<Theme>,
-    #[id = "rate"] pub rate: EnumParam<Rate>,
     #[id = "gate"] pub gate: FloatParam,
     /// Delays every second step by this fraction of a step (1/3 = triplet), in the beat domain.
     #[id = "swing"] pub swing: FloatParam,
@@ -353,6 +319,7 @@ impl Default for DrumParams {
                 IntRange::Linear { min: MIN_MAX_STEPS as i32, max: MAX_STEPS as i32 },
             ),
             round_steps: BoolParam::new("Snap Steps To Whole Numbers", true),
+            period_mode: EnumParam::new("Period Mode", PeriodMode::Master),
             pulses: IntParam::new("Pulses / Generation", 5, IntRange::Linear { min: 0, max: MAX_STEPS as i32 }),
             rotate: IntParam::new("Rotate", 0, IntRange::Linear { min: 0, max: MAX_STEPS as i32 - 1 }),
             density: percentage_param("Density", 0.65),
@@ -371,7 +338,6 @@ impl Default for DrumParams {
             symmetry: IntParam::new("Crystallographic Symmetry", 4, IntRange::Linear { min: 1, max: 8 }),
             markov_bias: IntParam::new("Markov Transition Bias", 0, IntRange::Linear { min: 0, max: 255 }),
             theme: EnumParam::new("Theme", Theme::Lava),
-            rate: EnumParam::new("Rate", Rate::Sixteenth),
             gate: FloatParam::new("Gate", 0.12, FloatRange::Linear { min: 0.02, max: 1.0 }),
             swing: FloatParam::new("Swing", 0.0, FloatRange::Linear { min: 0.0, max: 0.5 }),
             lfo1_enabled: BoolParam::new("LFO 1 Enabled", true),
@@ -470,13 +436,13 @@ impl DrumParams {
     fn gen_params(&self) -> GenParams {
         let cap = self.step_ceiling();
         let raw = self.steps.value().clamp(1.0, cap as f32);
-        // Rounding off leaves `length` fractional, so the loop wraps between grid cells.
-        let cells = cell_count_for(raw, self.round_steps.value(), cap) as f32;
+        let cells = cell_count_for(raw, true, cap) as f32;
         GenParams {
             kind: self.mode.value(),
             steps: cells as usize,
-            // Snap to `cells`; passing the raw value through would wrap mid-cell and drift.
-            length: if self.round_steps.value() { cells } else { raw },
+            // Decimal `steps` is loop drift, not extra resolution. It is retired:
+            // the generated cells and the playback loop are the same integer value.
+            length: cells,
             pulses: self.pulses.value() as usize,
             rotate: self.rotate.value() as usize,
             density: self.density.value(),
@@ -493,6 +459,7 @@ impl DrumParams {
             mirror: self.mirror.value(),
             markov_bias: self.markov_bias.value().clamp(0, 255) as u8,
             edit_rev: self.edit_overlay.revision(),
+            period_mode: self.period_mode.value(),
         }
     }
 
@@ -643,12 +610,11 @@ impl DrumParams {
             .round()
             .clamp(MIN_MAX_STEPS as f32, MAX_STEPS as f32) as usize;
         let raw = self.target_value(ModTarget::Steps, &signals).clamp(1.0, cap as f32);
-        let snap = self.round_steps.value();
-        let cells = cell_count_for(raw, snap, cap);
+        let cells = cell_count_for(raw, true, cap);
         let max_rotate = (cells - 1).max(0) as f32;
         let mut out = self.gen_params();
         out.steps = cells as usize;
-        out.length = if snap { cells as f32 } else { raw };
+        out.length = cells as f32;
         out.pulses = self
             .target_value(ModTarget::Pulses, &signals)
             .round()
@@ -696,16 +662,19 @@ impl DrumParams {
 
 /// Grid cells a raw `steps` value covers under the user-selected ceiling. Free function so
 /// tests exercise the real rule instead of comparing an inlined copy against itself.
-fn cell_count_for(raw: f32, snap: bool, ceiling: usize) -> i32 {
+fn cell_count_for(raw: f32, _snap: bool, ceiling: usize) -> i32 {
     let cap = ceiling.clamp(MIN_MAX_STEPS, MAX_STEPS) as f32;
-    let raw = raw.clamp(1.0, cap);
-    (if snap { raw.round() } else { raw.ceil() }).clamp(1.0, cap) as i32
+    raw.clamp(1.0, cap).round().clamp(1.0, cap) as i32
 }
 
 /// Lock-free signals shared between the audio scheduler and the editor. Auto-randomization is
 /// requested on the audio thread and applied through `ParamSetter` on the editor thread.
 pub struct Shared {
     pub current_step: AtomicI32,
+    /// Per-lane source index for mode-owned periods; -1 when stopped.
+    pub current_steps: [AtomicI32; TRACKS],
+    /// Display column of the derived polymeter loop; -1 when stopped.
+    pub current_loop_step: AtomicI32,
     pub randomize_request: AtomicU32,
     pub regen_pulse: AtomicBool,
     /// Last host tempo as `f32` bits, for the editor-side MIDI export. Zero means "not seen yet".
@@ -735,6 +704,8 @@ impl Default for Shared {
     fn default() -> Self {
         Self {
             current_step: AtomicI32::new(-1),
+            current_steps: std::array::from_fn(|_| AtomicI32::new(-1)),
+            current_loop_step: AtomicI32::new(-1),
             randomize_request: AtomicU32::new(0),
             regen_pulse: AtomicBool::new(false),
             tempo_bits: AtomicU32::new(0),
@@ -783,18 +754,22 @@ impl Shared {
     }
 }
 
-fn regeneration_cycle_at(step_index: i64, loop_length: f64, every: i64, last: Option<i64>) -> Option<i64> {
-    if !loop_length.is_finite() || loop_length <= 0.0 || every <= 0 { return None; }
-    // Count complete loop lengths, not grid cells: a 16.5-step loop wraps between cells 16 and
-    // 17, so its first complete cycle starts at step 17, not at step 16.
-    let cycle = (step_index as f64 / loop_length).floor() as i64;
+fn regeneration_cycle_at(step_index: i64, loop_length: i64, every: i64, last: Option<i64>) -> Option<i64> {
+    if loop_length <= 0 || every <= 0 { return None; }
+    let cycle = step_index.div_euclid(loop_length);
     if cycle > 0 && cycle.rem_euclid(every) == 0 && last != Some(cycle) { Some(cycle) } else { None }
 }
 
-/// Grid cell for step `k` in a loop of `length` steps. Fractional lengths wrap mid-cell, so each
-/// cycle starts later and the pattern drifts against the grid.
-fn step_index(k: i64, length: f64) -> i64 {
-    if length >= 1.0 && length.fract() == 0.0 { k.rem_euclid(length as i64) } else { (k as f64).rem_euclid(length).floor() as i64 }
+/// Grid cell for step `k` in an integer loop.
+fn step_index(k: i64, length: i64) -> i64 {
+    k.rem_euclid(length.max(1))
+}
+
+/// Playback loop length in steps. Polymetric modes loop on the LCM of the generator-owned
+/// lane periods, capped at [`MAX_LOOP_STEPS`].
+pub(crate) fn pattern_loop_length(pattern: &Pattern) -> (u32, bool) {
+    let (lcm, capped) = crate::clock::lcm_capped(&pattern.lane_periods, MAX_LOOP_STEPS as u64);
+    ((lcm.max(1) as u32).min(MAX_LOOP_STEPS as u32), capped)
 }
 
 /// Where the step cursor resumes in this block. A carried cursor is trusted only when it is
@@ -824,7 +799,7 @@ pub struct NrumSeq {
     edit_view: EditView,
     last_edit_rev: u32,
     /// Loop length in steps, from the same snapshot as `pattern`.
-    loop_length: f64,
+    loop_length: u32,
     last_generate: Option<bool>,
     active: [Option<Active>; TRACKS],
     expected_beat: Option<f64>,
@@ -853,7 +828,7 @@ impl Default for NrumSeq {
         Self {
             params: Arc::new(DrumParams::default()), shared: Arc::new(Shared::default()),
             last_key: None, last_base_key: None, pattern: Pattern::default(),
-            edit_view: EditView::default(), last_edit_rev: 0, loop_length: 16.0, last_generate: None,
+            edit_view: EditView::default(), last_edit_rev: 0, loop_length: 16, last_generate: None,
             active: [None; TRACKS], expected_beat: None, next_step: None, next_sub: 0,
             subdivisions: 1, ratchets: [1; TRACKS], step_delay: 0.0, pending_reset: false, free_beat: 0.0,
             last_regen_cycle: None, last_randomize_cycle: None, last_mod_cycle: None, sample_rate: 44100.0,
@@ -875,6 +850,17 @@ impl NrumSeq {
 pub mod contact {
     pub const AUTHOR: &str = "ccne4mocc / feN";
     pub const GITHUB: &str = "https://github.com/ccne4mocc";
+}
+
+impl NrumSeq {
+    /// Exact timing modes are generated without the manual overlay so their cycle stays literal.
+    fn generate_pattern(&self, key: &GenParams) -> Pattern {
+        if key.kind.exact_timing() {
+            generate_with(key, &EditView::default())
+        } else {
+            generate_with(key, &self.edit_view)
+        }
+    }
 }
 
 impl Plugin for NrumSeq {
@@ -925,9 +911,10 @@ impl Plugin for NrumSeq {
         self.last_base_key = None;
         self.edit_view = EditView::default();
         self.last_edit_rev = 0;
-        self.loop_length = 16.0;
+        self.loop_length = 16;
         self.last_generate = None;
         self.shared.current_step.store(-1, Relaxed);
+        self.shared.current_loop_step.store(-1, Relaxed);
         self.shared.lfo_running.store(false, Relaxed);
     }
 
@@ -967,6 +954,8 @@ impl Plugin for NrumSeq {
             self.expected_beat = None;
             self.next_step = None;
             self.shared.current_step.store(-1, Relaxed);
+            self.shared.current_loop_step.store(-1, Relaxed);
+            for slot in self.shared.current_steps.iter() { slot.store(-1, Relaxed); }
             self.shared.lfo_running.store(false, Relaxed);
             return ProcessStatus::Normal;
         };
@@ -983,8 +972,8 @@ impl Plugin for NrumSeq {
         let base_key = p.gen_params();
         if self.last_base_key != Some(base_key) {
             let initial_key = p.gen_params_at(clock_start);
-            self.pattern = generate_with(&initial_key, &self.edit_view);
-            self.loop_length = initial_key.length as f64;
+            self.pattern = self.generate_pattern(&initial_key);
+            self.loop_length = pattern_loop_length(&self.pattern).0;
             self.last_key = Some(initial_key);
             self.last_base_key = Some(base_key);
             self.last_regen_cycle = None;
@@ -1009,7 +998,7 @@ impl Plugin for NrumSeq {
         let timing = |beat: f64| -> u32 {
             (((beat - start) / beats_per_sample).round().max(0.0) as usize).min(n_samples.saturating_sub(1)) as u32
         };
-        let spb = p.rate.value().steps_per_beat();
+        let spb = p.mode.value().step_unit().steps_per_quarter().as_f64();
         let step_len = 1.0 / spb;
         let s1 = end * spb;
         // A swung step can fall beyond this block; carry the cursor instead of re-deriving it.
@@ -1021,7 +1010,7 @@ impl Plugin for NrumSeq {
         let mut sub = if carried_step == Some(k) { self.next_sub } else { 0 };
         if self.subdivisions == 0 { self.subdivisions = 1; }
         if self.last_mod_cycle.is_none() {
-            self.last_mod_cycle = Some((k as f64 / self.loop_length).floor() as i64);
+            self.last_mod_cycle = Some(k.div_euclid(self.loop_length as i64));
         }
 
         loop {
@@ -1033,8 +1022,7 @@ impl Plugin for NrumSeq {
                 // Microtiming is step-wide: the editor writes the same offset to every lane so
                 // the scheduler can keep one onset per step. Negative values are accepted by the
                 // store but ignored until a lookahead scheduler exists.
-                let idx = step_index(k, self.loop_length) as usize;
-                let idx = idx.min(self.pattern.steps.saturating_sub(1));
+                let idx = step_index(k, self.pattern.steps as i64) as usize;
                 let offset = self.edit_view.offset[0][idx].max(0) as f64 / 127.0;
                 self.step_delay = (offset * step_len).min(step_len * 0.9);
             }
@@ -1063,15 +1051,15 @@ impl Plugin for NrumSeq {
                 if sub == 0 {
                     // Complete pattern lengths, not host beats, like regeneration. The request is
                     // lock-free here; the editor applies it through ParamSetter on its next tick.
-                    if let Some(cycle) = regeneration_cycle_at(k, self.loop_length, randomize_every, self.last_randomize_cycle) {
+                    if let Some(cycle) = regeneration_cycle_at(k, self.loop_length as i64, randomize_every, self.last_randomize_cycle) {
                         self.shared.randomize_request.fetch_add(1, Relaxed);
                         self.last_randomize_cycle = Some(cycle);
                     }
 
                     // Sample pattern-shaping LFO links once per loop, using the current loop length.
-                    let mod_cycle = (k as f64 / self.loop_length).floor() as i64;
+                    let mod_cycle = k.div_euclid(self.loop_length as i64);
                     let mod_due = p.has_generation_links() && self.last_mod_cycle != Some(mod_cycle);
-                    let regen_cycle = regeneration_cycle_at(k, self.loop_length, every, self.last_regen_cycle);
+                    let regen_cycle = regeneration_cycle_at(k, self.loop_length as i64, every, self.last_regen_cycle);
                     if mod_due || regen_cycle.is_some() {
                         if let Some(cycle) = regen_cycle {
                             p.variation.fetch_add(1, Relaxed);
@@ -1079,27 +1067,34 @@ impl Plugin for NrumSeq {
                             self.shared.regen_pulse.store(true, Relaxed);
                         }
                         let next_key = p.gen_params_at(nominal_clock);
-                        self.pattern = generate_with(&next_key, &self.edit_view);
-                        self.loop_length = next_key.length as f64;
+                        self.pattern = self.generate_pattern(&next_key);
+                        self.loop_length = pattern_loop_length(&self.pattern).0;
                         self.last_key = Some(next_key);
                         // Regenerate-after-N bumps `variation`; refresh the base snapshot to avoid a false manual change.
                         self.last_base_key = Some(p.gen_params());
-                        self.last_mod_cycle = Some((k as f64 / self.loop_length).floor() as i64);
+                        self.last_mod_cycle = Some(k.div_euclid(self.loop_length as i64));
                         self.shared.pattern_beat.store(nominal_beat.to_bits(), Relaxed);
                     }
                 }
 
-                // Regeneration can change the step count; clamp the active index before reading hits.
-                let idx = step_index(k, self.loop_length) as usize;
-                let idx = idx.min(self.pattern.steps.saturating_sub(1));
+                // Regeneration can change periods and step counts; derive every lane index from
+                // the current pattern. Polymetric lanes repeat on their own generated period.
+                let loop_idx = step_index(k, self.loop_length as i64) as usize;
+                let lane_idx: [usize; TRACKS] = std::array::from_fn(|tr| {
+                    let raw = self.pattern.lane_periods[tr] as usize;
+                    let period = if raw == 0 { self.pattern.steps } else { raw.min(self.pattern.steps) }.max(1);
+                    step_index(k, period as i64) as usize
+                });
                 if sub == 0 {
-                    self.shared.current_step.store(idx as i32, Relaxed);
-                    // Read this step's ratchet counts once; the scheduler uses 12 subdivisions
-                    // only when at least one lane actually ratchets.
+                    self.shared.current_step.store(loop_idx.min(self.pattern.steps.saturating_sub(1)) as i32, Relaxed);
+                    self.shared.current_loop_step.store(loop_idx as i32, Relaxed);
+                    // Read each lane's ratchet at its own source index; the scheduler uses 12
+                    // subdivisions only when at least one lane actually ratchets.
                     self.subdivisions = 1;
                     self.ratchets = [1; TRACKS];
                     for tr in 0..TRACKS {
-                        let count = self.edit_view.ratchet_at(tr, idx);
+                        self.shared.current_steps[tr].store(lane_idx[tr] as i32, Relaxed);
+                        let count = self.edit_view.ratchet_at(tr, lane_idx[tr]);
                         self.ratchets[tr] = count;
                         if count > 1 { self.subdivisions = 12; }
                     }
@@ -1107,6 +1102,7 @@ impl Plugin for NrumSeq {
                 let note_clock = LfoClock::from_beat(next_step, bpm);
                 let schedule_note = p.schedule_at(note_clock);
                 for tr in 0..TRACKS {
+                    let idx = lane_idx[tr];
                     if !p.track_enabled(tr) || !self.pattern.hit[tr][idx] { continue; }
                     let ratchet = self.ratchets[tr].clamp(1, 4);
                     // With 12 subdivisions every count 1..4 divides evenly: 12/3 = 4, 12/4 = 3.
@@ -1193,6 +1189,98 @@ pub(crate) mod test_alloc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_mode_declares_a_step_unit() {
+        use crate::clock::StepUnit;
+        for mode in Mode::all() {
+            assert!(mode.step_unit().steps_per_quarter().as_f64() > 0.0, "{mode:?}");
+        }
+        assert_eq!(Mode::Euclidean.step_unit(), StepUnit::Sixteenth);
+        assert_eq!(Mode::Slowcat.step_unit(), StepUnit::Eighth);
+        assert_eq!(Mode::Brownian.step_unit(), StepUnit::Eighth);
+    }
+
+    #[test]
+    fn pattern_periods_create_polymeter_and_implied_meters() {
+        use crate::clock::{Meter, StepUnit};
+        let p = GenParams {
+            kind: Mode::Slowcat, steps: 16, pulses: 5, density: 0.8, probability: 1.0,
+            ..GenParams::default()
+        };
+        let slowcat = generate_with(&p, &EditView::default());
+        assert!(slowcat.lane_periods.iter().any(|&n| n != slowcat.lane_periods[0]));
+        assert_eq!(pattern_loop_length(&slowcat), (840, false));
+        assert_eq!(slowcat.meter, None);
+
+        let p = GenParams { kind: Mode::AfricanBell, steps: 16, ..GenParams::default() };
+        let bell = generate_with(&p, &EditView::default());
+        assert!(bell.lane_periods.iter().all(|&n| n == 12));
+        assert_eq!(bell.meter, Some(Meter::new(12, 8)));
+        assert_eq!(pattern_loop_length(&bell), (12, false));
+
+        let p = GenParams { kind: Mode::Vuza, steps: 32, ca_rule: 30, ..GenParams::default() };
+        let vuza = generate_with(&p, &EditView::default());
+        assert!(vuza.lane_periods.iter().all(|&n| n == 30));
+        assert_eq!(vuza.meter, Some(Meter::new(15, 8)));
+        assert_eq!(pattern_loop_length(&vuza), (30, false));
+
+        let p = GenParams { kind: Mode::Euclidean, steps: 13, ..GenParams::default() };
+        let odd = generate_with(&p, &EditView::default());
+        assert_eq!(odd.meter, Some(Meter::new(13, 16)));
+        assert_eq!(pattern_loop_length(&odd), (13, false));
+        let p = GenParams { kind: Mode::Euclidean, steps: 16, ..GenParams::default() };
+        let even = generate_with(&p, &EditView::default());
+        assert_eq!(even.meter, Some(Meter::new(4, 4)));
+        assert_eq!(StepUnit::Sixteenth.steps_per_quarter().as_f64(), 4.0);
+    }
+
+    /// Scheduler check: Slowcat lanes read their own periods, so a lane's hits repeat on its
+    /// motif instead of the 16-cell generation window.
+    #[test]
+    fn slowcat_scheduler_reads_each_lane_period() {
+        let mut plugin = NrumSeq::default();
+        plugin.sample_rate = 44_100.0;
+        {
+            let p = &plugin.params;
+            set_param(&p.mode, Mode::Slowcat);
+            set_param(&p.steps, 16.0);
+            set_param(&p.pulses, 5);
+            set_param(&p.density, 0.8);
+            set_param(&p.probability, 1.0);
+            set_param(&p.swing, 0.0);
+            set_param(&p.kick_on, true);
+            set_param(&p.snare_on, true);
+            set_param(&p.closed_hat_on, true);
+            set_param(&p.open_hat_on, true);
+            set_param(&p.clap_on, true);
+            set_param(&p.rim_on, true);
+            set_param(&p.low_tom_on, true);
+            set_param(&p.perc_on, true);
+        }
+        let step_samples = 44_100.0 * (60.0 / 120.0) * 0.5; // 1/8 at 120 BPM
+        let total_steps = 40usize;
+        let blocks = ((total_steps as f64 * step_samples) / 512.0).ceil() as usize;
+        let mut ctx = MockContext::new(44_100.0);
+        run_playing(&mut plugin, &mut ctx, blocks, 512);
+        let ons = ctx.note_ons();
+        assert!(!ons.is_empty(), "Slowcat emitted no notes");
+        let hits: Vec<(usize, u8)> = ons
+            .iter()
+            .map(|(at, note, _)| ((*at as f64 / step_samples).floor() as usize, *note))
+            .collect();
+        for tr in 0..TRACKS {
+            let note = plugin.params.track_note(tr);
+            let period = plugin.pattern.lane_periods[tr].max(1) as usize;
+            let lane: std::collections::BTreeSet<usize> =
+                hits.iter().filter(|(_, n)| *n == note).map(|(s, _)| *s).collect();
+            for s in 0..total_steps {
+                assert_eq!(lane.contains(&s), plugin.pattern.hit[tr][s % period],
+                    "lane {tr} period {period} step {s}");
+            }
+        }
+        assert!(plugin.pattern.lane_periods.iter().any(|&n| n != plugin.pattern.lane_periods[0]));
+    }
     use nice_plug::prelude::{Param, ProcessContext};
     use nice_plug::params::InternalParamMut;
 
@@ -1585,7 +1673,7 @@ mod tests {
         let params = DrumParams::default();
         let map = params.param_map();
         let ids: Vec<&str> = map.iter().map(|(id, _, _)| id.as_str()).collect();
-        for expected in ["mode", "steps", "round_steps", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_lengths", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "rate", "gate", "swing", "markov_bias", "lfo1_enabled", "lfo1_wave", "lfo1_rate_mode", "lfo1_freq", "lfo1_rate", "lfo1_depth", "lfo1_phase", "lfo1_polarity", "lfo2_enabled", "lfo2_wave", "lfo2_rate_mode", "lfo2_freq", "lfo2_rate", "lfo2_depth", "lfo2_phase", "lfo2_polarity", "lfo3_enabled", "lfo3_wave", "lfo3_rate_mode", "lfo3_freq", "lfo3_rate", "lfo3_depth", "lfo3_phase", "lfo3_polarity", "lfo4_enabled", "lfo4_wave", "lfo4_rate_mode", "lfo4_freq", "lfo4_rate", "lfo4_depth", "lfo4_phase", "lfo4_polarity", "generate", "invert", "mirror", "logging", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
+        for expected in ["mode", "steps", "round_steps", "period_mode", "pulses", "rotate", "density", "probability", "velocity", "regenerate_every", "randomize_after_lengths", "randomize_scope", "theme", "seed", "phase", "osc_rate", "osc_wave", "ca_rule", "symmetry", "gate", "swing", "markov_bias", "lfo1_enabled", "lfo1_wave", "lfo1_rate_mode", "lfo1_freq", "lfo1_rate", "lfo1_depth", "lfo1_phase", "lfo1_polarity", "lfo2_enabled", "lfo2_wave", "lfo2_rate_mode", "lfo2_freq", "lfo2_rate", "lfo2_depth", "lfo2_phase", "lfo2_polarity", "lfo3_enabled", "lfo3_wave", "lfo3_rate_mode", "lfo3_freq", "lfo3_rate", "lfo3_depth", "lfo3_phase", "lfo3_polarity", "lfo4_enabled", "lfo4_wave", "lfo4_rate_mode", "lfo4_freq", "lfo4_rate", "lfo4_depth", "lfo4_phase", "lfo4_polarity", "generate", "invert", "mirror", "logging", "freerun", "kick_on", "snare_on", "closed_hat_on", "open_hat_on", "clap_on", "rim_on", "low_tom_on", "perc_on", "kick_note", "snare_note", "closed_hat_note", "open_hat_note", "clap_note", "rim_note", "low_tom_note", "perc_note", "kick_velocity", "snare_velocity", "closed_hat_velocity", "open_hat_velocity", "clap_velocity", "rim_velocity", "low_tom_velocity", "perc_velocity"] {
             assert!(ids.contains(&expected), "missing parameter {expected}");
         }
         for (id, ptr, _) in &map {
@@ -1785,19 +1873,14 @@ mod tests {
 
     #[test]
     fn regeneration_and_randomization_trigger_only_on_complete_lengths() {
-        assert_eq!(regeneration_cycle_at(0, 16.0, 2, None), None);
-        assert_eq!(regeneration_cycle_at(16, 16.0, 2, None), None);
-        assert_eq!(regeneration_cycle_at(31, 16.0, 2, None), None);
-        assert_eq!(regeneration_cycle_at(32, 16.0, 2, None), Some(2));
-        assert_eq!(regeneration_cycle_at(32, 16.0, 2, Some(2)), None);
-        assert_eq!(regeneration_cycle_at(64, 16.0, 2, Some(2)), Some(4));
-        assert_eq!(regeneration_cycle_at(512, 256.0, 2, None), Some(2));
-        assert_eq!(regeneration_cycle_at(16, 16.0, 0, None), None);
-        // A fractional loop must count whole loops, not grid cells: 16.5 steps per cycle and
-        // regeneration every 2 loops fires at 33 and 66, not at 32 and 64.
-        assert_eq!(regeneration_cycle_at(33, 16.5, 2, None), Some(2));
-        assert_eq!(regeneration_cycle_at(66, 16.5, 2, Some(2)), Some(4));
-        assert_eq!(regeneration_cycle_at(67, 16.5, 2, Some(4)), None);
+        assert_eq!(regeneration_cycle_at(0, 16, 2, None), None);
+        assert_eq!(regeneration_cycle_at(16, 16, 2, None), None);
+        assert_eq!(regeneration_cycle_at(31, 16, 2, None), None);
+        assert_eq!(regeneration_cycle_at(32, 16, 2, None), Some(2));
+        assert_eq!(regeneration_cycle_at(32, 16, 2, Some(2)), None);
+        assert_eq!(regeneration_cycle_at(64, 16, 2, Some(2)), Some(4));
+        assert_eq!(regeneration_cycle_at(512, 256, 2, None), Some(2));
+        assert_eq!(regeneration_cycle_at(16, 16, 0, None), None);
     }
 
     /// A tempo the plugin used to clamp away must not desynchronise our beat clock from the
@@ -1837,55 +1920,21 @@ mod tests {
     }
 
     #[test]
-    fn whole_step_lengths_behave_exactly_like_the_old_modulo_wrap() {
-        // The fractional path must not change any existing whole-step behaviour.
+    fn step_lengths_are_always_whole_cells() {
         for n in [1i64, 2, 4, 16, 17, 255, 256] {
             for k in 0..2000i64 {
-                assert_eq!(step_index(k, n as f64), k.rem_euclid(n), "n={n}, k={k}");
+                assert_eq!(step_index(k, n), k.rem_euclid(n), "n={n}, k={k}");
             }
         }
     }
 
     #[test]
-    fn fractional_step_lengths_stay_inside_the_generated_cells() {
-        // `cell_count` rounds a fractional length up, so the loop may touch every cell.
-        for whole in 1usize..=64 {
-            for tenth in 0..10 {
-                let length = whole as f64 + tenth as f64 / 10.0;
-                let cells = length.ceil() as i64;
-                for k in 0..500i64 {
-                    let idx = step_index(k, length);
-                    assert!(idx >= 0 && idx < cells, "length={length}, k={k}, idx={idx}, cells={cells}");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn fractional_lengths_reach_the_top_cell_and_drift_between_cycles() {
-        for length in [1.5f64, 7.25, 16.5, 100.5] {
-            let cells = length.ceil() as i64;
-            let max = (0..4000i64).map(|k| step_index(k, length)).max().unwrap();
-            assert_eq!(max, cells - 1, "top cell unreachable at length={length}");
-        }
-        // 16.5 steps per cycle. Cycle 1 starts at k=17, half a cell past the 16 that a
-        // whole-step loop would reach; cycle 2 (k=33) wraps to 0.5 and lands on cell 0.
-        assert_eq!(step_index(0, 16.5), 0);
-        assert_eq!(step_index(16, 16.5), 16);
-        assert_eq!(step_index(17, 16.5), step_index(0, 16.5));
-        assert_eq!(step_index(33, 16.5), 0);
-        // Over two cycles the pattern has advanced 33 steps but only 17 cells, so it drifts
-        // by half a cell relative to a 16-step grid instead of repeating in phase.
-        assert_ne!(step_index(33, 16.5), step_index(1, 16.5));
-    }
-
-    #[test]
-    fn step_count_rounding_follows_the_snap_toggle() {
-        // Calls `cell_count_for` itself rather than restating it, so the two cannot drift.
+    fn step_count_always_rounds_to_whole_cells() {
+        // `snap` is retained only for host-state compatibility; decimal loop lengths are retired.
         for (raw, snap, cells) in [
             (16.0f32, true, 16i32), (16.4, true, 16), (16.6, true, 17),
-            (16.4, false, 17), (16.0, false, 16), (1.0, false, 1),
-            // Clamped to the selected ceiling from both ends, whichever way rounding goes.
+            (16.4, false, 16), (16.0, false, 16), (1.0, false, 1),
+            // Clamped to the selected ceiling from both ends.
             (64.0, false, 64), (64.4, false, 64), (100.0, true, 64),
             (MAX_STEPS as f32, false, MAX_STEPS as i32),
             (MAX_STEPS as f32 + 40.0, false, MAX_STEPS as i32),

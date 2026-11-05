@@ -4,11 +4,14 @@ use crate::globals;
 use crate::keys;
 use crate::midi_export;
 use crate::modulation::{format_target_value, target_in_mask, LfoClock, LFO_COUNT, LFO_MAX_HZ};
-use crate::sequence::{generate_with, GenParams, Pattern, Rng, MAX_STEPS, MIN_MAX_STEPS, TRACKS};
+use crate::sequence::{
+    generate_with, GenParams, Pattern, Rng, MAX_LOOP_STEPS, MAX_STEPS, MIN_MAX_STEPS, TRACKS,
+};
 use crate::view::{self, View};
+use crate::clock::{lcm_capped, meter_label};
 use crate::{
-    cell_count_for, scope, DrumParams, LfoPolarity, LfoRateMode, ModTarget, Mode, OscWave, Rate,
-    Shared, Theme as PluginTheme,
+    cell_count_for, scope, DrumParams, LfoPolarity, LfoRateMode, ModTarget, Mode, OscWave,
+    PeriodMode, Shared, Theme as PluginTheme,
 };
 use nice_plug::prelude::*;
 use slint::platform::WindowEvent;
@@ -169,10 +172,32 @@ fn set_opt(c: &Arc<dyn GuiContext>, p: &DrumParams, key: i32, value: f32) {
         12 => set(c, &p.randomize_after_lengths, (value.round() as i32).clamp(0, 256)),
         13 => set(c, &p.swing, value.clamp(0.0, 0.5)),
         15 => set(c, &p.gate, value.clamp(0.02, 1.0)),
+        16 => set(c, &p.period_mode, PeriodMode::from_index(value.max(0.0) as usize)),
         _ => {},
     }
 }
 
+
+/// Loop-view source mapping used by the matrix. A lane with its own period repeats over the
+/// loop, so the matrix reads display column `step` back to that lane's generated source index.
+fn display_source_step(pattern: &Pattern, lane: usize, step: usize, display_width: usize) -> usize {
+    let raw = pattern.lane_periods[lane.min(TRACKS - 1)] as usize;
+    let period = if raw == 0 { pattern.steps.max(1) } else { raw.min(pattern.steps.max(1)) };
+    if display_width != pattern.steps {
+        step.rem_euclid(period)
+    } else {
+        step.rem_euclid(pattern.steps.max(1))
+    }
+}
+
+/// Edit callbacks resolve a tiled display column back to the lane's source index before writing
+/// the overlay. `period` is the lane's generated cycle length (published as `lane-steps`).
+fn edit_source_step(cells: usize, period: usize, step: usize, loop_view: bool) -> usize {
+    if !loop_view {
+        return step.min(cells.saturating_sub(1));
+    }
+    step.rem_euclid(period.max(1)).min(cells.saturating_sub(1))
+}
 
 fn lfo_enabled_param(p: &DrumParams, slot: i32) -> &BoolParam {
     match slot { 1 => &p.lfo1_enabled, 2 => &p.lfo2_enabled, 3 => &p.lfo3_enabled, _ => &p.lfo4_enabled }
@@ -288,7 +313,7 @@ impl EditHistory {
 struct Cache {
     gen_key: Option<GenParams>,
     pattern: Pattern,
-    view_key: Option<(GenParams, i32, u8, [u32; TRACKS])>,
+    view_key: Option<(GenParams, i32, [i32; TRACKS], (usize, i32, bool), u8, [u32; TRACKS])>,
 }
 fn enabled_mask(p: &DrumParams) -> u8 {
     (0..TRACKS).fold(0u8, |m, i| m | (u8::from(p.track_enabled(i)) << i))
@@ -472,7 +497,6 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
     let symmetry = 1 + rng.below(8) as i32;
     let probability = crate::randomize::pick(crate::randomize::PROBABILITIES, &mut rng);
     let velocity = crate::randomize::pick(crate::randomize::VELOCITIES, &mut rng);
-    let rate = Rate::from_index(rng.below(14));
     // Leave swing alone: it is a feel setting, not a generator setting.
 
     if scope_enabled(p, scope::MODE) { set(ctx, &p.mode, mode); }
@@ -490,7 +514,6 @@ fn randomize_parameters(p: &DrumParams, ctx: &Arc<dyn GuiContext>) {
         set(ctx, &p.ca_rule, ca_rule);
         set(ctx, &p.symmetry, symmetry);
     }
-    if scope_enabled(p, scope::CLOCK) { set(ctx, &p.rate, rate); }
     if scope_enabled(p, scope::FEEL) {
         set(ctx, &p.probability, probability.clamp(0.0, 1.0));
         set(ctx, &p.velocity, velocity.clamp(0.01, 1.0));
@@ -515,8 +538,17 @@ fn write_midi_file(p: &DrumParams, bpm: f64, folder: &str) -> Result<PathBuf, St
 
     let gen = p.gen_params();
     let mut edits = EditView::default();
-    p.edit_overlay.fill(&mut edits);
+    if !gen.kind.exact_timing() {
+        p.edit_overlay.fill(&mut edits);
+    }
     let pattern = generate_with(&gen, &edits);
+    let (loop_steps, loop_capped) = crate::pattern_loop_length(&pattern);
+    if loop_capped {
+        return Err(format!(
+            "pattern loop exceeds {} steps; shorten a lane period before exporting",
+            MAX_LOOP_STEPS
+        ));
+    }
     let lanes = std::array::from_fn(|tr| midi_export::Lane {
         enabled: p.track_enabled(tr),
         note: p.track_note(tr),
@@ -524,8 +556,9 @@ fn write_midi_file(p: &DrumParams, bpm: f64, folder: &str) -> Result<PathBuf, St
     });
     let settings = midi_export::ExportSettings {
         bpm,
-        steps_per_beat: p.rate.value().steps_per_beat(),
-        loop_steps: gen.length as f64,
+        steps_per_beat: p.mode.value().step_unit().steps_per_quarter().as_f64(),
+        meter: pattern.meter,
+        loop_steps,
         gate: p.gate.value() as f64,
         swing: p.swing.value() as f64,
         velocity: p.velocity.value(),
@@ -645,10 +678,6 @@ impl Editor for SlintEditor {
             }
             {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
-                ui.on_set_rate(move |v| set(&c, &p.rate, Rate::from_index(v.clamp(0, 13) as usize)));
-            }
-            {
-                let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_apply_preset(move |index| apply_preset(&c, &p, index));
             }
             {
@@ -764,11 +793,19 @@ impl Editor for SlintEditor {
                 });
             }
             {
-                let (p, history) = (setup_params.clone(), edit_history_step.clone());
+                let (p, history, weak) = (setup_params.clone(), edit_history_step.clone(), ui.as_weak());
                 ui.on_edit_step(move |track, step, mode| {
+                    if weak.upgrade().is_some_and(|ui| ui.get_matrix_locked()) { return; }
                     let lane = track.clamp(0, TRACKS as i32 - 1) as usize;
-                    let last = (p.cell_count().max(1) - 1) as i32;
-                    let step = step.clamp(0, last) as usize;
+                    let loop_view = weak
+                        .upgrade()
+                        .map(|ui| {
+                            let period = ui.get_lane_steps().row_data(lane).unwrap_or(0).max(1) as usize;
+                            (ui.get_loop_view() && ui.get_loop_steps() > 0, period)
+                        })
+                        .unwrap_or((false, 1));
+                    let cells = p.cell_count().max(1) as usize;
+                    let step = edit_source_step(cells, loop_view.1, step.max(0) as usize, loop_view.0);
                     if let Ok(mut history) = history.lock() {
                         history.record(p.edit_overlay.snapshot());
                     }
@@ -816,11 +853,19 @@ impl Editor for SlintEditor {
             }
             {
                 // A gate drag records one undo entry at pointer-down, then streams the value.
-                let (p, history) = (setup_params.clone(), edit_history_step.clone());
+                let (p, history, weak) = (setup_params.clone(), edit_history_step.clone(), ui.as_weak());
                 ui.on_edit_gate(move |track, step, value, begin| {
+                    if weak.upgrade().is_some_and(|ui| ui.get_matrix_locked()) { return; }
                     let lane = track.clamp(0, TRACKS as i32 - 1) as usize;
-                    let last = (p.cell_count().max(1) - 1) as i32;
-                    let step = step.clamp(0, last) as usize;
+                    let loop_view = weak
+                        .upgrade()
+                        .map(|ui| {
+                            let period = ui.get_lane_steps().row_data(lane).unwrap_or(0).max(1) as usize;
+                            (ui.get_loop_view() && ui.get_loop_steps() > 0, period)
+                        })
+                        .unwrap_or((false, 1));
+                    let cells = p.cell_count().max(1) as usize;
+                    let step = edit_source_step(cells, loop_view.1, step.max(0) as usize, loop_view.0);
                     if begin {
                         if let Ok(mut history) = history.lock() {
                             history.record(p.edit_overlay.snapshot());
@@ -930,9 +975,6 @@ impl Editor for SlintEditor {
             )));
             ui.set_mod_rows(ModelRc::new(VecModel::from(Vec::<ModRow>::new())));
             ui.set_mod_status(SharedString::new());
-            ui.set_rate_names(ModelRc::new(VecModel::from(
-                Rate::variants().iter().map(|name| SharedString::from(*name)).collect::<Vec<_>>(),
-            )));
             ui.set_preset_names(ModelRc::new(VecModel::from(
                 PRESETS.iter().map(|preset| SharedString::from(preset.name)).collect::<Vec<_>>(),
             )));
@@ -1035,6 +1077,7 @@ impl Editor for SlintEditor {
             // Show the Steps value the generator will use, even if the project stored one above the ceiling.
             ui.set_steps(p.steps.value().min(ceiling));
             ui.set_round_steps(p.round_steps.value());
+            ui.set_period_minimal(p.period_mode.value() == PeriodMode::Minimal);
             ui.set_pulses(p.pulses.value() as f32);
             ui.set_rotate(p.rotate.value() as f32);
             ui.set_density(p.density.value());
@@ -1048,7 +1091,6 @@ impl Editor for SlintEditor {
             ui.set_scope_length(scope_enabled(p, scope::LENGTH));
             ui.set_scope_rhythm(scope_enabled(p, scope::RHYTHM));
             ui.set_scope_tone(scope_enabled(p, scope::TONE));
-            ui.set_scope_clock(scope_enabled(p, scope::CLOCK));
             ui.set_scope_phase(scope_enabled(p, scope::PHASE));
             ui.set_scope_acid(scope_enabled(p, scope::ACID));
             ui.set_scope_feel(scope_enabled(p, scope::FEEL));
@@ -1059,7 +1101,6 @@ impl Editor for SlintEditor {
             ui.set_ca_rule(p.ca_rule.value() as f32);
             ui.set_markov_bias(p.markov_bias.value() as f32);
             ui.set_symmetry(p.symmetry.value() as f32);
-            ui.set_rate(p.rate.value() as i32);
             let live_clock = update_shared.lfo_clock();
             let views = target_views(p, live_clock);
             let mod_model = ui.global::<ModView>().get_targets();
@@ -1147,10 +1188,9 @@ impl Editor for SlintEditor {
             ui.set_generate_on(p.generate.value());
             let gen_key = p.gen_params_at(update_shared.pattern_clock());
             let cur = update_shared.current_step.load(Relaxed);
-            ui.set_current_step(cur);
-            let steps_per_beat = p.rate.value().steps_per_beat().max(1.0);
-            ui.set_steps_per_beat(steps_per_beat.round() as i32);
-            ui.set_steps_per_bar((steps_per_beat * 4.0).round() as i32);
+            let cur_steps: [i32; TRACKS] = std::array::from_fn(|tr| update_shared.current_steps[tr].load(Relaxed));
+            let loop_step = update_shared.current_loop_step.load(Relaxed);
+            let unit = p.mode.value().step_unit();
             let mask = enabled_mask(p);
             let vel_key = velocity_key(p);
             let mut c = update_cache.lock().unwrap_or_else(|poisoned| {
@@ -1159,7 +1199,9 @@ impl Editor for SlintEditor {
             });
             if c.gen_key != Some(gen_key) {
                 let mut edits = EditView::default();
-                p.edit_overlay.fill(&mut edits);
+                if !gen_key.kind.exact_timing() {
+                    p.edit_overlay.fill(&mut edits);
+                }
                 c.pattern = generate_with(&gen_key, &edits);
                 ui.set_mode_math(SharedString::from(crate::help::math(&gen_key)));
                 if p.logging.value() {
@@ -1171,9 +1213,39 @@ impl Editor for SlintEditor {
                 }
                 c.gen_key = Some(gen_key);
             }
+            // Derived timing: no user meter or clock rate exists. The mode owns the step unit;
+            // the generated pattern owns the loop (lane periods) and the implied meter.
+            let steps = c.pattern.steps.max(1) as usize;
+            let (loop_steps, loop_capped) =
+                lcm_capped(&c.pattern.lane_periods, MAX_LOOP_STEPS as u64);
+            let loop_view = !loop_capped && loop_steps != steps as u64;
+            let display_span = if loop_view { loop_steps as usize } else { steps };
+            let display_step = if loop_view { loop_step } else { cur };
+            ui.set_loop_view(loop_view);
+            ui.set_loop_capped(loop_capped);
+            // Exact timing modes lock cell editing; the pattern must show the generator's cycle.
+            let exact_lock = loop_view || p.mode.value().exact_timing();
+            ui.set_matrix_locked(exact_lock);
+            if exact_lock { ui.set_edit_mode(0); }
+            ui.set_loop_steps(if loop_view { loop_steps as i32 } else { 0 });
+            ui.set_steps_per_beat(unit.steps_per_quarter().as_f64() as f32);
+            let steps_per_bar = c
+                .pattern
+                .meter
+                .map(|m| m.bar_beats() * unit.steps_per_quarter().as_f64())
+                .unwrap_or(display_span as f64);
+            ui.set_steps_per_bar(steps_per_bar as f32);
+            ui.set_timing_summary(SharedString::from(meter_label(
+                c.pattern.meter,
+                unit,
+                loop_steps as u32,
+            )));
+            let periods: Vec<i32> = c.pattern.lane_periods.iter().map(|&p| p as i32).collect();
+            ui.set_lane_steps(ModelRc::new(VecModel::from(periods)));
+            ui.set_current_step(display_step);
             // Read after the replayed keys were dispatched, so the host hook sees fresh focus.
             update_shared.text_focus.store(ui.get_text_focused(), Relaxed);
-            let view_key = (gen_key, cur, mask, vel_key);
+            let view_key = (gen_key, cur, cur_steps, (display_span, display_step, loop_view), mask, vel_key);
             if c.view_key != Some(view_key) {
                 let v = view::build(&gen_key, &c.pattern, cur);
                 push_view(&ui, &v);
@@ -1181,21 +1253,26 @@ impl Editor for SlintEditor {
                 let mut rows = Vec::with_capacity(TRACKS);
                 for tr in 0..TRACKS {
                     let enabled = p.track_enabled(tr);
-                    let cells = (0..c.pattern.steps).map(|i| {
-                        let hit_override = p.edit_overlay.hit(tr, i);
-                        let probability_override = p.edit_overlay.probability(tr, i);
+                    let cells = (0..display_span).map(|i| {
+                        let source = display_source_step(&c.pattern, tr, i, display_span);
+                        let hit_override = p.edit_overlay.hit(tr, source);
+                        let probability_override = p.edit_overlay.probability(tr, source);
                         let edited = hit_override != 0
-                            || p.edit_overlay.accent(tr, i) != 0
+                            || p.edit_overlay.accent(tr, source) != 0
                             || probability_override != 255
-                            || p.edit_overlay.ratchet(tr, i) != 1
-                            || p.edit_overlay.offset(tr, i) != 0
-                            || p.edit_overlay.length(tr, i) != 0;
+                            || p.edit_overlay.ratchet(tr, source) != 1
+                            || p.edit_overlay.offset(tr, source) != 0
+                            || p.edit_overlay.length(tr, source) != 0;
                         StepCell {
                             track: tr as i32,
                             step: i as i32,
-                            hit: enabled && c.pattern.hit[tr][i],
-                            playing: cur == i as i32,
-                            velocity: (p.track_velocity(tr) * gen_key.velocity * c.pattern.accent[tr][i]).clamp(0.0, 1.0),
+                            hit: enabled && c.pattern.hit[tr][source],
+                            playing: if loop_view {
+                                display_step == i as i32
+                            } else {
+                                cur_steps[tr] == i as i32
+                            },
+                            velocity: (p.track_velocity(tr) * gen_key.velocity * c.pattern.accent[tr][source]).clamp(0.0, 1.0),
                             probability: if probability_override == 255 {
                                 gen_key.probability
                             } else {
@@ -1203,9 +1280,9 @@ impl Editor for SlintEditor {
                             },
                             hit_override: hit_override as i32,
                             edited,
-                            ratchet: p.edit_overlay.ratchet(tr, i) as i32,
-                            offset: p.edit_overlay.offset(0, i).max(0) as i32,
-                            length: p.edit_overlay.length_at(tr, i).unwrap_or(p.gate.value()),
+                            ratchet: p.edit_overlay.ratchet(tr, source) as i32,
+                            offset: p.edit_overlay.offset(0, source).max(0) as i32,
+                            length: p.edit_overlay.length_at(tr, source).unwrap_or(p.gate.value()),
                         }
                     }).collect::<Vec<_>>();
                     rows.push(TrackRow {
@@ -1314,6 +1391,20 @@ mod tests {
         history.record(state.clone());
         history.record(state);
         assert_eq!(history.undo.len(), 1);
+    }
+
+    #[test]
+    fn loop_view_maps_display_columns_to_lane_periods() {
+        let mut pattern = Pattern { steps: 16, ..Pattern::default() };
+        pattern.lane_periods = [13, 7, 13, 7, 13, 7, 13, 7];
+        assert_eq!(display_source_step(&pattern, 0, 20, 91), 7);
+        assert_eq!(display_source_step(&pattern, 1, 90, 91), 6);
+        // Master view passes the display column through (clamped to the pattern).
+        assert_eq!(display_source_step(&pattern, 0, 20, 16), 4);
+        // Edit callbacks use the published lane period in the same way.
+        assert_eq!(edit_source_step(16, 13, 20, true), 7);
+        assert_eq!(edit_source_step(16, 7, 90, true), 6);
+        assert_eq!(edit_source_step(16, 13, 20, false), 15);
     }
 
     #[test]

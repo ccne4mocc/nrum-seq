@@ -22,7 +22,10 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     }
     // Ensure at least one
     if placed == 0 { a_set[0] = true; }
+    // The Vuza modulus is the canon's translation period.
+    let period = modulus.min(n) as u16;
     for tr in 0..TRACKS {
+        out.lane_periods[tr] = period;
         let mut rng = Rng::new(p.seed, p.variation, 0x56_00_00_00 + tr as u64);
         let lane_shift = tr * (modulus / TRACKS.max(1)).max(1);
         for i in 0..n {

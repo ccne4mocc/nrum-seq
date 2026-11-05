@@ -3,6 +3,7 @@
 //! Editor thread only; `process()` never builds or writes a file. One format-0 track with note
 //! events and a tempo meta event is small enough to encode directly, with no MIDI crate.
 
+use crate::clock::Meter;
 use crate::sequence::{Pattern, MAX_STEPS, TRACKS};
 
 const PPQ: u16 = 480;
@@ -20,8 +21,10 @@ pub(crate) struct ExportSettings {
     pub bpm: f64,
     /// Clock rate in steps per beat (4 = 1/16).
     pub steps_per_beat: f64,
-    /// Exact loop length in steps; fractional lengths can be shorter than `Pattern::steps`.
-    pub loop_steps: f64,
+    /// Meter implied by the mode and pattern; `None` for polymetric loops.
+    pub meter: Option<Meter>,
+    /// Exact loop length in steps. Polymetric modes tile their lane periods over this.
+    pub loop_steps: u32,
     pub gate: f64,
     pub swing: f64,
     pub velocity: f32,
@@ -51,35 +54,38 @@ pub(crate) fn smf(pattern: &Pattern, settings: &ExportSettings) -> Vec<u8> {
         4.0
     };
     let step_len = 1.0 / spb;
-    let loop_steps = if settings.loop_steps.is_finite() && settings.loop_steps > 0.0 {
-        settings.loop_steps
-    } else {
-        steps as f64
-    };
+    let loop_steps = if settings.loop_steps > 0 { settings.loop_steps } else { steps as u32 };
     let gate = settings.gate.clamp(0.02, 1.0) * step_len;
     let swing = settings.swing.clamp(0.0, 0.5) * step_len;
     let to_tick = |beat: f64| (beat * PPQ as f64).round().clamp(0.0, u32::MAX as f64) as u32;
 
+    // Tile the polymetric loop: a lane with its own period reads its source step modulo that
+    // period, while step-wide offsets/ratchets follow the generated pattern row.
+    let loop_cells = (loop_steps as usize).clamp(1, MAX_STEPS);
     let mut events = Vec::new();
-    for i in 0..steps {
-        let offset = settings.offsets[i].clamp(0.0, 0.9) as f64 * step_len;
+    for i in 0..loop_cells {
+        let source = i % steps;
+        let offset = settings.offsets[source].clamp(0.0, 0.9) as f64 * step_len;
         let onset = i as f64 * step_len + if i % 2 == 1 { swing } else { 0.0 } + offset;
         for tr in 0..TRACKS {
             let lane = settings.lanes[tr];
-            if !lane.enabled || !pattern.hit[tr][i] {
+            let raw_period = pattern.lane_periods[tr] as usize;
+            let period = if raw_period == 0 { steps } else { raw_period.min(steps) }.max(1);
+            let idx = i % period;
+            if !lane.enabled || !pattern.hit[tr][idx] {
                 continue;
             }
-            let ratchet = settings.ratchets[tr][i].clamp(1, 4) as usize;
+            let ratchet = settings.ratchets[tr][idx].clamp(1, 4) as usize;
             let lane_step = step_len / ratchet as f64;
             // A per-cell length replaces the global gate; a ratchet still caps it to its own
             // substep spacing so one lane never overlaps itself.
-            let cell_gate = if settings.lengths[tr][i] > 0.0 {
-                settings.lengths[tr][i].clamp(0.02, 1.0) as f64 * step_len
+            let cell_gate = if settings.lengths[tr][idx] > 0.0 {
+                settings.lengths[tr][idx].clamp(0.02, 1.0) as f64 * step_len
             } else {
                 gate
             };
             let sub_gate = if ratchet > 1 { cell_gate.min(lane_step * 0.9) } else { cell_gate };
-            let velocity = (settings.velocity * lane.velocity * pattern.accent[tr][i])
+            let velocity = (settings.velocity * lane.velocity * pattern.accent[tr][idx])
                 .clamp(0.0, 1.0);
             let velocity = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
             let note = lane.note.min(127);
@@ -94,15 +100,23 @@ pub(crate) fn smf(pattern: &Pattern, settings: &ExportSettings) -> Vec<u8> {
         a.tick.cmp(&b.tick).then(a.order.cmp(&b.order)).then(a.note.cmp(&b.note))
     });
 
-    let loop_end = to_tick(loop_steps * step_len);
+    let loop_end = to_tick(loop_steps as f64 * step_len);
     let mut track = Vec::new();
     // Tempo meta event. 0x51 carries three bytes of microseconds per quarter note.
     let bpm = if settings.bpm.is_finite() && settings.bpm > 0.0 { settings.bpm } else { 120.0 };
     let us_per_beat = (60_000_000.0 / bpm).round().clamp(1.0, 16_777_215.0) as u32;
     track.extend_from_slice(&[0, 0xFF, 0x51, 0x03]);
     track.extend_from_slice(&us_per_beat.to_be_bytes()[1..]);
-    // 4/4, 24 MIDI clocks per quarter, 8 thirty-seconds per quarter.
-    track.extend_from_slice(&[0, 0xFF, 0x58, 0x04, 4, 2, 24, 8]);
+    // Implied meter, written only when the derived pattern has an exact one. Polymetric or
+    // triplet-based loops leave the host signature alone instead of claiming 4/4.
+    if let Some(meter) = settings.meter {
+        let den = meter.den.max(1);
+        if den.is_power_of_two() {
+            let exp = den.trailing_zeros() as u8;
+            let num = meter.num.clamp(1, 255) as u8;
+            track.extend_from_slice(&[0, 0xFF, 0x58, 0x04, num, exp, 24, 8]);
+        }
+    }
 
     let mut last_tick = 0;
     for event in &events {
@@ -158,7 +172,8 @@ mod tests {
         let settings = ExportSettings {
             bpm: 120.0,
             steps_per_beat: 4.0,
-            loop_steps: steps as f64,
+            meter: crate::clock::meter_from_steps(steps as u32, crate::clock::StepUnit::Sixteenth),
+            loop_steps: steps as u32,
             gate: 0.5,
             swing: 0.0,
             velocity: 1.0,
@@ -259,12 +274,12 @@ mod tests {
     }
 
     #[test]
-    fn fractional_loop_uses_the_exact_loop_length() {
+    fn loop_length_is_always_whole_steps() {
         let (pattern, mut settings) = for_one_lane(36, 5, &[]);
-        settings.loop_steps = 4.5;
+        settings.loop_steps = 4;
         let bytes = smf(&pattern, &settings);
-        // 4.5 steps * 1/4 beat * 480 PPQ = 540 ticks, encoded as VLQ 0x84 0x1C.
-        assert!(bytes[22..].ends_with(&[0x84, 0x1C, 0xFF, 0x2F, 0x00]));
+        // 4 steps * 1/4 beat * 480 PPQ = 480 ticks, encoded as VLQ 0x83 0x60.
+        assert!(bytes[22..].ends_with(&[0x83, 0x60, 0xFF, 0x2F, 0x00]));
     }
 
     /// Minimal reader for the events this writer emits: skips meta events and returns
@@ -291,6 +306,51 @@ mod tests {
             }
         }
         out
+    }
+
+    fn track_data(bytes: &[u8]) -> Vec<u8> {
+        let at = bytes.windows(4).position(|w| w == b"MTrk").unwrap() + 8;
+        bytes[at..].to_vec()
+    }
+
+    fn time_signature(bytes: &[u8]) -> Option<(u8, u8)> {
+        bytes.windows(6).find_map(|w| {
+            (w[0] == 0xFF && w[1] == 0x58 && w[2] == 0x04).then_some((w[3], w[4]))
+        })
+    }
+
+    #[test]
+    fn export_writes_the_derived_time_signature() {
+        let (pattern, mut settings) = for_one_lane(60, 16, &[(0, true), (8, true)]);
+        settings.meter = crate::clock::meter_from_steps(16, crate::clock::StepUnit::Sixteenth);
+        let bytes = smf(&pattern, &settings);
+        assert_eq!(time_signature(&bytes), Some((4, 2)), "16 steps at 1/16 should export 4/4");
+
+        settings.meter = crate::clock::meter_from_steps(13, crate::clock::StepUnit::Sixteenth);
+        settings.loop_steps = 13;
+        let bytes = smf(&pattern, &settings);
+        assert_eq!(time_signature(&bytes), Some((13, 4)), "13 steps at 1/16 should export 13/16");
+
+        settings.meter = None;
+        let bytes = smf(&pattern, &settings);
+        assert_eq!(time_signature(&bytes), None, "polymetric patterns must not claim a signature");
+    }
+
+    #[test]
+    fn export_tiles_mode_owned_lane_periods() {
+        let (mut pattern, settings) = for_one_lane(60, 16, &[]);
+        // Lane 0 owns a 3-step period with hits on the first three cells.
+        pattern.lane_periods = [3, 16, 16, 16, 16, 16, 16, 16];
+        for i in 0..3 { pattern.hit[0][i] = true; pattern.accent[0][i] = 1.0; }
+        let bytes = smf(&pattern, &settings);
+        let track = track_data(&bytes);
+        let ons: Vec<u32> = channel_events(&track)
+            .into_iter()
+            .filter(|(_, st, _)| st & 0xF0 == 0x90)
+            .map(|(t, _, _)| t)
+            .collect();
+        // 0.25-beat steps at 480 PPQ = 120 ticks. The 16-step loop plays the 3-step lane six times.
+        assert_eq!(ons, vec![0, 120, 240, 360, 480, 600, 720, 840, 960, 1080, 1200, 1320, 1440, 1560, 1680, 1800]);
     }
 
     fn read_vlq(data: &[u8]) -> (u32, usize) {

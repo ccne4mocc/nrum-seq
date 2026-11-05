@@ -1,5 +1,17 @@
 # Changelog
 
+
+## Unreleased — Mode-derived timing
+
+- Timing is derived from the selected mode and its generated pattern; the clock-rate, meter and
+  lane-span settings were removed.
+- `Mode::step_unit()` gives every mode its own subdivision; the host supplies tempo only.
+- Intrinsic lane periods (Slowcat motifs, the 12-step African bell, the Vuza modulus) create
+  polymeter, with per-lane cycle badges and an auto-tiled loop view.
+- The matrix draws exact meter lines derived from the pattern; MIDI export writes the implied
+  time signature when one exists.
+- The RANDOMIZE Clock scope bit is retired because timing no longer has a randomizable parameter.
+
 ## 1.0.1 — Documentation release
 
 Documentation and packaging only; plug-in behaviour is unchanged from 1.0.0.

@@ -4,6 +4,7 @@
 //! shown by the host. Generators and panels match the same variants, so there is no second enum
 //! or index mapping to maintain. Only this file names the plug-in enum machinery.
 
+use crate::clock::StepUnit;
 use crate::sequence::{MAX_STEPS, MIN_MAX_STEPS};
 use nice_plug::prelude::Enum;
 
@@ -83,6 +84,47 @@ pub const GROUPS: &[(&str, &[Mode])] = &[
 ];
 
 impl Mode {
+    /// Step subdivision owned by this mode. The plug-in has no clock-rate setting: the mode
+    /// decides how long one grid cell lasts, and the host tempo supplies the beat length.
+    ///
+    /// Textural and slow-evolving modes sit on 1/8; pattern-dense rhythmic modes use 1/16.
+    /// New modes append a case here; the default keeps the common 1/16 grid.
+    pub fn step_unit(self) -> StepUnit {
+        match self {
+            Mode::Slowcat
+            | Mode::PhaseShift
+            | Mode::PhaseCanon
+            | Mode::AfricanBell
+            | Mode::Markov
+            | Mode::Logistic
+            | Mode::Lorenz
+            | Mode::Brownian
+            | Mode::LevyFlight
+            | Mode::TentMap
+            | Mode::HenonMap
+            | Mode::ReactionDiffusion => StepUnit::Eighth,
+            _ => StepUnit::Sixteenth,
+        }
+    }
+
+    /// Modes whose lane word can be safely shortened to its minimal repeating period.
+    /// Chaotic/stochastic modes are excluded because they have no stable word to derive.
+    pub fn supports_derived_period(self) -> bool {
+        // Every generator publishes a finite word, so deriving its smallest period is exact for
+        // all modes. Stochastic/chaotic modes simply stay at `steps` when no shorter period
+        // repeats; if one does repeat, Minimal Periods deliberately locks that word.
+        match self { _ => true }
+    }
+
+    /// Modes whose timing is the point of the mode: cell edits must not rewrite their cycle.
+    /// The editor autolocks these and the scheduler/export bypass the manual overlay.
+    pub fn exact_timing(self) -> bool {
+        matches!(
+            self,
+            Mode::Slowcat | Mode::Polyrhythm | Mode::AfricanBell | Mode::Vuza
+        )
+    }
+
     /// Every mode in display order; the header wheel must step this, not the raw host index.
     pub fn display_order() -> Vec<Mode> {
         GROUPS.iter().flat_map(|(_, modes)| modes.iter().copied()).collect()

@@ -78,11 +78,15 @@ pub(crate) use kuramoto::{
 
 // The mode enum is the shared host parameter type: one list, one order, no mapping table.
 use crate::edits::{EditView, HIT_OFF, HIT_ON};
+use crate::clock::{meter_from_steps, Meter};
 use crate::modes::Mode;
 
 pub const TRACKS: usize = 8;
 /// Hard capacity for every pattern array; the host's `max_steps` ceiling can reach 1024.
 pub const MAX_STEPS: usize = 1024;
+/// Playback/export cap for the LCM of mode-owned lane periods. Slowcat's current
+/// motifs close at 840, so this must stay at least that large.
+pub const MAX_LOOP_STEPS: usize = 1024;
 /// Lowest selectable ceiling; keeps untouched projects at the historical limit.
 pub const MIN_MAX_STEPS: usize = 64;
 /// Default ceiling. Long-horizon modes raise it themselves through `Mode::min_steps`.
@@ -131,6 +135,8 @@ pub struct GenParams {
     pub markov_bias: u8,
     /// Revision of the manual edit overlay in this snapshot; part of the cache key.
     pub edit_rev: u32,
+    /// Master loop or derived minimal lane periods.
+    pub period_mode: crate::PeriodMode,
 }
 
 impl Default for GenParams {
@@ -141,6 +147,7 @@ impl Default for GenParams {
             osc_wave: 0, ca_rule: 30, symmetry: 4, variation: 0, invert: false, mirror: false,
             markov_bias: 0,
             edit_rev: 0,
+            period_mode: crate::PeriodMode::Master,
         }
     }
 }
@@ -148,6 +155,13 @@ impl Default for GenParams {
 #[derive(Clone, Copy, Debug)]
 pub struct Pattern {
     pub steps: usize,
+    /// Generator-owned cycle length per lane. `0` (before finalization) means "follow `steps`".
+    /// Modes with an intrinsic period (Slowcat motifs, African bell, Vuza modulus) publish it;
+    /// the scheduler reads each lane modulo this value, which is what creates polymeter.
+    pub lane_periods: [u16; TRACKS],
+    /// Meter implied by the pattern period and the mode's step unit. `None` for polymetric
+    /// loops (lanes disagree) or units that have no exact signature.
+    pub meter: Option<Meter>,
     pub hit: [[bool; MAX_STEPS]; TRACKS],
     /// Per-step accent multiplier before the lane's velocity parameter.
     pub accent: [[f32; MAX_STEPS]; TRACKS],
@@ -179,6 +193,8 @@ impl Default for Pattern {
     fn default() -> Self {
         Self {
             steps: 16,
+            lane_periods: [0; TRACKS],
+            meter: None,
             hit: [[false; MAX_STEPS]; TRACKS],
             accent: [[1.0; MAX_STEPS]; TRACKS],
             state: [0; MAX_STEPS],
@@ -476,9 +492,35 @@ fn generate_impl(p: &GenParams, edits: Option<&EditView>) -> Pattern {
             }
         }
     }
+    // Optional derived polymeter: each lane repeats on the smallest period of its final word.
+    if q.period_mode == crate::PeriodMode::Minimal && q.kind.supports_derived_period() {
+        for tr in 0..TRACKS {
+            out.lane_periods[tr] = minimal_period(&out.hit[tr], steps) as u16;
+        }
+    }
+    // Finalize the mode-owned timing: an unset period follows the pattern length, and the
+    // implied meter comes from the common period at the mode's step unit.
+    for period in out.lane_periods.iter_mut() {
+        *period = if *period == 0 { steps as u16 } else { (*period).min(steps as u16) };
+    }
+    out.meter = if out.lane_periods.iter().all(|&p| p == out.lane_periods[0]) {
+        meter_from_steps(out.lane_periods[0] as u32, q.kind.step_unit())
+    } else {
+        None
+    };
     out
 }
 
+/// Smallest period that reproduces a lane's hit word, or `n` when no shorter period divides it.
+fn minimal_period(hit: &[bool; MAX_STEPS], n: usize) -> usize {
+    let n = n.max(1);
+    for period in 1..=n {
+        if (period..n).all(|i| hit[i] == hit[i % period]) {
+            return period;
+        }
+    }
+    n
+}
 
 #[cfg(test)]
 mod tests {
@@ -501,7 +543,7 @@ mod tests {
     /// a new `Pattern` array cannot silently grow the audio-thread copy.
     #[test]
     fn pattern_size_matches_the_documented_footprint() {
-        assert_eq!(std::mem::size_of::<Pattern>(), 104_464);
+        assert_eq!(std::mem::size_of::<Pattern>(), 104_496);
     }
 
     #[test]
@@ -519,6 +561,43 @@ mod tests {
             times.sort_unstable();
             println!("{kind:?}: median {:.1} us, max {:.1} us at {MAX_STEPS} steps",
                 times[100] as f64 / 1000.0, times[199] as f64 / 1000.0);
+        }
+    }
+
+    #[test]
+    fn minimal_period_mode_shortens_repeating_lane_words() {
+        let p = GenParams {
+            kind: Mode::Euclidean,
+            steps: 16,
+            pulses: 4,
+            density: 1.0,
+            probability: 1.0,
+            period_mode: crate::PeriodMode::Minimal,
+            ..GenParams::default()
+        };
+        let out = generate(&p);
+        assert!(out.lane_periods.iter().any(|&period| (period as usize) < 16));
+        assert!(out.lane_periods.iter().all(|&period| period <= 16 && period > 0));
+        let master = generate(&GenParams { period_mode: crate::PeriodMode::Master, ..p });
+        assert!(master.lane_periods.iter().all(|&period| period as usize == 16));
+    }
+
+    #[test]
+    fn minimal_periods_are_bounded_for_every_mode() {
+        for kind in Mode::all() {
+            let p = GenParams {
+                kind,
+                steps: 16,
+                pulses: 5,
+                density: 0.65,
+                probability: 1.0,
+                period_mode: crate::PeriodMode::Minimal,
+                ..GenParams::default()
+            };
+            let out = generate(&p);
+            for &period in &out.lane_periods {
+                assert!(period > 0 && period as usize <= out.steps, "{kind:?}: {period}");
+            }
         }
     }
 
