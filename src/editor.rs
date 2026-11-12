@@ -1601,6 +1601,16 @@ mod tests {
         assert!(ui.get_settings_open(), "s did not open settings");
         press(slint::platform::Key::Escape.into());
         assert!(!ui.get_settings_open(), "Escape did not close settings");
+
+        // A closed drawer is parked off-window; it must also leave the tab order, or Tab walks
+        // into its MIDI folder field and starts typing into a panel nobody can see.
+        for _ in 0..120 {
+            press(slint::platform::Key::Tab.into());
+            assert!(
+                !ui.get_text_focused(),
+                "a closed Settings drawer must not take keyboard focus"
+            );
+        }
     }
 
     /// Render one cycle of the matrix to PPM frames so the README GIF can be regenerated.
