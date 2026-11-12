@@ -96,7 +96,7 @@ component ScopeChip inherits Rectangle {
     in property <bool> active;
     callback toggled();
     height: 24px; border-radius: 4px;
-    background: root.active ? Theme.c1.with-alpha(0.8) : (ta.has-hover ? Theme.control-hover : Theme.control);
+    background: root.active ? Theme.c1 : (ta.has-hover ? Theme.control-hover : Theme.control);
     Text { text: root.label; color: root.active ? Theme.on-accent : Theme.text; font-size: Type.caption; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
     ta := TipTouch { hint: "Toggle this RANDOMIZE group"; clicked => { root.toggled(); } }
 }
@@ -1233,7 +1233,7 @@ export component AppWindow inherits Window {
                 generate-touch := TipTouch { hint: "Create a new deterministic variation of the current pattern"; clicked => { root.regen-pulse = true; root.generate-pressed(); } }
             }
             Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "RANDOMIZE ⚄"; color: Theme.text; font-size: Type.value; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TipTouch { hint: "Randomize the parameter groups enabled in RANDOMIZE SCOPE"; clicked => { root.randomize-pressed(); } } }
-            Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : Theme.control; Text { text: "⚙"; color: settings-touch.has-hover ? Theme.on-accent : Theme.text; font-size: Type.glyph-large; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TipTouch { hint: "Open settings: theme, presets, limits, export and credits"; clicked => { root.settings-open = !root.settings-open; } } }
+            Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2 : Theme.control; Text { text: "⚙"; color: settings-touch.has-hover ? Theme.on-accent : Theme.text; font-size: Type.glyph-large; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TipTouch { hint: "Open settings: theme, presets, limits, export and credits"; clicked => { root.settings-open = !root.settings-open; } } }
         }
         HorizontalLayout {
             // 300px fits the description and live math line without squeezing the sliders.
@@ -1427,13 +1427,13 @@ export component AppWindow inherits Window {
                             visible: i > 0 && root.show-beat-lines;
                             x: i * root.steps-per-beat * root.matrix-cell-width;
                             width: 1px; height: parent.height;
-                            background: Theme.text-muted.with-alpha(0.28);
+                            background: Theme.text-muted.with-alpha(0.45);
                         }
                         for b in root.bar-count: Rectangle {
                             visible: b > 0;
                             x: b * root.steps-per-bar * root.matrix-cell-width;
                             width: 1px; height: parent.height;
-                            background: Theme.c1.with-alpha(0.22);
+                            background: Theme.c1.with-alpha(0.40);
                         }
                         Rectangle {
                             visible: root.loop-view && root.loop-steps > 0;
@@ -1451,8 +1451,8 @@ export component AppWindow inherits Window {
                                     border-radius: root.matrix-cell-radius;
                                     // Alternate bars so long patterns remain readable when zoomed out.
                                     background: Math.mod(Math.floor(cell.step / root.steps-per-bar), 2) == 0
-                                        ? (cell.hit ? Theme.cell-off : Theme.surface.with-alpha(0.25))
-                                        : Theme.cell-off.with-alpha(cell.hit ? 0.62 : 0.38);
+                                        ? (cell.hit ? Theme.cell-off : Theme.surface)
+                                        : Theme.cell-off.with-alpha(cell.hit ? 0.78 : 0.85);
                                     opacity: track.enabled ? 1.0 : 0.35;
                                     property <bool> cursor-cell: root.cursor-visible
                                         && cell.step == root.cursor-step && track.index == root.cursor-lane;
@@ -1532,8 +1532,8 @@ export component AppWindow inherits Window {
                 OptSlider { width: 205px; opt: root.opts[12]; mod-target: 14; changed(v) => { root.set-opt(12, v); } }
                 scope-gear := Rectangle {
                     width: 25px; height: 25px; border-radius: 4px;
-                    background: root.scope-menu-open ? Theme.c2.with-alpha(0.5) : (scope-touch.has-hover ? Theme.control-hover : Theme.control);
-                    Text { text: "⚙"; color: Theme.text; font-size: Type.glyph-small; horizontal-alignment: center; vertical-alignment: center; }
+                    background: root.scope-menu-open ? Theme.c2 : (scope-touch.has-hover ? Theme.control-hover : Theme.control);
+                    Text { text: "⚙"; color: root.scope-menu-open ? Theme.on-accent : Theme.text; font-size: Type.glyph-small; horizontal-alignment: center; vertical-alignment: center; }
                     scope-touch := TipTouch { hint: "Toggle this group for RANDOMIZE";
                         clicked => {
                             root.scope-menu-open = !root.scope-menu-open;
@@ -1626,7 +1626,7 @@ export component AppWindow inherits Window {
                 spacing: 3px; height: 24px;
                 for i in root.preset-names.length: Rectangle {
                     width: (parent.width - 15px) / 6; height: 24px; border-radius: 3px;
-                    background: preset-touch.has-hover ? Theme.c2.with-alpha(0.7) : Theme.control;
+                    background: preset-touch.has-hover ? Theme.c2 : Theme.control;
                     Text { text: root.preset-names[i]; color: preset-touch.has-hover ? Theme.on-accent : Theme.text; font-size: Type.caption; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                     preset-touch := TipTouch { hint: "Load this starting-point preset into the host parameters"; clicked => { root.apply-preset(i); } }
                 }
@@ -1642,7 +1642,7 @@ export component AppWindow inherits Window {
             Text { text: "INTERFACE"; color: Theme.text-muted; font-size: Type.caption; font-weight: 700; letter-spacing: 0.5px; }
             Rectangle {
                 height: 26px; border-radius: 4px;
-                background: root.reduce-motion ? Theme.c1.with-alpha(0.8) : (motion-touch.has-hover ? Theme.control-hover : Theme.control);
+                background: root.reduce-motion ? Theme.c1 : (motion-touch.has-hover ? Theme.control-hover : Theme.control);
                 Text { x: 8px; width: parent.width - 16px; text: root.reduce-motion ? "REDUCE MOTION: ON" : "REDUCE MOTION: OFF"; color: root.reduce-motion ? Theme.on-accent : Theme.text; font-size: Type.caption; vertical-alignment: center; }
                 motion-touch := TipTouch { hint: "Skip panel slides and node tweens"; clicked => { root.toggle-reduce-motion(); } }
             }
@@ -1650,7 +1650,7 @@ export component AppWindow inherits Window {
             Text { text: "TECHNICAL SUPPORT"; color: Theme.text-muted; font-size: Type.caption; font-weight: 700; letter-spacing: 0.5px; }
             Rectangle {
                 height: 26px; border-radius: 4px;
-                background: root.logging-on ? Theme.c1.with-alpha(0.8) : (logging-touch.has-hover ? Theme.control-hover : Theme.control);
+                background: root.logging-on ? Theme.c1 : (logging-touch.has-hover ? Theme.control-hover : Theme.control);
                 Text { x: 8px; width: parent.width - 16px; text: root.logging-on ? "LOGGING: ON (nrum-seq.log)" : "LOGGING: OFF"; color: root.logging-on ? Theme.on-accent : Theme.text; font-size: Type.caption; vertical-alignment: center; }
                 logging-touch := TipTouch { hint: "Write parameter snapshots to nrum-seq.log"; clicked => { root.toggle-logging(); } }
             }

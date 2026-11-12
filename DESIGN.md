@@ -166,6 +166,9 @@ is wrong.
 **The Signal Not Decor Rule.** Saturated colour is data. If a saturated element does not encode a
 value, a lane, or a state the user can act on, it is a bug.
 
+**The Solid State Rule.** A state fill is the accent at full opacity. A tint behind a label drops
+it below 4.5:1 in at least one theme; the tint is the defect, not the hue.
+
 ## Typography
 
 **Display Font:** system UI sans (no font asset ships; the family deliberately falls back)
@@ -253,8 +256,8 @@ repetition is the family's shape signature.
 ### Chips
 - **Style:** 24px high, 3px radius, control fill, caption text. Toggle chips fill with the state
   colour at 35-80% alpha and switch text to on-accent.
-- **State:** off is neutral fill with full text; on is a tinted fill with on-accent text. A chip
-  never uses a border to show state.
+- **State:** off is neutral fill with full text; on is a solid accent fill at full opacity with
+  on-accent text. A chip never uses a border to show state.
 
 ### Cards / Containers
 - **Corner Style:** 4px.
@@ -293,8 +296,9 @@ the same object.
 - **Do** let one drawing and one action own the accent hues at rest.
 
 ### Don't:
-- **Don't** use gradients as fills, glows, or glass; the only gradient permitted is the three-stop
-  accent fill inside a parameter row, and it is being retired.
+- **Don't** use gradients as fills, glows, or glass. The one gradient is the accent ramp
+  (Signal Yellow → Ember Orange → Alarm Red) that marks a selected row, parameter or mode; it
+  never appears as decoration.
 - **Don't** build a dark web dashboard: no purple, no translucent cards, no pill-shaped
   everything, no emoji as iconography.
 - **Don't** imitate a generic DAW: no brushed metal, no knobs, no tabbed preferences, no stock
