@@ -23,7 +23,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
             }
             let peak = z > prev_z && z > 1.0 + tr as f32 * 0.5;
             prev_z = z;
-            let mut hit = (peak || i == 0) && rng.unit() < p.probability.clamp(0.0,1.0)*p.density.clamp(0.0,1.0);
+            let mut hit = (peak || i == 0) && rng.unit() < p.density.clamp(0.0,1.0);
             if hit && tr > 0 && (0..tr).all(|k| out.hit[k][i]) { hit = false; }
             let accent = if hit { (z.abs()/30.0).min(1.0) } else { 0.0 };
             set_hit(&mut out, tr, i, hit, accent);

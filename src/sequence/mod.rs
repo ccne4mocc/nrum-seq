@@ -622,6 +622,38 @@ mod tests {
     }
 
     #[test]
+    fn probability_is_applied_exactly_once() {
+        // The global pass retains each hit with `rng.unit() < probability`, so p=0.5 must keep
+        // about half the hits. A generator that also multiplies by p internally lands near p².
+        // Sixteen variations are summed so sparse modes still carry enough samples to tell 0.5
+        // and 0.25 apart.
+        let total = |p: &Pattern| {
+            p.hit.iter().flat_map(|lane| lane[..p.steps].iter()).filter(|hit| **hit).count()
+        };
+        let mut report = Vec::new();
+        for kind in Mode::all() {
+            let mut before = 0usize;
+            let mut after = 0usize;
+            for variation in 0..16u32 {
+                let base = GenParams { kind, probability: 1.0, steps: 64, variation, ..GenParams::default() };
+                before += total(&generate(&base));
+                after += total(&generate(&GenParams { probability: 0.5, ..base }));
+            }
+            report.push((kind, before, after));
+        }
+        for (kind, before, after) in report {
+            if before < 64 {
+                // Too few hits to estimate a retention ratio; the modes that read probability
+                // internally all produce plenty at these settings.
+                continue;
+            }
+            let retained = after as f32 / before as f32;
+            assert!((0.38..=0.62).contains(&retained),
+                "{kind:?} retained {retained:.2} of its hits at probability 0.5");
+        }
+    }
+
+    #[test]
     fn steps_and_rotation_are_clamped() {
         let p = GenParams { steps: MAX_STEPS + 100, rotate: MAX_STEPS + 100, ..GenParams::default() };
         assert_eq!(generate(&p).steps, MAX_STEPS);
@@ -929,7 +961,7 @@ mod tests {
                 }
             }
         }
-        // The concrete case from the bug report.
+        // E(16,16) at density 0.3 keeps hits on the beat, starting with the downbeat.
         let pat = generate(&GenParams { kind: Mode::Euclidean, steps: 16, pulses: 16, density: 0.3, probability: 1.0, ..GenParams::default() });
         let kick: Vec<usize> = (0..16).filter(|&i| pat.hit[0][i]).collect();
         assert_eq!(kick, vec![0, 4, 8, 12]);

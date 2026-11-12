@@ -52,3 +52,7 @@ members = ["xtask"]
 lto = "thin"
 strip = "symbols"
 codegen-units = 1
+
+[dev-dependencies]
+# Software renderer for the headless keyboard/focus test.
+slint = { version = "=1.16.1", default-features = false, features = ["std", "compat-1-2", "renderer-software"] }

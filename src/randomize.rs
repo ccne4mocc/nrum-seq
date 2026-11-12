@@ -1,9 +1,8 @@
 //! Mode-aware vocabularies for Randomize: instead of drawing every control uniformly, values
 //! are snapped to small musical sets. Editor thread only; pure and deterministic for a given RNG.
 //!
-//! Palettes intentionally replace the old uniform draw, so Randomize always lands on a
-//! musically legible pattern. Anything that depends on the mode is keyed on the mode Randomize
-//! just chose (or kept), so the value and the generator can never disagree.
+//! Palettes always land on a musically legible pattern. Anything that depends on the mode is
+//! keyed on the mode Randomize just chose (or kept), so the value and generator cannot disagree.
 
 use crate::modes::Mode;
 use crate::sequence::Rng;

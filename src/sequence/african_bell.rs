@@ -16,7 +16,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         for i in 0..n {
             let src = BELL[i % BELL.len()];
             let idx = (i + rot) % n;
-            let mut hit = src && rng.unit() < p.probability.clamp(0.0, 1.0);
+            let mut hit = src;
             if hit && tr > 0 && (0..tr).all(|k| out.hit[k][idx]) { hit = false; }
             let accent = if hit { 0.75 + 0.25 * rng.unit() } else { 0.0 };
             set_hit(&mut out, tr, idx, hit, accent);

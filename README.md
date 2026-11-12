@@ -69,8 +69,8 @@ Enjoy :3
   `Plugin::process()`.
 - **Per-step editor** with hit overrides, probability, accent, ratchets, microtiming and
   per-cell gate length, plus undo/redo and a matrix ruler.
-- **Four runtime LFOs** that can be dragged onto numeric parameters and persisted with the
-  project.
+- **Four runtime LFOs** (UI currently hidden while the rack is reworked; the parameters, links and
+  audio path remain live and persist with the project).
 - **Mode-aware Randomize** and per-length randomization with a scope mask.
 - **One-loop MIDI export** to a timestamped Standard MIDI File.
 - **Four themes** and built-in starting-point presets.
@@ -85,11 +85,37 @@ Enjoy :3
 nrum seq is a MIDI effect. If it is placed on a bus or on a track without an instrument
 downstream, it will generate events but nothing will make a sound.
 
+## Keyboard
+
+Every control is reachable without a pointer. The focused control draws a 1 px ring; Tab and
+Shift+Tab move between them, and Space or Enter activates the focused one.
+
+| Key | Action |
+|---|---|
+| `G` | Generate |
+| `R` | Randomize |
+| `S` | Open or close settings |
+| `Esc` | Close the open panel or menu |
+| `Tab` / `Shift+Tab` | Next / previous control |
+| `←` `→` | Move the matrix cursor |
+| `↑` / `↓` | Change matrix lane |
+| `Home` / `End` | First / last step |
+| `Enter` | Apply the EDIT mode to the cursor cell (toggles hit with no mode selected) |
+
+The matrix cursor works while the window itself has focus, which is the state at start-up and after
+`Shift+Tab` from the first control. It scrolls into view and its lane, step, hit/rest, velocity and
+probability are read out in the status strip. Shortcuts are ignored while a text field has focus,
+so typing a value never triggers one.
+
 ## Pattern editing
 
 The step matrix is also an editor. Each cell can override the generator's hit, probability,
 accent, ratchet count and gate length. Step-wide microtiming shifts the feel without moving the
 grid, and edits are applied in display space so they survive Rotate, Mirror and Generate.
+
+The `EDIT` chip chooses what a click edits: hit, probability, accent, clear, ratchet,
+microtiming or gate. INVERT, MIRROR, UNDO, REDO and CLR ALL stay on the toolbar, with CLR ALL
+set apart so it is not hit by accident.
 
 Navigation supports horizontal and vertical zoom, `FIT`, native scrollbars, wheel-to-scroll and
 Alt+wheel horizontal panning. A lane-label column follows the vertical scroll, and follow mode
@@ -100,10 +126,10 @@ from the pointer.
 
 ## Modulation and randomization
 
-Four LFOs sit in a 2×2 rack below the matrix. Each has a waveform, Hz or beat-synced speed,
-depth (0–200%), phase, polarity and an enable toggle. Drag an LFO point onto any numeric
-parameter to create a link; linked controls show a depth band and a second animated value bar.
-The modulation matrix lists every link and removes them with a per-row ×.
+Four LFOs are still computed: each has a waveform, Hz or beat-synced speed, depth (0–200%),
+phase, polarity and an enable toggle, and links persist with the project. The 2×2 rack and the
+modulation matrix are hidden for now while that UI is reworked, so links can be read from a
+project but not created or edited in the plug-in. Existing links keep modulating.
 
 Randomize draws from mode-aware palettes instead of uniform noise, so lengths, pulse counts,
 density, probability and velocity land on musically useful values. The scope mask has one bit per
@@ -185,6 +211,9 @@ Sessions created with the old `com.ndrum.ndrum` / `nDrum` IDs must replace the p
 - No macOS bundle is produced or tested. CI compiles and tests the library on macOS, but no
   plug-in has been built or loaded there.
 - Fixed UI size (860×768), with no separate scaling preference.
+- Screen readers are a decided gap for this release: the controls declare roles and labels, but the
+  vendored Slint backend produces no accessibility tree. Keyboard operation and visible focus are
+  complete; see `docs/ACCESSIBILITY.md`.
 - MIDI export writes one loop and uses the plug-in process working directory, not the DAW
   project path.
 - Microtiming is step-wide and only positive delays are scheduled. Ratchets are capped at four.
@@ -218,6 +247,7 @@ vendor/               vendored Slint/baseview adapter
 | [`docs/REFERENCE_MAPPING.md`](docs/REFERENCE_MAPPING.md) | Where every mode and view came from |
 | [`docs/MODE_EXAMPLES.md`](docs/MODE_EXAMPLES.md) | A starting point for every mode |
 | [`docs/LFO_SYSTEM.md`](docs/LFO_SYSTEM.md) | LFO clocks, targets, links and persistence |
+| [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md) | Keyboard operation and the screen-reader gap |
 | [`docs/EDIT_OVERLAY.md`](docs/EDIT_OVERLAY.md) | Per-step edit overlay semantics |
 | [`docs/HOST_VERIFICATION.md`](docs/HOST_VERIFICATION.md) | What has actually been tested |
 | [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) | Release and host smoke-test checklist |

@@ -3,9 +3,8 @@ use super::{set_hit, GenParams, Pattern, Rng, TRACKS};
 pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut out = Pattern { steps: p.steps, ..Pattern::default() };
     let n = p.steps.max(1);
-    // modulus from ca_rule, clamped to a sane range
+    // ca_rule selects the Vuza modulus.
     let modulus = (p.ca_rule as usize).clamp(8, 32);
-    let prob = p.probability.clamp(0.0, 1.0);
     let density = p.density.clamp(0.0, 1.0);
     // Build a seeded subset A of Z_modulus (the canon's "attack" set).
     let mut a_set = [false; 64];
@@ -20,7 +19,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         }
         candidate += 1;
     }
-    // Ensure at least one
+    // Keep the attack set non-empty.
     if placed == 0 { a_set[0] = true; }
     // The Vuza modulus is the canon's translation period.
     let period = modulus.min(n) as u16;
@@ -30,7 +29,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let lane_shift = tr * (modulus / TRACKS.max(1)).max(1);
         for i in 0..n {
             let residue = (i + lane_shift) % modulus;
-            let hit = a_set[residue] && rng.unit() < prob;
+            let hit = a_set[residue];
             let accent = if hit { 0.6 + 0.4 * rng.unit() as f32 } else { 0.0 };
             set_hit(&mut out, tr, i, hit, accent);
         }

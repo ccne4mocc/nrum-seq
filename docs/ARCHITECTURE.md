@@ -117,6 +117,9 @@ The default palette is **Lava**; fresh projects and fresh global settings open t
 - `Pattern.pebbles` stores normalized 0–255 `[x, y]` pairs per lane per step, not panel units; `view::build` maps them into the box. `Pattern.impact` stores which wall (left/right/top/bottom) the hit struck, because a frame records the end of the step after the bounce; the panel snaps hit nodes and flashes that wall. The Slint panel tweens node `x`/`y` for 120 ms, so Pebble Box pushes its eight nodes first and in lane order; other panels' nodes never move, so the tween is invisible there.
 - The panel has three path slots (`edges`, `lines`, `hand`) and single-colour nodes, so a drawing that needs per-lane colour would require changing `ViewNode` and the Slint panel. Views stay within the existing slots until that is worth doing.
 
+- Matrix cost is dominated by Slint layout and paint, not the Rust model. At 1024 steps `track_rows` builds in ~1.2 ms, while a debug-build software-renderer frame costs ~232 ms layout+first paint and ~105 ms repaint at 860x768. Meter lines are drawn once per row: drawing them per cell as well doubled the hottest repeater (329 ms before the duplication was removed). Virtualising off-screen columns is the remaining lever if 1024-step editing feels slow in a host.
+- Reduced motion is a user-global preference (`reduce_motion` in `settings.json`), not project state, and is not a host parameter. It zeroes the panel node tweens, the register flash and the settings/matrix slides; `ModePanel` takes the flag as a property so the component keeps no global state.
+
 ## Extension points
 
 The per-step edit overlay covers probability, accent, ratchets and microtiming without growing `Pattern`. Future per-lane microtiming needs a scheduler with lookahead for early events; per-lane lengths still need a pattern-contract change rather than a scheduler tweak.

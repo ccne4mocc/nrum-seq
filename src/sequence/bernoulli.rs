@@ -5,7 +5,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     let n = p.steps.max(1);
     for tr in 0..TRACKS {
         let mut rng = Rng::new(p.seed, p.variation, 0xBE30_0000 + tr as u64);
-        let prob = (p.density.clamp(0.0, 1.0) * p.probability.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+        let prob = p.density.clamp(0.0, 1.0);
         for i in 0..n {
             let draw = rng.unit();
             let mut hit = draw < prob;

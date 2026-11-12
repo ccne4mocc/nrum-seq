@@ -7,7 +7,6 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
     let mut alpha = 0.3 + 0.4 * p.phase.clamp(0.0, 1.0) as f64;
     if alpha < 0.05 { alpha = 0.05; }
     if alpha > 0.95 { alpha = 0.95; }
-    let prob = p.probability.clamp(0.0, 1.0);
     for tr in 0..TRACKS {
         let mut rng = Rng::new(p.seed, p.variation, 0x57_00_00_00 + tr as u64);
         let phase_off = (tr as f64) * 0.125;
@@ -16,9 +15,9 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         for i in 0..n {
             let cur = ((i as f64 + 1.0 + phase_off) * alpha).floor() as i64;
             let mut hit = if n == 1 {
-                rng.unit() < p.density.clamp(0.0, 1.0) * prob
+                rng.unit() < p.density.clamp(0.0, 1.0)
             } else {
-                (cur != prev || i == 0) && rng.unit() < p.density.clamp(0.0, 1.0) * prob
+                (cur != prev || i == 0) && rng.unit() < p.density.clamp(0.0, 1.0)
             };
             if hit && tr > 0 && (0..tr).all(|k| out.hit[k][i]) { hit = false; }
             if hit { any = true; }
@@ -26,7 +25,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
             let accent = if hit { 0.6 + 0.4 * rng.unit() as f32 } else { 0.0 };
             set_hit(&mut out, tr, i, hit, accent);
         }
-        if !any && prob > 0.0 {
+        if !any && p.density.clamp(0.0, 1.0) > 0.0 {
             set_hit(&mut out, tr, 0, true, 0.8);
         }
     }

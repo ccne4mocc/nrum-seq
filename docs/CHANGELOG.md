@@ -11,6 +11,28 @@
 - The matrix draws exact meter lines derived from the pattern; MIDI export writes the implied
   time signature when one exists.
 - The RANDOMIZE Clock scope bit is retired because timing no longer has a randomizable parameter.
+- The LFO rack and modulation matrix are hidden pending a rework of that UI. The LFO parameters,
+  links and audio path are unchanged, and existing project links keep modulating.
+- `probability` is applied exactly once, in the shared post-generation pass. Bernoulli, African
+  Bell, Phase Canon, Reaction-Diffusion, Lorenz, Cantor, Genetic, Sturmian and Vuza no longer
+  multiply by it internally, so `probability = 0.5` retains half the hits in every mode instead of
+  a quarter. Their accent draw order changed with the removed rolls.
+- Sketch and Lava palette values were corrected so composed text pairs pass WCAG AA: Sketch's
+  first and third accents and its muted text are darker, Lava's third accent is lighter. A unit
+  test now checks the pairs the UI actually composes.
+- The UI is operable by keyboard: Tab and Shift+Tab move focus, the focused control draws a ring,
+  and Space or Enter activates it. `G`, `R`, `S` and `Esc` are window shortcuts, ignored while a
+  text field has focus.
+- Max steps now edits through a draft and commits on Enter, blur or the +/- buttons instead of
+  clamping on every keystroke.
+- Screen readers remain unsupported because the vendored backend exposes no accessibility tree;
+  see `docs/ACCESSIBILITY.md`.
+- Type sizes lost their 7-8px floor: dense labels are now 9px and buttons, headers and settings
+  copy 10px. Every toolbar, settings and numeric control is at least 24x24.
+- The twelve edit-mode chips are now one `EDIT` chip opening a 2x4 mode grid, so the toolbar fits
+  the larger targets and the matrix gains height.
+- A focused control shows its hint in the status strip, so the instructions no longer require a
+  mouse.
 
 ## 1.0.1 — Documentation release
 
@@ -178,3 +200,20 @@ provenance.
 - Arnold, Ulam, Fibonacci, Hilbert and L-system patterns will sound different. Existing presets
   keep their host parameter values and mode indices; no migration is required.
 - Mode names are pushed from Rust, so the UI no longer carries a second name list.
+- The README demo GIF is regenerated from the real UI: an ignored test renders the window
+  headlessly frame by frame. See `docs/README.md` for the command.
+- GENERATE is the only accent-filled action in the header; RANDOMIZE is a secondary button. CLR
+  ALL stays immediate because it is covered by the edit undo history.
+- The shared control set (`TipTouch`, `HoverTip`, `FocusRing`, the modulation globals and their
+  view structs) now lives in `ui/shared.slint`, with a pinned hash so the two products cannot
+  drift silently.
+- Matrix meter lines are drawn once per row instead of twice; the duplicated per-cell separators are
+  gone. At 1024 steps that cuts a debug software-render frame from ~329 ms to ~232 ms layout+paint.
+- Reduced motion is a new user-global setting. It stops the panel node tweens, the register flash
+  and the settings/matrix slides.
+- The matrix has a keyboard cursor: arrows move it, Home/End jump to the ends, and Enter applies
+  the active edit mode (hit when none is selected). The cursor scrolls into view and its lane,
+  step, velocity and probability are read out in the status strip.
+- Controls declare accessibility roles and labels (button, slider, spinbox, with values and
+  increment/decrement actions) so a future backend tree is correct from day one. Screen readers
+  remain a decided gap; see `docs/ACCESSIBILITY.md`.

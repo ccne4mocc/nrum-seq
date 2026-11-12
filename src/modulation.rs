@@ -191,7 +191,6 @@ pub fn lfo_phase(spec: LfoSpec, clock: LfoClock) -> f32 {
     (cycles + offset).rem_euclid(1.0) as f32
 }
 
-/// One LFO sample. Bipolar spans `-depth..=depth`; unipolar spans `0..=depth`.
 /// One LFO sample. Bipolar spans `-depth..=depth`, unipolar `0..=depth`, unipolar negative
 /// `-depth..=0`. `depth` is a share of the target range, so 1.0 is a full sweep.
 pub fn lfo_signal(spec: LfoSpec, clock: LfoClock) -> f32 {

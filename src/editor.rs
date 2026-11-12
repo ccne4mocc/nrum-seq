@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 slint::include_modules!();
+const LANE_NAMES: [&str; TRACKS] = ["KICK", "SNARE", "CLOSED HAT", "OPEN HAT", "CLAP", "RIM", "LOW TOM", "PERC"];
 const WIDTH: u32 = 860;
 const HEIGHT: u32 = 768;
 
@@ -94,6 +95,8 @@ fn global_settings(
         theme: Some(p.theme.value().to_index()),
         scale: if scale > 0.0 { Some(scale) } else { None },
         midi_dir: midi_dir.lock().ok().map(|d| d.clone()).filter(|d| !d.trim().is_empty()),
+        // Rounded out from disk so a theme change cannot reset the motion preference.
+        reduce_motion: globals::load().reduce_motion,
     }
 }
 struct SlintEditorHandle {
@@ -264,7 +267,6 @@ fn apply_mode(c: &Arc<dyn GuiContext>, p: &DrumParams, index: i32) {
         _ => 5,
     };
     if p.pulses.value() == 0 { set(c, &p.pulses, default_pulses.min(max_pulses)); }
-    // Mode-specific default density/phase.
     let default_density = match mode {
         Mode::Bernoulli | Mode::Cantor => 0.3,
         Mode::Logistic | Mode::ReactionDiffusion => 0.7,
@@ -590,6 +592,59 @@ fn open_folder(path: &Path) {
     let _ = std::process::Command::new(opener).arg(path).spawn();
 }
 
+/// Build the matrix model for the current pattern and playhead. Kept separate from the update
+/// closure so layout fixtures and screenshot tests can render a real matrix.
+fn track_rows(
+    p: &DrumParams,
+    pattern: &Pattern,
+    gen_key: &GenParams,
+    display_span: usize,
+    display_step: i32,
+    cur_steps: &[i32; TRACKS],
+    loop_view: bool,
+) -> Vec<TrackRow> {
+    let mut rows = Vec::with_capacity(TRACKS);
+    for tr in 0..TRACKS {
+        let enabled = p.track_enabled(tr);
+        let cells = (0..display_span).map(|i| {
+            let source = display_source_step(pattern, tr, i, display_span);
+            let hit_override = p.edit_overlay.hit(tr, source);
+            let probability_override = p.edit_overlay.probability(tr, source);
+            let edited = hit_override != 0
+                || p.edit_overlay.accent(tr, source) != 0
+                || probability_override != 255
+                || p.edit_overlay.ratchet(tr, source) != 1
+                || p.edit_overlay.offset(tr, source) != 0
+                || p.edit_overlay.length(tr, source) != 0;
+            StepCell {
+                track: tr as i32,
+                step: i as i32,
+                hit: enabled && pattern.hit[tr][source],
+                playing: if loop_view { display_step == i as i32 } else { cur_steps[tr] == i as i32 },
+                velocity: (p.track_velocity(tr) * gen_key.velocity * pattern.accent[tr][source]).clamp(0.0, 1.0),
+                probability: if probability_override == 255 {
+                    gen_key.probability
+                } else {
+                    probability_override as f32 / 254.0
+                },
+                hit_override: hit_override as i32,
+                edited,
+                ratchet: p.edit_overlay.ratchet(tr, source) as i32,
+                offset: p.edit_overlay.offset(0, source).max(0) as i32,
+                length: p.edit_overlay.length_at(tr, source).unwrap_or(p.gate.value()),
+            }
+        }).collect::<Vec<_>>();
+        rows.push(TrackRow {
+            index: tr as i32,
+            name: SharedString::from(LANE_NAMES[tr]),
+            enabled,
+            note: p.track_note(tr) as i32,
+            cells: ModelRc::new(VecModel::from(cells)),
+        });
+    }
+    rows
+}
+
 fn push_view(ui: &AppWindow, v: &View) {
     // Update rows in place when the count is unchanged: replacing the model resets the repeater
     // and breaks Pebble Box's `animate x, y`.
@@ -621,6 +676,7 @@ impl Editor for SlintEditor {
         self.shared.text_focus.store(false, Relaxed);
         if let Ok(mut queue) = self.shared.key_queue.lock() { queue.clear(); }
         let scale = stored.scale.filter(|s| *s > 0.0).unwrap_or_else(|| f32::from_bits(self.scale.load(Relaxed)));
+        let reduce_motion = stored.reduce_motion.unwrap_or(false);
         // No host API for the project path; default to the working directory, which the user can edit.
         let midi_dir = Arc::new(Mutex::new(
             stored
@@ -663,6 +719,7 @@ impl Editor for SlintEditor {
         // `spawn` returns before closures run and they must be `'static`, so clone shared state here.
         let setup = move |h: &slint_baseview::SlintWindowHandler<AppWindow>, _w: &mut slint_baseview::Window| {
             let ui = h.component();
+            ui.set_reduce_motion(reduce_motion);
             let folder = setup_midi_dir.lock().map(|d| d.clone()).unwrap_or_default();
             ui.set_midi_folder(SharedString::from(folder.as_str()));
             {
@@ -916,6 +973,18 @@ impl Editor for SlintEditor {
                 ui.on_toggle_logging(move || set(&c, &p.logging, !p.logging.value()));
             }
             {
+                // User-global, not project state: persist next to the theme and window scale.
+                let weak = ui.as_weak();
+                ui.on_toggle_reduce_motion(move || {
+                    let Some(ui) = weak.upgrade() else { return };
+                    let next = !ui.get_reduce_motion();
+                    ui.set_reduce_motion(next);
+                    let mut settings = globals::load();
+                    settings.reduce_motion = Some(next);
+                    globals::save(&settings);
+                });
+            }
+            {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_generate_pressed(move || set(&c, &p.generate, !p.generate.value()));
             }
@@ -1065,6 +1134,7 @@ impl Editor for SlintEditor {
                 palette.set_surface(rgb(colors[7])); palette.set_control(rgb(colors[8])); palette.set_control_hover(rgb(colors[9]));
                 palette.set_text(rgb(colors[10])); palette.set_text_muted(rgb(colors[11])); palette.set_border(rgb(colors[12]));
                 palette.set_cell_off(rgb(colors[13])); palette.set_on_accent(rgb(colors[14]));
+                ui.global::<FocusRing>().set_color(rgb(colors[3]));
                 palette.set_lanes(ModelRc::new(VecModel::from(
                     selected_theme.lanes().iter().map(|c| rgb(*c)).collect::<Vec<_>>(),
                 )));
@@ -1249,51 +1319,8 @@ impl Editor for SlintEditor {
             if c.view_key != Some(view_key) {
                 let v = view::build(&gen_key, &c.pattern, cur);
                 push_view(&ui, &v);
-                const LANE_NAMES: [&str; TRACKS] = ["KICK", "SNARE", "CLOSED HAT", "OPEN HAT", "CLAP", "RIM", "LOW TOM", "PERC"];
-                let mut rows = Vec::with_capacity(TRACKS);
-                for tr in 0..TRACKS {
-                    let enabled = p.track_enabled(tr);
-                    let cells = (0..display_span).map(|i| {
-                        let source = display_source_step(&c.pattern, tr, i, display_span);
-                        let hit_override = p.edit_overlay.hit(tr, source);
-                        let probability_override = p.edit_overlay.probability(tr, source);
-                        let edited = hit_override != 0
-                            || p.edit_overlay.accent(tr, source) != 0
-                            || probability_override != 255
-                            || p.edit_overlay.ratchet(tr, source) != 1
-                            || p.edit_overlay.offset(tr, source) != 0
-                            || p.edit_overlay.length(tr, source) != 0;
-                        StepCell {
-                            track: tr as i32,
-                            step: i as i32,
-                            hit: enabled && c.pattern.hit[tr][source],
-                            playing: if loop_view {
-                                display_step == i as i32
-                            } else {
-                                cur_steps[tr] == i as i32
-                            },
-                            velocity: (p.track_velocity(tr) * gen_key.velocity * c.pattern.accent[tr][source]).clamp(0.0, 1.0),
-                            probability: if probability_override == 255 {
-                                gen_key.probability
-                            } else {
-                                probability_override as f32 / 254.0
-                            },
-                            hit_override: hit_override as i32,
-                            edited,
-                            ratchet: p.edit_overlay.ratchet(tr, source) as i32,
-                            offset: p.edit_overlay.offset(0, source).max(0) as i32,
-                            length: p.edit_overlay.length_at(tr, source).unwrap_or(p.gate.value()),
-                        }
-                    }).collect::<Vec<_>>();
-                    rows.push(TrackRow {
-                        index: tr as i32,
-                        name: SharedString::from(LANE_NAMES[tr]),
-                        enabled,
-                        note: p.track_note(tr) as i32,
-                        cells: ModelRc::new(VecModel::from(cells)),
-                    });
-                }
-                ui.set_tracks(ModelRc::new(VecModel::from(rows)));
+                                let rows = track_rows(p, &c.pattern, &gen_key, display_span, display_step, &cur_steps, loop_view);
+ui.set_tracks(ModelRc::new(VecModel::from(rows)));
                 c.view_key = Some(view_key);
             }
         };
@@ -1483,5 +1510,250 @@ mod tests {
         assert!(up >= 1.0 && down == 0.0, "unipolar {up}/{down}");
         let (up, down) = band(LfoPolarity::UnipolarNegative);
         assert!(up == 0.0 && down >= 1.0, "unipolar negative {up}/{down}");
+    }
+
+    #[test]
+    fn appwindow_maps_keyboard_shortcuts_and_tab_focus() {
+        use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
+        use slint::platform::{Platform, WindowAdapter};
+        use std::rc::Rc;
+        use std::time::{Duration, Instant};
+
+        struct TestPlatform { window: Rc<MinimalSoftwareWindow>, start: Instant }
+        impl Platform for TestPlatform {
+            fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
+                Ok(self.window.clone())
+            }
+            fn duration_since_start(&self) -> Duration { self.start.elapsed() }
+        }
+
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+        slint::platform::set_platform(Box::new(TestPlatform {
+            window: window.clone(),
+            start: Instant::now(),
+        }))
+        .unwrap();
+        window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+        let ui = AppWindow::new().unwrap();
+        let randomizes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = randomizes.clone();
+        ui.on_randomize_pressed(move || {
+            counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        });
+        ui.show().unwrap();
+        let mut buffer = vec![slint::Rgb8Pixel::new(0, 0, 0); (WIDTH * HEIGHT) as usize];
+        slint::platform::update_timers_and_animations();
+        window.draw_if_needed(|renderer| { renderer.render(&mut buffer, WIDTH as usize); });
+
+        let press = |text: slint::SharedString| {
+            window
+                .try_dispatch_event(slint::platform::WindowEvent::KeyPressed { text })
+                .unwrap();
+        };
+        // Matrix cursor: arrows move it while the window scope owns focus, Enter applies the
+        // active edit mode. The fixture needs a populated matrix first.
+        {
+            use nice_plug::params::InternalParamMut;
+            let p = DrumParams::default();
+            unsafe {
+                p.steps._internal_set_plain_value(16.0);
+                p.pulses._internal_set_plain_value(5);
+                p.density._internal_set_plain_value(0.65);
+            }
+            let gen_key = p.gen_params_at(LfoClock::default());
+            let pattern = crate::sequence::generate(&gen_key);
+            let rows = track_rows(&p, &pattern, &gen_key, 16, 0, &[0; TRACKS], false);
+            ui.set_tracks(ModelRc::new(VecModel::from(rows)));
+            let edits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let counted = edits.clone();
+            ui.on_edit_step(move |_, _, _| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            });
+            press(slint::platform::Key::RightArrow.into());
+            press(slint::platform::Key::RightArrow.into());
+            press(slint::platform::Key::DownArrow.into());
+            assert_eq!(ui.get_cursor_step(), 2, "right arrows did not move the matrix cursor");
+            assert_eq!(ui.get_cursor_lane(), 1, "down arrow did not move the matrix lane");
+            press(slint::platform::Key::Return.into());
+            assert_eq!(
+                edits.load(std::sync::atomic::Ordering::Relaxed),
+                1,
+                "Enter did not apply the edit mode to the cursor cell"
+            );
+        }
+
+        // A shortcut fires with nothing focused, and again after Tab moves focus into a control,
+        // whose key handler rejects it so it bubbles to the enclosing focus scope.
+        press("r".into());
+        press(slint::platform::Key::Tab.into());
+        assert!(
+            !ui.global::<HoverTip>().get_text().is_empty(),
+            "focus did not surface the focused control's hint in the status strip"
+        );
+        press("r".into());
+        assert_eq!(
+            randomizes.load(std::sync::atomic::Ordering::Relaxed),
+            2,
+            "the r shortcut did not survive Tab moving focus into a control"
+        );
+
+        press("s".into());
+        assert!(ui.get_settings_open(), "s did not open settings");
+        press(slint::platform::Key::Escape.into());
+        assert!(!ui.get_settings_open(), "Escape did not close settings");
+    }
+
+    /// Render one cycle of the matrix to PPM frames so the README GIF can be regenerated.
+    /// `cargo test --lib write_ui_frames -- --ignored`, then `magick -delay 6 -loop 0 *.ppm out.gif`.
+    #[test]
+    #[ignore = "writes an animation frame sequence"]
+    fn write_ui_frames() {
+        use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
+        use slint::platform::{Platform, WindowAdapter};
+        use std::io::Write as _;
+        use std::rc::Rc;
+        use std::time::{Duration, Instant};
+
+        struct TestPlatform { window: Rc<MinimalSoftwareWindow>, start: Instant }
+        impl Platform for TestPlatform {
+            fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
+                Ok(self.window.clone())
+            }
+            fn duration_since_start(&self) -> Duration { self.start.elapsed() }
+        }
+
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+        slint::platform::set_platform(Box::new(TestPlatform { window: window.clone(), start: Instant::now() })).unwrap();
+        window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+        let ui = AppWindow::new().unwrap();
+
+        use nice_plug::params::InternalParamMut;
+        let p = DrumParams::default();
+        unsafe {
+            p.steps._internal_set_plain_value(16.0);
+            p.pulses._internal_set_plain_value(5);
+            p.density._internal_set_plain_value(0.65);
+            p.velocity._internal_set_plain_value(0.85);
+        }
+        let gen_key = p.gen_params_at(LfoClock::default());
+        let pattern = crate::sequence::generate(&gen_key);
+        let steps = 16usize;
+
+        ui.set_mode(p.mode.value() as i32);
+        ui.set_mode_names(ModelRc::new(VecModel::from(
+            Mode::variants().iter().map(|n| SharedString::from(*n)).collect::<Vec<_>>(),
+        )));
+        ui.set_preset_names(ModelRc::new(VecModel::from(
+            PRESETS.iter().map(|preset| SharedString::from(preset.name)).collect::<Vec<_>>(),
+        )));
+        ui.set_version(SharedString::from(env!("CARGO_PKG_VERSION")));
+        let colors = p.theme.value().colors();
+        let palette = ui.global::<Theme>();
+        palette.set_c1(rgb(colors[0])); palette.set_c2(rgb(colors[1])); palette.set_c3(rgb(colors[2]));
+        palette.set_hi(rgb(colors[3])); palette.set_bg1(rgb(colors[4])); palette.set_bg2(rgb(colors[5])); palette.set_bg3(rgb(colors[6]));
+        palette.set_surface(rgb(colors[7])); palette.set_control(rgb(colors[8])); palette.set_control_hover(rgb(colors[9]));
+        palette.set_text(rgb(colors[10])); palette.set_text_muted(rgb(colors[11])); palette.set_border(rgb(colors[12]));
+        palette.set_cell_off(rgb(colors[13])); palette.set_on_accent(rgb(colors[14]));
+        ui.global::<FocusRing>().set_color(rgb(colors[3]));
+        ui.set_theme_index(p.theme.value().to_index() as i32);
+        ui.set_steps(steps as f32);
+        ui.set_pulses(p.pulses.value() as f32);
+        ui.set_density(p.density.value());
+        ui.set_probability(p.probability.value());
+        ui.set_velocity(p.velocity.value());
+        ui.set_gate(p.gate.value());
+        ui.set_seed(p.seed.value());
+        ui.set_steps_per_beat(4.0);
+        ui.set_steps_per_bar(16.0);
+        ui.set_timing_summary("4/4".into());
+        ui.set_mode_math(SharedString::from(crate::help::math(&gen_key)));
+        ui.show().unwrap();
+
+        let dir = std::env::temp_dir().join("nrum-seq-frames");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut buffer = vec![slint::Rgb8Pixel::new(0, 0, 0); (WIDTH * HEIGHT) as usize];
+        let frame_count = steps;
+        for frame in 0..frame_count {
+            let cur = (frame % steps) as i32;
+            let cur_steps = [cur; TRACKS];
+            let view = view::build(&gen_key, &pattern, cur);
+            push_view(&ui, &view);
+            let rows = track_rows(&p, &pattern, &gen_key, steps, cur, &cur_steps, false);
+            ui.set_tracks(ModelRc::new(VecModel::from(rows)));
+            ui.set_current_step(cur);
+            slint::platform::update_timers_and_animations();
+            window.draw_if_needed(|renderer| { renderer.render(&mut buffer, WIDTH as usize); });
+            let path = dir.join(format!("frame-{frame:03}.ppm"));
+            let mut out = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+            write!(out, "P6\n{WIDTH} {HEIGHT}\n255\n").unwrap();
+            for p in &buffer { out.write_all(&[p.r, p.g, p.b]).unwrap(); }
+        }
+        println!("wrote {} frames to {}", frame_count, dir.display());
+    }
+
+    /// Measure matrix model + first-layout cost at increasing step counts. Ignored: this is a
+    /// developer probe, not an assertion.
+    #[test]
+    #[ignore = "prints matrix timing"]
+    fn measure_matrix_cost() {
+        use nice_plug::params::InternalParamMut;
+        use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
+        use slint::platform::{Platform, WindowAdapter};
+        use std::rc::Rc;
+        use std::time::{Duration, Instant};
+
+        struct TestPlatform { window: Rc<MinimalSoftwareWindow>, start: Instant }
+        impl Platform for TestPlatform {
+            fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
+                Ok(self.window.clone())
+            }
+            fn duration_since_start(&self) -> Duration { self.start.elapsed() }
+        }
+
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+        slint::platform::set_platform(Box::new(TestPlatform { window: window.clone(), start: Instant::now() })).unwrap();
+        window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+        let ui = AppWindow::new().unwrap();
+        ui.show().unwrap();
+        let p = DrumParams::default();
+        let mut buffer = vec![slint::Rgb8Pixel::new(0, 0, 0); (WIDTH * HEIGHT) as usize];
+        for steps in [64usize, 256, 512, 1024] {
+            unsafe { p.steps._internal_set_plain_value(steps as f32); }
+            let gen_key = p.gen_params_at(LfoClock::default());
+            let pattern = crate::sequence::generate(&gen_key);
+            let t0 = Instant::now();
+            let rows = track_rows(&p, &pattern, &gen_key, steps, 0, &[0; TRACKS], false);
+            let build = t0.elapsed();
+            ui.set_tracks(ModelRc::new(VecModel::from(rows)));
+            ui.set_steps(steps as f32);
+            ui.set_steps_per_beat(4.0);
+            ui.set_steps_per_bar(16.0);
+            let t1 = Instant::now();
+            slint::platform::update_timers_and_animations();
+            window.draw_if_needed(|renderer| { renderer.render(&mut buffer, WIDTH as usize); });
+            let layout = t1.elapsed();
+            window.request_redraw();
+            let t2 = Instant::now();
+            window.draw_if_needed(|renderer| { renderer.render(&mut buffer, WIDTH as usize); });
+            let paint = t2.elapsed();
+            println!("steps {steps:4}: rows {:8.2?}  layout+first paint {:8.2?}  repaint {:8.2?}", build, layout, paint);
+        }
+    }
+
+    /// `ui/shared.slint` is duplicated verbatim in nrum seq and nelody seq. Editing it must be a
+    /// deliberate act: change it, copy it to the sibling repository, then update both hashes.
+    #[test]
+    fn the_shared_ui_matches_its_pinned_hash() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/ui/shared.slint"))
+            .expect("ui/shared.slint is missing");
+        let mut hash = 0xcbf29ce484222325u64;
+        for byte in text.bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        assert_eq!(
+            hash, 0xeba7569c8fb94ad5,
+            "ui/shared.slint changed: copy it to the sibling repository and update both pins"
+        );
     }
 }

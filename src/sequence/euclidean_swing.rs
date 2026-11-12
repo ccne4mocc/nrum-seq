@@ -3,7 +3,6 @@ use super::{GenParams, Pattern, Rng, TRACKS};
 pub(super) fn generate(p: &GenParams) -> Pattern {
     // Euclidean base plus a per-lane swing feel handled at scheduling time.
     let mut out = super::euclidean::generate(p);
-    // Mark swing accents on off-beats.
     let n = p.steps.max(1);
     for tr in 0..TRACKS {
         let mut rng = Rng::new(p.seed, p.variation, 0x5E10_0000 + tr as u64);

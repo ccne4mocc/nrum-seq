@@ -18,7 +18,7 @@ pub(super) fn generate(p: &GenParams) -> Pattern {
         let depth = 2 + tr.min(3);
         for i in 0..n {
             let x = i as f32 / n as f32;
-            let mut hit = in_cantor(x, depth) && rng.unit() < p.probability.clamp(0.0,1.0)*p.density.clamp(0.0,1.0);
+            let mut hit = in_cantor(x, depth) && rng.unit() < p.density.clamp(0.0,1.0);
             if hit && tr > 0 && (0..tr).all(|k| out.hit[k][i]) { hit = false; }
             let accent = if hit { 0.7 + 0.3*rng.unit() } else { 0.0 };
             set_hit(&mut out, tr, i, hit, accent);

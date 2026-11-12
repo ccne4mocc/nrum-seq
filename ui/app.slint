@@ -1,4 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
+import { FocusRing, HoverTip, ModDrag, ModHover, ModRegistry, ModView, ModTargetView, ModRow, ModeRow, Opt, TipTouch } from "shared.slint";
+export { FocusRing, HoverTip, ModDrag, ModHover, ModRegistry, ModView, ModTargetView, ModRow, ModeRow, Opt } from "shared.slint";
 // nrum seq: algorithm-first MIDI drum sequencer. Rust pushes deterministic pattern and view data.
 export global Theme {
     in-out property <color> c1: #fde047;
@@ -22,92 +24,8 @@ export global Theme {
 
 export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string, lane: int }
 export struct ModeEntry { group: string, index: int, header: bool }
-export struct ModeRow { header: bool, group: string, left: int, right: int, has-right: bool }
 export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float, hit-override: int, edited: bool, ratchet: int, offset: int, length: float }
 export struct TrackRow { index: int, name: string, enabled: bool, note: int, cells: [StepCell] }
-export struct Opt { label: string, min: float, max: float, value: float, text: string, step: float, number: string, scale: float }
-export struct ModRow { lfo: int, target-id: int, source: string, target: string, base: string, value: string, delta: string }
-export struct ModTargetView {
-    target: int,
-    linked: bool,
-    base: float,
-    value: float,
-    min: float,
-    max: float,
-    base01: float,
-    value01: float,
-    depth-up: float,
-    depth-down: float,
-    lfo-text: string,
-    count: int,
-}
-
-export global ModDrag {
-    in-out property <int> lfo: 0;
-    in-out property <length> x: 0px;
-    in-out property <length> y: 0px;
-    callback dropped(float, length, length);
-}
-
-export global ModRegistry {
-    callback register(int, bool, length, length, length, length);
-}
-
-export global HoverTip {
-    in-out property <string> text: "";
-    in-out property <length> x: 0px;
-    in-out property <length> y: 0px;
-    // Position of the control that owns the visible tip, so moving between two controls with
-    // the same hint cannot let the old control clear the new one's tip.
-    in-out property <length> owner-x: 0px;
-    in-out property <length> owner-y: 0px;
-}
-
-/// A TouchArea that publishes its hint while hovered. The tooltip is drawn once at the window
-/// root so it is not clipped by panels or the matrix scroll view.
-component TipTouch inherits TouchArea {
-    in property <string> hint: "";
-    moved => {
-        if (root.has-hover) {
-            HoverTip.text = root.hint;
-            HoverTip.x = root.absolute-position.x + root.mouse-x;
-            HoverTip.y = root.absolute-position.y + root.mouse-y;
-            HoverTip.owner-x = root.absolute-position.x;
-            HoverTip.owner-y = root.absolute-position.y;
-        }
-    }
-    changed has-hover => {
-        if (root.has-hover) {
-            HoverTip.text = root.hint;
-            HoverTip.x = root.absolute-position.x + root.mouse-x;
-            HoverTip.y = root.absolute-position.y + root.mouse-y;
-            HoverTip.owner-x = root.absolute-position.x;
-            HoverTip.owner-y = root.absolute-position.y;
-        } else if (HoverTip.owner-x == root.absolute-position.x && HoverTip.owner-y == root.absolute-position.y) {
-            HoverTip.text = "";
-        }
-    }
-}
-
-export global ModHover {
-    in-out property <int> target: -1;
-    in-out property <length> x: 0px;
-    in-out property <length> y: 0px;
-}
-
-export global ModView {
-    in property <[ModTargetView]> targets;
-    public pure function view(index: int) -> ModTargetView {
-        if (index >= 0 && index < targets.length) {
-            return targets[index];
-        }
-        return {
-            target: -1, linked: false, base: 0, value: 0, min: 0, max: 1,
-            base01: 0, value01: 0, depth-up: 0, depth-down: 0, lfo-text: "", count: 0
-        };
-    }
-}
-
 component Selector inherits Rectangle {
     in property <[string]> options;
     in property <int> current;
@@ -132,7 +50,7 @@ component Selector inherits Rectangle {
                 overflow: elide;
             }
             ta := TipTouch {
-                hint: "Choose this option";
+                hint: "Choose " + root.options[i];
                 clicked => { root.selected(i); }
                 // Enum parameters (rate, waveform, theme) can be stepped with the wheel too.
                 scroll-event(e) => {
@@ -153,9 +71,9 @@ component ScopeChip inherits Rectangle {
     in property <string> label;
     in property <bool> active;
     callback toggled();
-    height: 22px; border-radius: 4px;
+    height: 24px; border-radius: 4px;
     background: root.active ? Theme.c1.with-alpha(0.8) : (ta.has-hover ? Theme.control-hover : Theme.control);
-    Text { text: root.label; color: root.active ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+    Text { text: root.label; color: root.active ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
     ta := TipTouch { hint: "Toggle this RANDOMIZE group"; clicked => { root.toggled(); } }
 }
 
@@ -306,10 +224,56 @@ component OptSlider inherits Rectangle {
         running: !root.hovered && ModHover.target == root.mod-target;
         triggered => { ModHover.target = -1; }
     }
+    // Keyboard entry for the slider: Tab lands here, arrows step the value, Enter types one.
+    // It handles no pointer events, so `ta` still owns dragging.
+    key-scope := FocusScope {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        accessible-role: slider;
+        accessible-label: root.opt.label;
+        accessible-value: root.opt.text;
+        accessible-value-minimum: root.opt.min;
+        accessible-value-maximum: root.opt.max;
+        accessible-value-step: root.opt.step;
+        accessible-action-increment => { root.changed(Math.clamp(root.opt.value + root.opt.step, root.opt.min, root.opt.max)); }
+        accessible-action-decrement => { root.changed(Math.clamp(root.opt.value - root.opt.step, root.opt.min, root.opt.max)); }
+        key-pressed(event) => {
+            if (event.text == Key.LeftArrow || event.text == Key.DownArrow) {
+                root.changed(Math.clamp(root.opt.value - root.opt.step, root.opt.min, root.opt.max));
+                return accept;
+            }
+            if (event.text == Key.RightArrow || event.text == Key.UpArrow) {
+                root.changed(Math.clamp(root.opt.value + root.opt.step, root.opt.min, root.opt.max));
+                return accept;
+            }
+            if (event.text == Key.Return || event.text == Key.Space) {
+                if (!root.edit-open) { root.draft = root.opt.number; root.edit-open = true; }
+                return accept;
+            }
+            reject
+        }
+        Rectangle {
+            visible: key-scope.has-focus;
+            width: parent.width; height: parent.height;
+            border-width: 1px; border-color: Theme.hi; border-radius: 3px;
+            background: transparent;
+        }
+        changed has-focus => {
+            if (key-scope.has-focus && root.hint != "") {
+                HoverTip.text = root.hint;
+                HoverTip.owner-x = root.absolute-position.x;
+                HoverTip.owner-y = root.absolute-position.y;
+            } else if (HoverTip.owner-x == root.absolute-position.x && HoverTip.owner-y == root.absolute-position.y) {
+                HoverTip.text = "";
+            }
+        }
+    }
 }
-// Slint's SpinBox is <int>-only, so this carries fractional values such as 16.5 steps.
+// Slint's SpinBox is <int>-only, so this carries fractional values such as 16.5 steps. Numbers are
+// edited through a draft: Enter, blur or the +/- buttons commit, so typing "512" is not clamped
+// after the first digit.
 component NumBox inherits Rectangle {
     in property <string> label;
+    in property <string> hint: "";
     in property <float> value: 0;
     in property <float> minimum: 0;
     in property <float> maximum: 100;
@@ -322,7 +286,7 @@ component NumBox inherits Rectangle {
     property <bool> mod-hover: root.mod-target >= 0 && ModDrag.lfo > 0
         && ModDrag.x >= root.absolute-position.x && ModDrag.x <= root.absolute-position.x + root.width
         && ModDrag.y >= root.absolute-position.y && ModDrag.y <= root.absolute-position.y + root.height;
-    property <bool> hovered: wheel.has-hover;
+    property <bool> hovered: tap.has-hover;
     property <float> mod-base01: Math.clamp((root.modview.base - root.minimum) / Math.max(root.maximum - root.minimum, 0.0001), 0, 1);
     property <float> mod-value01: Math.clamp((root.modview.value - root.minimum) / Math.max(root.maximum - root.minimum, 0.0001), 0, 1);
     property <float> mod-up01: Math.min(1, root.modview.depth-up * (root.modview.max - root.modview.min) / Math.max(root.maximum - root.minimum, 0.0001));
@@ -339,24 +303,51 @@ component NumBox inherits Rectangle {
     border-radius: 4px;
     background: Theme.control; border-width: 1px; border-color: Theme.border;
     horizontal-stretch: 1;
-    // True while the number field has focus, so Rust can keep host shortcuts out of typing.
-    out property <bool> editing: input.has-focus;
+    // True while the numeric editor is open, so Rust can keep host shortcuts out of typing.
+    out property <bool> editing: root.edit-open;
+    property <bool> edit-open: false;
+    property <bool> focus-pending: false;
+    in-out property <string> draft: "";
 
     function clamp-value(v: float) -> float {
         return Math.clamp(v, root.minimum, root.maximum);
     }
     function nudge(dir: float) {
-        root.changed(root.clamp-value(root.value + dir * root.step));
+        // Use the typed draft as the nudge base while the editor is open.
+        let base = root.draft.is-float() ? root.draft.to-float() : root.value;
+        root.edit-open = false;
+        root.changed(root.clamp-value(base + dir * root.step));
     }
     function format-value(v: float) -> string {
         if (root.decimals <= 0) { return Math.round(v); }
         return Math.round(v * 100) / 100;
     }
+    function begin-edit() {
+        root.draft = root.format-value(root.value);
+        root.edit-open = true;
+        root.focus-pending = true;
+    }
+    function commit-edit() {
+        if (root.edit-open) {
+            if (root.draft.is-float()) { root.changed(root.clamp-value(root.draft.to-float())); }
+            root.edit-open = false;
+        }
+    }
+    changed value => {
+        if (!root.edit-open) { root.draft = root.format-value(root.value); }
+    }
 
     Text {
         x: 6px; width: parent.width - 12px;
         text: root.label;
-        color: Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide;
+        color: Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide;
+    }
+    Text {
+        visible: !root.edit-open;
+        x: 6px; width: parent.width - 54px; height: parent.height;
+        text: root.format-value(root.value);
+        color: Theme.text; font-size: 11px;
+        horizontal-alignment: right; vertical-alignment: center;
     }
     if root.modview.linked: Rectangle {
         x: 1px + (parent.width - 35px) * root.mod-band-low;
@@ -374,45 +365,84 @@ component NumBox inherits Rectangle {
         background: Theme.c3;
     }
     down := Rectangle {
-        x: parent.width - 34px; y: 1px; width: 16px; height: parent.height - 2px;
+        x: parent.width - 48px; y: 1px; width: 24px; height: parent.height - 2px;
         border-radius: 3px; background: down-touch.has-hover ? Theme.control-hover : Theme.control;
         Text { text: "-"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
         down-touch := TipTouch { hint: "Decrease this value"; clicked => { root.nudge(-1); } }
     }
     up := Rectangle {
-        x: parent.width - 17px; y: 1px; width: 16px; height: parent.height - 2px;
+        x: parent.width - 24px; y: 1px; width: 24px; height: parent.height - 2px;
         border-radius: 3px; background: up-touch.has-hover ? Theme.control-hover : Theme.control;
         Text { text: "+"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
         up-touch := TipTouch { hint: "Increase this value"; clicked => { root.nudge(1); } }
     }
-    // Wheel nudges anywhere on the control. Declared before `input` so clicks and typing still
-    // reach the TextInput; with no scroll handler there, the wheel falls through to this area.
-    wheel := TouchArea {
-        // Keep the wheel area off the buttons; a full-width TouchArea here would swallow clicks.
-        x: 0px; y: 0px; width: parent.width - 34px; height: parent.height;
+    // Click the value to type; wheel outside the buttons to nudge. +/- stay clickable.
+    tap := TouchArea {
+        x: 0px; y: 0px; width: parent.width - 48px; height: parent.height;
+        clicked => { if (!root.edit-open) { root.begin-edit(); } }
+        moved => {
+            if (root.hint != "") {
+                HoverTip.text = root.hint;
+                HoverTip.x = root.absolute-position.x + tap.mouse-x;
+                HoverTip.y = root.absolute-position.y + tap.mouse-y;
+                HoverTip.owner-x = root.absolute-position.x;
+                HoverTip.owner-y = root.absolute-position.y;
+            }
+        }
+        changed has-hover => {
+            if (tap.has-hover) {
+                HoverTip.text = root.hint;
+                HoverTip.x = root.absolute-position.x + tap.mouse-x;
+                HoverTip.y = root.absolute-position.y + tap.mouse-y;
+                HoverTip.owner-x = root.absolute-position.x;
+                HoverTip.owner-y = root.absolute-position.y;
+            } else if (HoverTip.owner-x == root.absolute-position.x && HoverTip.owner-y == root.absolute-position.y) {
+                HoverTip.text = "";
+            }
+        }
         scroll-event(e) => {
-            if (e.delta-y != 0px) {
+            if (!root.edit-open && e.delta-y != 0px) {
                 root.nudge(e.delta-y > 0px ? 1 : -1);
                 return accept;
             }
             return reject;
         }
     }
-    input := TextInput {
-        x: 6px; width: parent.width - 42px; height: parent.height;
-        color: Theme.text; font-size: 11px;
-        horizontal-alignment: right; vertical-alignment: center;
-        text: root.format-value(root.value);
-        // Only accept complete numbers; a lone "-" or "1." must not be committed.
-        edited => {
-            if (self.text.is-float()) { root.changed(root.clamp-value(self.text.to-float())); }
-            else { self.text = root.format-value(root.value); }
+    editor := Rectangle {
+        visible: root.edit-open;
+        x: 1px; y: 1px; width: parent.width - 49px; height: parent.height - 2px;
+        border-radius: 3px; background: Theme.surface; border-width: 1px; border-color: Theme.c2;
+        entry := TextInput {
+            x: 5px; y: 0px; width: parent.width - 10px; height: parent.height;
+            text: root.draft;
+            color: Theme.text; font-size: 11px;
+            horizontal-alignment: right; vertical-alignment: center;
+            edited => { root.draft = self.text; }
+            accepted => { root.commit-edit(); }
+            changed has-focus => {
+                if (!self.has-focus && root.edit-open) { root.commit-edit(); }
+            }
+            key-pressed(event) => {
+                if (event.text == Key.UpArrow) {
+                    if (root.draft.is-float()) { root.draft = root.format-value(root.clamp-value(root.draft.to-float() + root.step)); }
+                    return accept;
+                }
+                if (event.text == Key.DownArrow) {
+                    if (root.draft.is-float()) { root.draft = root.format-value(root.clamp-value(root.draft.to-float() - root.step)); }
+                    return accept;
+                }
+                if (event.text == Key.Escape) { root.edit-open = false; return accept; }
+                return reject;
+            }
         }
-        accepted => { self.text = root.format-value(root.value); }
-        key-pressed(event) => {
-            if (event.text == Key.UpArrow) { root.nudge(1); return accept; }
-            if (event.text == Key.DownArrow) { root.nudge(-1); return accept; }
-            return reject;
+    }
+    Timer {
+        interval: 1ms;
+        running: root.focus-pending && root.edit-open;
+        triggered => {
+            root.focus-pending = false;
+            entry.focus();
+            entry.select-all();
         }
     }
     if root.mod-hover: Rectangle {
@@ -420,6 +450,7 @@ component NumBox inherits Rectangle {
         border-radius: 4px; border-width: 2px; border-color: Theme.c2;
         background: transparent;
     }
+    // Timer-driven registration avoids a Slint 1.16 property-recursion panic.
     Timer {
         interval: 30ms;
         running: root.mod-target >= 0 && !root.mod-registered;
@@ -432,7 +463,7 @@ component NumBox inherits Rectangle {
     }
     Timer {
         interval: 40ms;
-        running: root.hovered && root.mod-target >= 0 && !input.has-focus;
+        running: root.hovered && root.mod-target >= 0 && !root.edit-open;
         triggered => {
             ModHover.target = root.mod-target;
             ModHover.x = root.absolute-position.x;
@@ -443,6 +474,42 @@ component NumBox inherits Rectangle {
         interval: 40ms;
         running: !root.hovered && ModHover.target == root.mod-target;
         triggered => { ModHover.target = -1; }
+    }
+    // Keyboard entry: Tab lands on the value, Enter opens the draft editor, arrows step it.
+    num-scope := FocusScope {
+        x: 0px; y: 0px; width: parent.width - 48px; height: parent.height;
+        accessible-role: spinbox;
+        accessible-label: root.label;
+        accessible-value: root.format-value(root.value);
+        accessible-value-minimum: root.minimum;
+        accessible-value-maximum: root.maximum;
+        accessible-value-step: root.step;
+        accessible-action-increment => { root.nudge(1); }
+        accessible-action-decrement => { root.nudge(-1); }
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == Key.Space) {
+                if (!root.edit-open) { root.begin-edit(); }
+                return accept;
+            }
+            if (event.text == Key.UpArrow || event.text == Key.RightArrow) { root.nudge(1); return accept; }
+            if (event.text == Key.DownArrow || event.text == Key.LeftArrow) { root.nudge(-1); return accept; }
+            reject
+        }
+        Rectangle {
+            visible: num-scope.has-focus;
+            width: parent.width; height: parent.height;
+            border-width: 1px; border-color: Theme.hi; border-radius: 3px;
+            background: transparent;
+        }
+        changed has-focus => {
+            if (num-scope.has-focus && root.hint != "") {
+                HoverTip.text = root.hint;
+                HoverTip.owner-x = root.absolute-position.x;
+                HoverTip.owner-y = root.absolute-position.y;
+            } else if (HoverTip.owner-x == root.absolute-position.x && HoverTip.owner-y == root.absolute-position.y) {
+                HoverTip.text = "";
+            }
+        }
     }
 }
 
@@ -615,6 +682,8 @@ component LfoCell inherits Rectangle {
 }
 
 component ModePanel inherits Rectangle {
+    // Suppress the position tweens when the user asks for reduced motion.
+    in property <bool> reduce-motion: false;
     in property <[ViewNode]> nodes;
     in property <string> edges: "M0 0";
     in property <string> lines: "M0 0";
@@ -630,7 +699,7 @@ component ModePanel inherits Rectangle {
     Path { x: root.draw-offset-x; y: 0px; width: 300px; height: 300px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 210; viewbox-height: 210; commands: root.hand; fill: transparent; stroke: Theme.hi; stroke-width: 2px; }
     for n in root.nodes: Rectangle {
         // Pebble-box positions change every step; static panels never show the tween.
-        animate x, y { duration: 120ms; }
+        animate x, y { duration: root.reduce-motion ? 0ms : 120ms; }
         x: root.draw-offset-x + (n.x - n.r) * root.px-per-unit; y: (n.y - n.r) * root.px-per-unit;
         width: n.r * 2 * root.px-per-unit; height: n.r * 2 * root.px-per-unit;
         border-radius: n.r * root.px-per-unit;
@@ -661,7 +730,7 @@ component ModeDropdown inherits Rectangle {
                 background: transparent;
                 if r.header: Text {
                     x: 6px; width: 432px; height: parent.height;
-                    text: r.group; color: Theme.text-muted; font-size: 8px; font-weight: 700; vertical-alignment: center; overflow: elide;
+                    text: r.group; color: Theme.text-muted; font-size: 9px; font-weight: 700; vertical-alignment: center; overflow: elide;
                 }
                 if !r.header: HorizontalLayout {
                     spacing: 6px; padding-left: 0px; padding-right: 0px;
@@ -678,9 +747,6 @@ component ModeDropdown inherits Rectangle {
                         right-touch := TipTouch { hint: "Select this mode"; clicked => { root.selected(r.right); } }
                     }
                     if !r.has-right: Rectangle { horizontal-stretch: 1; }
-                }
-                row-touch := TouchArea {
-                    enabled: false;
                 }
             }
         }
@@ -739,6 +805,14 @@ export component AppWindow inherits Window {
     in-out property <bool> regen-pulse: false;
     in-out property <length> regen-off-timer: 0px;
     in-out property <length> matrix-x: 0px;
+    // Keyboard cursor. Arrows move it while the window focus scope owns focus; Enter applies
+    // the active EDIT mode (hit by default). The ring only shows while that scope has focus.
+    in-out property <int> cursor-lane: 0;
+    in-out property <int> cursor-step: 0;
+    // Only draw the cursor once the keyboard has been used: the window scope keeps focus after
+    // a mouse click, so `nav.has-focus` alone would leave a ring on screen forever.
+    in-out property <bool> cursor-engaged: false;
+    property <bool> cursor-visible: nav.has-focus && root.cursor-engaged;
     // `viewport-x` is the content offset and is negative when scrolled right.
     pure function follow-x() -> length {
         let max-offset = Math.max(0px, root.display-cells * root.matrix-cell-width - matrix-scroll.width);
@@ -761,6 +835,44 @@ export component AppWindow inherits Window {
         let max-offset = Math.max(0px, root.display-cells * root.matrix-cell-width - width);
         let offset = Math.max(0px, Math.min(center * root.matrix-cell-width - width * 0.5, max-offset));
         root.matrix-x = -offset;
+    }
+    function move-cursor(dlane: int, dstep: int) {
+        root.cursor-engaged = true;
+        if (root.tracks.length <= 0) { return; }
+        let lanes = root.tracks.length;
+        let steps = root.tracks[0].cells.length;
+        if (steps <= 0) { return; }
+        root.cursor-lane = Math.max(0, Math.min(lanes - 1, root.cursor-lane + dlane));
+        root.cursor-step = Math.max(0, Math.min(steps - 1, root.cursor-step + dstep));
+        root.reveal-cursor();
+        HoverTip.text = root.cursor-text();
+        // A sentinel owner keeps a nearby hover from clearing the readout.
+        HoverTip.owner-x = -1px;
+        HoverTip.owner-y = -1px;
+    }
+    function reveal-cursor() {
+        let cell-w = root.matrix-cell-width;
+        let view-w = Math.max(matrix-scroll.width, 1px);
+        let left = root.cursor-step * cell-w + root.matrix-x;
+        if (left < 0px) {
+            root.matrix-x = -root.cursor-step * cell-w;
+        } else if (left + cell-w > view-w) {
+            root.matrix-x = view-w - (root.cursor-step + 1) * cell-w;
+        }
+        // Never scroll past either end, and stop follow mode from fighting the cursor.
+        root.matrix-x = Math.max(Math.min(0px, view-w - root.display-cells * cell-w), Math.min(0px, root.matrix-x));
+        root.follow-step = false;
+    }
+    function cursor-text() -> string {
+        if (root.cursor-lane < 0 || root.cursor-lane >= root.tracks.length) { return ""; }
+        let row = root.tracks[root.cursor-lane];
+        if (root.cursor-step < 0 || root.cursor-step >= row.cells.length) { return ""; }
+        let c = row.cells[root.cursor-step];
+        return row.name + " · step " + (root.cursor-step + 1)
+            + (c.hit ? " · hit" : " · rest")
+            + " · " + Math.round(c.velocity * 100) + "% velocity"
+            + " · " + Math.round(c.probability * 100) + "% probability"
+            + (c.edited ? " · edited" : "");
     }
     function fit-matrix() {
         let width = Math.max(matrix-scroll.width, 1px);
@@ -796,7 +908,9 @@ export component AppWindow inherits Window {
     in property <int> osc-wave: 0;
     in property <[string]> wave-names;
     in property <[string]> wave-paths;
-    // Four runtime LFOs.
+    // Rack and modulation matrix are hidden while the LFO UI is reworked. Parameters, links and
+    // the audio path stay live, so presets keep modulating; see docs/LFO_SYSTEM.md.
+    in property <bool> lfo-ui: false;
     in property <bool> lfo1-enabled: true;
     in property <int> lfo1-wave: 0;
     in property <int> lfo1-rate-mode: 0;
@@ -877,6 +991,9 @@ export component AppWindow inherits Window {
     in-out property <bool> scope-menu-open: false;
     in-out property <length> scope-menu-x: 0px;
     in-out property <length> scope-menu-y: 0px;
+    in-out property <bool> edit-menu-open: false;
+    in-out property <length> edit-menu-x: 0px;
+    in-out property <length> edit-menu-y: 0px;
     in-out property <bool> settings-open: false;
     // Settings slide in from the right edge of the fixed 860px layout.
     in-out property <length> settings-x: root.base-width;
@@ -887,10 +1004,23 @@ export component AppWindow inherits Window {
     in property <bool> invert-on: false;
     in property <bool> mirror-on: false;
     in property <bool> logging-on: false;
+    // User-global preference: suppress tweens and one-shot flashes.
+    in-out property <bool> reduce-motion: false;
     in property <bool> generate-on: false;
     in property <[TrackRow]> tracks;
     /// 0 = off, 1 = hit, 2 = probability, 3 = accent, 4 = clear cell, 5 = ratchet, 6 = microtiming, 7 = length.
     in-out property <int> edit-mode: 0;
+    property <[string]> edit-mode-names: ["OFF", "HIT", "PROB", "ACC", "CLR", "RAT", "TIME", "GATE"];
+    property <[string]> edit-mode-hints: [
+        "Edit mode off: clicking a step does nothing",
+        "Click a step to cycle auto / force on / force off",
+        "Cycle a step's hit probability",
+        "Cycle a step's accent",
+        "Clear every manual edit on a step",
+        "Cycle 1-4 ratchet substeps on a step",
+        "Delay a step by 0, 1/8, 1/4 or 1/2 step",
+        "Drag a step horizontally to set its gate length"
+    ];
     /// Exact timing modes lock cell editing so the matrix shows the generator's own cycle.
     in property <bool> matrix-locked: false;
     in property <[ViewNode]> view-nodes;
@@ -932,6 +1062,39 @@ export component AppWindow inherits Window {
     callback toggle-scope(int);
     callback set-midi-folder(string);
     callback export-midi();
+    callback toggle-reduce-motion();
+
+    // Window shortcuts, shared by every focus scope. Controls reject keys they do not use, so
+    // the event bubbles up the item tree to whichever scope encloses them.
+    function handle-key(text: string) -> bool {
+        if (text == "g" || text == "G") { root.regen-pulse = true; root.generate-pressed(); return true; }
+        if (text == "r" || text == "R") { root.randomize-pressed(); return true; }
+        if (text == "s" || text == "S") { root.settings-open = !root.settings-open; return true; }
+        if (nav.has-focus) {
+            if (text == Key.LeftArrow) { root.move-cursor(0, -1); return true; }
+            if (text == Key.RightArrow) { root.move-cursor(0, 1); return true; }
+            if (text == Key.UpArrow) { root.move-cursor(-1, 0); return true; }
+            if (text == Key.DownArrow) { root.move-cursor(1, 0); return true; }
+            if (text == Key.Home) { root.move-cursor(0, -100000); return true; }
+            if (text == Key.End) { root.move-cursor(0, 100000); return true; }
+            if (text == Key.Return || text == Key.Space) {
+                // Mode 0 has no pointer action; Enter still toggles the hit so arrows are useful.
+                root.edit-step(root.cursor-lane, root.cursor-step, root.edit-mode == 0 ? 1 : root.edit-mode);
+                HoverTip.text = root.cursor-text();
+                return true;
+            }
+        }
+        if (text == Key.Escape) {
+            root.settings-open = false;
+            root.mode-menu-open = false;
+            root.wave-menu-open = false;
+            root.scope-menu-open = false;
+            root.edit-menu-open = false;
+            nav.focus();
+            return true;
+        }
+        return false;
+    }
 
     // Expose only the controls the selected mode uses, labelled for that mode; `GenParams` still
     // carries every field.
@@ -1120,8 +1283,14 @@ export component AppWindow inherits Window {
     ];
 
     // One fixed 860x768 coordinate space; the matrix scrolls fixed-width cells, so nothing reflows.
-    Rectangle {
+    // Also the keyboard root: it owns focus at startup and maps window shortcuts.
+    nav := FocusScope {
         width: root.base-width; height: root.base-height;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (root.handle-key(event.text)) { return accept; }
+            reject
+        }
 
         // Faint graph paper for Sketch; it sits below the layout so only gaps between cards show it.
         Rectangle {
@@ -1153,17 +1322,17 @@ export component AppWindow inherits Window {
             Text { visible: root.track-name != ""; text: "· \{root.track-name}"; color: Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide; }
             // Hover descriptions live in the bottom status strip, clear of the pointer.
             Rectangle { horizontal-stretch: 1; }
-            Rectangle { width: 72px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "free-run"; color: Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TipTouch { hint: "Run the internal clock when the host transport is stopped"; clicked => { root.toggle-free-run(); } } }
-            Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 9px; vertical-alignment: center; }
-            Text { text: root.loop-capped ? "CAPPED · loop exceeds 1024 steps" : root.timing-summary; color: root.loop-capped ? Theme.c3 : Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide; }
-            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: generate-touch.has-hover ? Theme.hi : Theme.control; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: generate-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TipTouch { hint: "Create a new deterministic variation of the current pattern"; clicked => { root.regen-pulse = true; root.generate-pressed(); } } }
-            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.c3 : Theme.control; Text { text: "RANDOMIZE ⚄"; color: randomize-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TipTouch { hint: "Randomize the parameter groups enabled in RANDOMIZE SCOPE"; clicked => { root.randomize-pressed(); } } }
+            Rectangle { width: 72px; height: 24px; border-radius: 4px; background: root.free-run ? Theme.c1.with-alpha(0.22) : Theme.control; Text { text: "free-run"; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } free-touch := TipTouch { hint: "Run the internal clock when the host transport is stopped"; clicked => { root.toggle-free-run(); } } }
+            Text { text: root.free-run ? "FREE-RUN CLOCK: ON" : "SYNC: HOST TRANSPORT"; color: root.free-run ? Theme.c1 : Theme.text-muted; font-size: 10px; vertical-alignment: center; }
+            Text { text: root.loop-capped ? "CAPPED · loop exceeds 1024 steps" : root.timing-summary; color: root.loop-capped ? Theme.c3 : Theme.text-muted; font-size: 10px; vertical-alignment: center; overflow: elide; }
+            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: Theme.hi; border-width: generate-touch.has-hover ? 2px : 0px; border-color: Theme.c1; Text { text: root.generate-on ? "RE-GENERATE ↻" : "GENERATE ↻"; color: Theme.on-accent; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } generate-touch := TipTouch { hint: "Create a new deterministic variation of the current pattern"; clicked => { root.regen-pulse = true; root.generate-pressed(); } } }
+            Rectangle { width: 112px; height: 30px; border-radius: 5px; background: randomize-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "RANDOMIZE ⚄"; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } randomize-touch := TipTouch { hint: "Randomize the parameter groups enabled in RANDOMIZE SCOPE"; clicked => { root.randomize-pressed(); } } }
             Rectangle { width: 40px; height: 30px; border-radius: 5px; background: settings-touch.has-hover ? Theme.c2.with-alpha(0.5) : Theme.control; Text { text: "⚙"; color: settings-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; } settings-touch := TipTouch { hint: "Open settings: theme, presets, limits, export and credits"; clicked => { root.settings-open = !root.settings-open; } } }
         }
         HorizontalLayout {
             // 300px fits the description and live math line without squeezing the sliders.
             height: 300px; spacing: 10px;
-            ModePanel { nodes: root.view-nodes; edges: root.view-edges; lines: root.view-lines; hand: root.view-hand; }
+            ModePanel { nodes: root.view-nodes; edges: root.view-edges; lines: root.view-lines; hand: root.view-hand; reduce-motion: root.reduce-motion; }
             VerticalLayout {
                 spacing: 3px; alignment: start;
                 mode-header := Rectangle {
@@ -1212,7 +1381,7 @@ export component AppWindow inherits Window {
                     OptSlider { width: 82px; opt: root.opts[14]; mod-target: 10; changed(v) => { root.set-opt(15, v); } }
                 }
                 if root.shows-param(root.mode, 11): HorizontalLayout { spacing: 5px; OptSlider { opt: root.opts[11]; mod-target: 13; changed(v) => { root.set-opt(11, v); } } }
-                if root.mode == 7: HorizontalLayout { spacing: 5px; OptSlider { width: 170px; opt: root.opts[16]; changed(v) => { root.set-markov-bias(v); } } Text { horizontal-stretch: 1; text: "rest · repeat · role · novelty (2 bits each)"; color: Theme.text-muted; font-size: 8px; vertical-alignment: center; overflow: elide; } }
+                if root.mode == 7: HorizontalLayout { spacing: 5px; OptSlider { width: 170px; opt: root.opts[16]; changed(v) => { root.set-markov-bias(v); } } Text { horizontal-stretch: 1; text: "rest · repeat · role · novelty (2 bits each)"; color: Theme.text-muted; font-size: 9px; vertical-alignment: center; overflow: elide; } }
                 if root.mode == 4: HorizontalLayout {
                     WavePicker {
                         width: 200px; height: 28px;
@@ -1230,31 +1399,45 @@ export component AppWindow inherits Window {
             }
         }
         HorizontalLayout { spacing: 4px;
-            Rectangle { width: 58px; height: 20px; border-radius: 3px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TipTouch { hint: "Swap every generated hit with a rest"; clicked => { root.toggle-invert(); } } }
-            Rectangle { width: 58px; height: 20px; border-radius: 3px; background: root.mirror-on ? Theme.c3.with-alpha(0.35) : Theme.control; Text { text: "MIRROR"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } mirror-touch := TipTouch { hint: "Reverse the generated steps after rotation"; clicked => { root.toggle-mirror(); } } }
-            if !root.matrix-locked: Rectangle { width: 28px; height: 20px; border-radius: 3px; background: root.edit-mode == 1 ? Theme.c1.with-alpha(0.75) : Theme.control; Text { text: "HIT"; color: root.edit-mode == 1 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } hit-edit-touch := TipTouch { hint: "Edit mode: click a step to cycle auto / force on / force off"; clicked => { root.edit-mode = root.edit-mode == 1 ? 0 : 1; } } }
-            if !root.matrix-locked: Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 2 ? Theme.c2.with-alpha(0.75) : Theme.control; Text { text: "PROB"; color: root.edit-mode == 2 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } prob-edit-touch := TipTouch { hint: "Edit mode: cycle a step's hit probability"; clicked => { root.edit-mode = root.edit-mode == 2 ? 0 : 2; } } }
-            if !root.matrix-locked: Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 3 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "ACC"; color: root.edit-mode == 3 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } acc-edit-touch := TipTouch { hint: "Edit mode: cycle a step's accent"; clicked => { root.edit-mode = root.edit-mode == 3 ? 0 : 3; } } }
-            if !root.matrix-locked: Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 4 ? Theme.hi.with-alpha(0.75) : Theme.control; Text { text: "CLR"; color: root.edit-mode == 4 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clr-edit-touch := TipTouch { hint: "Edit mode: clear every manual edit on a step"; clicked => { root.edit-mode = root.edit-mode == 4 ? 0 : 4; } } }
-            if !root.matrix-locked: Rectangle { width: 44px; height: 20px; border-radius: 3px; background: clear-edits-touch.has-hover ? Theme.hi : Theme.control; Text { text: "CLR ALL"; color: clear-edits-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } clear-edits-touch := TipTouch { hint: "Clear all manual step edits in this pattern"; clicked => { root.clear-edits(); } } }
-            if !root.matrix-locked: Rectangle { width: 28px; height: 20px; border-radius: 3px; background: root.edit-mode == 5 ? Theme.c1.with-alpha(0.75) : Theme.control; Text { text: "RAT"; color: root.edit-mode == 5 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } rat-edit-touch := TipTouch { hint: "Edit mode: cycle 1–4 ratchet substeps on a step"; clicked => { root.edit-mode = root.edit-mode == 5 ? 0 : 5; } } }
-            if !root.matrix-locked: Rectangle { width: 34px; height: 20px; border-radius: 3px; background: root.edit-mode == 6 ? Theme.c3.with-alpha(0.75) : Theme.control; Text { text: "TIME"; color: root.edit-mode == 6 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } time-edit-touch := TipTouch { hint: "Edit mode: delay a step by 0, 1/8, 1/4 or 1/2 step"; clicked => { root.edit-mode = root.edit-mode == 6 ? 0 : 6; } } }
-            if !root.matrix-locked: Rectangle { width: 30px; height: 20px; border-radius: 3px; background: root.edit-mode == 7 ? Theme.c2.with-alpha(0.75) : Theme.control; Text { text: "GATE"; color: root.edit-mode == 7 ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } gate-edit-touch := TipTouch { hint: "Edit mode: drag a step to set its gate length"; clicked => { root.edit-mode = root.edit-mode == 7 ? 0 : 7; } } }
-            if !root.matrix-locked: Rectangle { width: 34px; height: 20px; border-radius: 3px; background: undo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "UNDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } undo-touch := TipTouch { hint: "Undo the last manual step edit"; clicked => { root.undo-edit(); } } }
-            if !root.matrix-locked: Rectangle { width: 34px; height: 20px; border-radius: 3px; background: redo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "REDO"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } redo-touch := TipTouch { hint: "Redo the last undone step edit"; clicked => { root.redo-edit(); } } }
-            Rectangle { width: 40px; height: 20px; border-radius: 3px; background: Theme.control; Text { text: root.gate-snap-index == 0 ? "1/4" : (root.gate-snap-index == 1 ? "1/2" : (root.gate-snap-index == 2 ? "3/4" : "1")); color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } gate-snap-touch := TipTouch { hint: "Gate snap: click to cycle 1/4, 1/2, 3/4 or 1 step"; clicked => { root.gate-snap-index = Math.mod(root.gate-snap-index + 1, 4); } } }
+            Rectangle { width: 62px; height: 24px; border-radius: 3px; background: root.invert-on ? Theme.c2.with-alpha(0.35) : Theme.control; Text { text: "INVERT"; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } invert-touch := TipTouch { hint: "Swap every generated hit with a rest"; clicked => { root.toggle-invert(); } } }
+            Rectangle { width: 62px; height: 24px; border-radius: 3px; background: root.mirror-on ? Theme.c3.with-alpha(0.35) : Theme.control; Text { text: "MIRROR"; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } mirror-touch := TipTouch { hint: "Reverse the generated steps after rotation"; clicked => { root.toggle-mirror(); } } }
+            if !root.matrix-locked: Rectangle {
+                width: 104px; height: 24px; border-radius: 3px;
+                background: root.edit-mode != 0 ? Theme.c2.with-alpha(0.35) : (edit-menu-touch.has-hover ? Theme.control-hover : Theme.control);
+                Text {
+                    text: "EDIT · " + root.edit-mode-names[root.edit-mode] + " ▾";
+                    color: root.edit-mode != 0 ? Theme.text : Theme.text-muted;
+                    font-size: 10px; horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+                }
+                edit-menu-touch := TipTouch { hint: "Choose what clicking a matrix step edits";
+                    clicked => {
+                        root.edit-menu-open = !root.edit-menu-open;
+                        if (root.edit-menu-open) {
+                            root.edit-menu-x = edit-menu-touch.absolute-position.x;
+                            root.edit-menu-y = edit-menu-touch.absolute-position.y + edit-menu-touch.height + 2px;
+                            root.mode-menu-open = false;
+                            root.scope-menu-open = false;
+                        }
+                    }
+                }
+            }
+            if !root.matrix-locked: Rectangle { width: 44px; height: 24px; border-radius: 3px; background: undo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "UNDO"; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } undo-touch := TipTouch { hint: "Undo the last manual step edit"; clicked => { root.undo-edit(); } } }
+            if !root.matrix-locked: Rectangle { width: 44px; height: 24px; border-radius: 3px; background: redo-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "REDO"; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } redo-touch := TipTouch { hint: "Redo the last undone step edit"; clicked => { root.redo-edit(); } } }
+            if !root.matrix-locked: Rectangle { width: 8px; }
+            if !root.matrix-locked: Rectangle { width: 54px; height: 24px; border-radius: 3px; background: clear-edits-touch.has-hover ? Theme.hi : Theme.control; Text { text: "CLR ALL"; color: clear-edits-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } clear-edits-touch := TipTouch { hint: "Clear all manual step edits in this pattern"; clicked => { root.clear-edits(); } } }
+            Rectangle { width: 52px; height: 24px; border-radius: 3px; background: Theme.control; Text { text: root.gate-snap-index == 0 ? "1/4" : (root.gate-snap-index == 1 ? "1/2" : (root.gate-snap-index == 2 ? "3/4" : "1")); color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } gate-snap-touch := TipTouch { hint: "Gate snap: click to cycle 1/4, 1/2, 3/4 or 1 step"; clicked => { root.gate-snap-index = Math.mod(root.gate-snap-index + 1, 4); } } }
             Rectangle { horizontal-stretch: 1; }
-            Rectangle { width: 20px; height: 20px; border-radius: 3px; background: zoom-out.has-hover ? Theme.control-hover : Theme.control; Text { text: "−"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; } zoom-out := TipTouch { hint: "Zoom the matrix out"; clicked => { root.zoom-matrix(0.8); } } }
-            Rectangle { width: 20px; height: 20px; border-radius: 3px; background: zoom-in.has-hover ? Theme.control-hover : Theme.control; Text { text: "+"; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; } zoom-in := TipTouch { hint: "Zoom the matrix in"; clicked => { root.zoom-matrix(1.25); } } }
-            Rectangle { width: 28px; height: 20px; border-radius: 3px; background: fit-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "FIT"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } fit-touch := TipTouch { hint: "Fit the whole pattern in the matrix"; clicked => { root.fit-matrix(); } } }
-            Rectangle { width: 22px; height: 20px; border-radius: 3px; background: row-out.has-hover ? Theme.control-hover : Theme.control; Text { text: "V−"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } row-out := TipTouch { hint: "Make lane rows shorter (vertical zoom out)"; clicked => { root.matrix-row-zoom = Math.max(0.65, root.matrix-row-zoom * 0.85); } } }
-            Rectangle { width: 22px; height: 20px; border-radius: 3px; background: row-in.has-hover ? Theme.control-hover : Theme.control; Text { text: "V+"; color: Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } row-in := TipTouch { hint: "Make lane rows taller (vertical zoom in)"; clicked => { root.matrix-row-zoom = Math.min(1.55, root.matrix-row-zoom * 1.15); } } }
-            Rectangle { width: 76px; height: 20px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TipTouch { hint: "Keep the matrix scrolled to the playhead"; clicked => { root.follow-step = !root.follow-step; } } }
+            Rectangle { width: 24px; height: 24px; border-radius: 3px; background: zoom-out.has-hover ? Theme.control-hover : Theme.control; Text { text: "−"; color: Theme.text; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; } zoom-out := TipTouch { hint: "Zoom the matrix out"; clicked => { root.zoom-matrix(0.8); } } }
+            Rectangle { width: 24px; height: 24px; border-radius: 3px; background: zoom-in.has-hover ? Theme.control-hover : Theme.control; Text { text: "+"; color: Theme.text; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; } zoom-in := TipTouch { hint: "Zoom the matrix in"; clicked => { root.zoom-matrix(1.25); } } }
+            Rectangle { width: 36px; height: 24px; border-radius: 3px; background: fit-touch.has-hover ? Theme.control-hover : Theme.control; Text { text: "FIT"; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } fit-touch := TipTouch { hint: "Fit the whole pattern in the matrix"; clicked => { root.fit-matrix(); } } }
+            Rectangle { width: 28px; height: 24px; border-radius: 3px; background: row-out.has-hover ? Theme.control-hover : Theme.control; Text { text: "V−"; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } row-out := TipTouch { hint: "Make lane rows shorter (vertical zoom out)"; clicked => { root.matrix-row-zoom = Math.max(0.65, root.matrix-row-zoom * 0.85); } } }
+            Rectangle { width: 28px; height: 24px; border-radius: 3px; background: row-in.has-hover ? Theme.control-hover : Theme.control; Text { text: "V+"; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } row-in := TipTouch { hint: "Make lane rows taller (vertical zoom in)"; clicked => { root.matrix-row-zoom = Math.min(1.55, root.matrix-row-zoom * 1.15); } } }
+            Rectangle { width: 86px; height: 24px; border-radius: 3px; background: root.follow-step ? Theme.c1.with-alpha(0.7) : Theme.control; Text { text: root.follow-step ? "FOLLOW: ON" : "FOLLOW: OFF"; color: root.follow-step ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } follow-touch := TipTouch { hint: "Keep the matrix scrolled to the playhead"; clicked => { root.follow-step = !root.follow-step; } } }
         }
         HorizontalLayout {
             spacing: 4px;
             labels-scroll := ScrollView {
-                width: 76px; height: 210px;
+                width: 88px; height: 288px;
                 vertical-scrollbar-policy: always-off;
                 horizontal-scrollbar-policy: always-off;
                 viewport-height: 14px + root.tracks.length * root.matrix-row-height + (root.tracks.length - 1) * 2px;
@@ -1263,15 +1446,15 @@ export component AppWindow inherits Window {
                     spacing: 2px;
                     Rectangle { height: 14px; }
                     for track in root.tracks: Rectangle {
-                        width: 76px; height: root.matrix-row-height; border-radius: 3px;
+                        width: 88px; height: root.matrix-row-height; border-radius: 3px;
                         background: track.enabled ? Theme.control : Theme.cell-off;
-                        Text { x: 4px; width: parent.width - 26px; height: parent.height; text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55); font-size: 9px; vertical-alignment: center; overflow: elide; }
+                        Text { x: 4px; width: parent.width - 26px; height: parent.height; text: track.name; color: track.enabled ? Theme.text : Theme.text-muted.with-alpha(0.55); font-size: 10px; vertical-alignment: center; overflow: elide; }
                         // Mode-owned cycle length: a filled badge means this lane has its own period.
                         Text {
                             x: parent.width - 26px; width: 22px; height: parent.height;
                             text: root.loop-view && root.lane-steps[track.index] > 0 ? "↻\{root.lane-steps[track.index]}" : "";
                             color: root.loop-view && root.lane-steps[track.index] > 0 ? Theme.c2 : Theme.text-muted.with-alpha(0.5);
-                            font-size: 8px; horizontal-alignment: center; vertical-alignment: center;
+                            font-size: 9px; horizontal-alignment: center; vertical-alignment: center;
                         }
                         TipTouch {
                             hint: track.name + " · note " + track.note
@@ -1283,7 +1466,7 @@ export component AppWindow inherits Window {
                 }
             }
             matrix-scroll := ScrollView {
-                horizontal-stretch: 1; height: 210px;
+                horizontal-stretch: 1; height: 288px;
                 vertical-scrollbar-policy: as-needed;
                 horizontal-scrollbar-policy: as-needed;
                 viewport-width: root.display-cells * root.matrix-cell-width;
@@ -1326,7 +1509,7 @@ export component AppWindow inherits Window {
                             width: Math.max(20px, root.matrix-cell-width * root.steps-per-bar - 4px);
                             height: parent.height;
                             text: "\{b + 1}";
-                            color: Theme.text-muted; font-size: 8px; vertical-alignment: center;
+                            color: Theme.text-muted; font-size: 9px; vertical-alignment: center;
                         }
                     }
                     for track in root.tracks: Rectangle {
@@ -1363,22 +1546,16 @@ export component AppWindow inherits Window {
                                         ? (cell.hit ? Theme.cell-off : Theme.surface.with-alpha(0.25))
                                         : Theme.cell-off.with-alpha(cell.hit ? 0.62 : 0.38);
                                     opacity: track.enabled ? 1.0 : 0.35;
-                                    border-width: cell.playing ? 2px : (cell.edited ? 1px : 0px);
-                                    border-color: cell.playing ? Theme.hi : Theme.border;
+                                    property <bool> cursor-cell: root.cursor-visible
+                                        && cell.step == root.cursor-step && track.index == root.cursor-lane;
+                                    border-width: cell.playing ? 2px : (cursor-cell ? 2px : (cell.edited ? 1px : 0px));
+                                    border-color: cell.playing ? Theme.hi : (cursor-cell ? Theme.c1 : Theme.border);
                                     if cell.playing: Rectangle {
                                         x: 0px; y: 0px; width: parent.width; height: parent.height;
                                         background: Theme.hi.with-alpha(0.08);
                                     }
-                                    // Beat and bar separators. Steps keep the cell gap at usable
-                                    // zoom; at tiny widths only the musically stronger lines stay.
-                                    if cell.step > 0 && root.show-beat-lines && Math.mod(cell.step, root.steps-per-beat) == 0: Rectangle {
-                                        x: 0px; y: 0px; width: 1px; height: parent.height;
-                                        background: Theme.text-muted.with-alpha(0.30);
-                                    }
-                                    if cell.step > 0 && Math.mod(cell.step, root.steps-per-bar) == 0: Rectangle {
-                                        x: 0px; y: 0px; width: 1px; height: parent.height;
-                                        background: Theme.text-muted.with-alpha(0.60);
-                                    }
+                                    // Meter lines are drawn once per row behind the cells; drawing them
+                                    // per cell as well doubled the hottest repeater.
                                     // One note body per ratchet segment: width = gate,
                                     // height = velocity, opacity = probability, lane colour = lane.
                                     property <int> segments: cell.ratchet < 1 ? 1 : cell.ratchet;
@@ -1442,7 +1619,8 @@ export component AppWindow inherits Window {
         }
         // Four runtime LFOs in a 2x2 rack; the colored point is the drag handle.
         Rectangle {
-            height: 88px; border-radius: 4px;
+            visible: root.lfo-ui;
+            height: root.lfo-ui ? 88px : 0px; border-radius: 4px;
             background: Theme.surface; border-width: 1px; border-color: Theme.border;
             VerticalLayout {
                 padding: 5px; spacing: 3px;
@@ -1453,12 +1631,12 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         text: root.mod-status != "" ? root.mod-status : "drag a colored point onto a parameter · click a name to disable";
                         color: root.mod-status != "" ? Theme.c2 : Theme.text-muted;
-                        font-size: 8px; horizontal-alignment: right; vertical-alignment: center; overflow: elide;
+                        font-size: 9px; horizontal-alignment: right; vertical-alignment: center; overflow: elide;
                     }
                     Rectangle {
                         width: 58px; height: 15px; border-radius: 3px;
                         background: root.matrix-open ? Theme.c2.with-alpha(0.55) : (matrix-touch.has-hover ? Theme.control-hover : Theme.control);
-                        Text { text: "MATRIX ▤"; color: root.matrix-open ? Theme.on-accent : Theme.text; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
+                        Text { text: "MATRIX ▤"; color: root.matrix-open ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
                         matrix-touch := TipTouch { hint: "Show or hide the LFO modulation matrix";
                             clicked => {
                                 root.matrix-open = !root.matrix-open;
@@ -1587,7 +1765,7 @@ export component AppWindow inherits Window {
                             ? root.export-status
                             : "height = velocity · width = gate · opacity = probability · segments = ratchet · drag GATE to edit"));
                 color: HoverTip.text != "" ? Theme.text : Theme.text-muted;
-                font-size: 9px; horizontal-alignment: left; vertical-alignment: center; overflow: elide;
+                font-size: 10px; horizontal-alignment: left; vertical-alignment: center; overflow: elide;
             }
         }
     }
@@ -1616,9 +1794,8 @@ export component AppWindow inherits Window {
 
     // Parked off-screen when closed so the closing animation can play. Tie the scrim to the
     // animated position, not the boolean, so it cannot swallow clicks while the panel travels out.
-    // Keep the LFO rack outside the scrim so links can still be dragged onto Max Steps.
     if root.settings-x < root.base-width: Rectangle {
-        x: 0px; y: 0px; width: root.base-width; height: root.base-height - 105px;
+        x: 0px; y: 0px; width: root.base-width; height: root.base-height;
         background: #00000066;
         TouchArea { clicked => { root.settings-open = false; } }
     }
@@ -1626,73 +1803,112 @@ export component AppWindow inherits Window {
         x: root.settings-x; y: 0px; width: 300px; height: root.base-height;
         background: Theme.surface; border-width: 1px; border-color: Theme.border;
         drop-shadow-blur: 16px; drop-shadow-color: #00000055; drop-shadow-offset-y: 4px;
-        animate x { duration: 140ms; easing: ease-in-out; }
+        animate x { duration: root.reduce-motion ? 0ms : 140ms; easing: ease-in-out; }
         VerticalLayout {
             padding: 12px; spacing: 8px;
             HorizontalLayout {
                 height: 24px;
                 Text { text: "SETTINGS"; color: Theme.c1; font-size: 12px; font-weight: 700; vertical-alignment: center; }
-                Rectangle { width: 74px; height: 22px; border-radius: 4px; background: close-settings.has-hover ? Theme.hi : Theme.control; Text { text: "CLOSE"; color: close-settings.has-hover ? Theme.on-accent : Theme.text; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; } close-settings := TipTouch { hint: "Close settings"; clicked => { root.settings-open = false; } } }
+                Rectangle { width: 74px; height: 24px; border-radius: 4px; background: close-settings.has-hover ? Theme.hi : Theme.control; Text { text: "CLOSE"; color: close-settings.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } close-settings := TipTouch { hint: "Close settings"; clicked => { root.settings-open = false; } } }
             }
-            Text { text: "COLOUR THEME"; color: Theme.text-muted; font-size: 9px; }
+            Text { text: "COLOUR THEME"; color: Theme.text-muted; font-size: 10px; }
             Selector { options: ["Sketch", "Neon", "Lava", "Forest"]; current: root.theme-index; text-size: 10px; selected(i) => { root.set-theme(i); } }
-            Text { text: "STARTING POINTS"; color: Theme.text-muted; font-size: 9px; }
+            Text { text: "STARTING POINTS"; color: Theme.text-muted; font-size: 10px; }
             HorizontalLayout {
-                spacing: 3px; height: 22px;
+                spacing: 3px; height: 24px;
                 for i in root.preset-names.length: Rectangle {
-                    width: (parent.width - 15px) / 6; height: 22px; border-radius: 3px;
+                    width: (parent.width - 15px) / 6; height: 24px; border-radius: 3px;
                     background: preset-touch.has-hover ? Theme.c2.with-alpha(0.7) : Theme.control;
-                    Text { text: root.preset-names[i]; color: preset-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 7px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                    Text { text: root.preset-names[i]; color: preset-touch.has-hover ? Theme.on-accent : Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                     preset-touch := TipTouch { hint: "Load this starting-point preset into the host parameters"; clicked => { root.apply-preset(i); } }
                 }
             }
-            Text { text: "CONFIG FILE"; color: Theme.text-muted; font-size: 9px; }
-            Text { text: root.settings-path; color: Theme.text-muted; font-size: 8px; wrap: word-wrap; }
-            Text { text: "PATTERN LIMIT"; color: Theme.text-muted; font-size: 9px; }
-            max-steps-box := NumBox { label: "Max steps"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; mod-target: 15; changed(v) => { root.set-opt(14, v); } }
+            Text { text: "CONFIG FILE"; color: Theme.text-muted; font-size: 10px; }
+            Text { text: root.settings-path; color: Theme.text-muted; font-size: 10px; wrap: word-wrap; }
+            Text { text: "PATTERN LIMIT"; color: Theme.text-muted; font-size: 10px; }
+            max-steps-box := NumBox { label: "Max steps"; hint: "Pattern ceiling: click the value to type, scroll to step"; value: root.max-steps; minimum: 64; maximum: 1024; step: 1; mod-target: 15; changed(v) => { root.set-opt(14, v); } }
             // Pattern arrays are allocated for 1024 steps up front, so ceiling changes need no restart.
-            Text { text: "Max steps applies immediately; no restart is needed."; color: Theme.text-muted; font-size: 9px; }
+            Text { text: "Max steps applies immediately; no restart is needed."; color: Theme.text-muted; font-size: 10px; }
             Selector { options: ["Master Loop", "Minimal Periods"]; current: root.period-minimal ? 1 : 0; selected(i) => { root.set-opt(16, i); } }
-            Text { text: "Minimal periods shorten repeating lane words into true polymeter; they are capped at 1024 steps."; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
-            Text { text: "TECHNICAL SUPPORT"; color: Theme.text-muted; font-size: 9px; }
+            Text { text: "Minimal periods shorten repeating lane words into true polymeter; they are capped at 1024 steps."; color: Theme.text-muted; font-size: 10px; wrap: word-wrap; }
+            Text { text: "INTERFACE"; color: Theme.text-muted; font-size: 10px; }
+            Rectangle {
+                height: 26px; border-radius: 4px;
+                background: root.reduce-motion ? Theme.c1.with-alpha(0.8) : (motion-touch.has-hover ? Theme.control-hover : Theme.control);
+                Text { x: 8px; width: parent.width - 16px; text: root.reduce-motion ? "REDUCE MOTION: ON" : "REDUCE MOTION: OFF"; color: root.reduce-motion ? Theme.on-accent : Theme.text; font-size: 10px; vertical-alignment: center; }
+                motion-touch := TipTouch { hint: "Skip panel slides and node tweens"; clicked => { root.toggle-reduce-motion(); } }
+            }
+            Text { text: "Stops the drawing-panel tweens and the panel slide animations."; color: Theme.text-muted; font-size: 10px; wrap: word-wrap; }
+            Text { text: "TECHNICAL SUPPORT"; color: Theme.text-muted; font-size: 10px; }
             Rectangle {
                 height: 26px; border-radius: 4px;
                 background: root.logging-on ? Theme.c1.with-alpha(0.8) : (logging-touch.has-hover ? Theme.control-hover : Theme.control);
-                Text { x: 8px; width: parent.width - 16px; text: root.logging-on ? "LOGGING: ON (nrum-seq.log)" : "LOGGING: OFF"; color: root.logging-on ? Theme.on-accent : Theme.text; font-size: 9px; vertical-alignment: center; }
+                Text { x: 8px; width: parent.width - 16px; text: root.logging-on ? "LOGGING: ON (nrum-seq.log)" : "LOGGING: OFF"; color: root.logging-on ? Theme.on-accent : Theme.text; font-size: 10px; vertical-alignment: center; }
                 logging-touch := TipTouch { hint: "Write parameter snapshots to nrum-seq.log"; clicked => { root.toggle-logging(); } }
             }
-            Text { text: "Writes mode and parameter snapshots to nrum-seq.log in your home folder."; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
-            Text { text: "MIDI EXPORT"; color: Theme.text-muted; font-size: 9px; }
+            Text { text: "Writes mode and parameter snapshots to nrum-seq.log in your home folder."; color: Theme.text-muted; font-size: 10px; wrap: word-wrap; }
+            Text { text: "MIDI EXPORT"; color: Theme.text-muted; font-size: 10px; }
             Rectangle {
                 height: 26px; border-radius: 4px;
                 background: Theme.control; border-width: 1px; border-color: Theme.border;
                 midi-input := TextInput {
                     x: 6px; width: parent.width - 12px; height: parent.height;
-                    text: root.midi-folder; color: Theme.text; font-size: 9px;
+                    text: root.midi-folder; color: Theme.text; font-size: 10px;
                     vertical-alignment: center;
                     edited => { root.set-midi-folder(self.text); }
                     accepted => { root.set-midi-folder(self.text); }
                 }
             }
-            Text { text: root.export-status; color: Theme.text-muted; font-size: 9px; wrap: word-wrap; }
+            Text { text: root.export-status; color: Theme.text-muted; font-size: 10px; wrap: word-wrap; }
             // Push the contact block to the bottom of the panel; the controls stay top-aligned.
             Rectangle { vertical-stretch: 1; }
             // Credit rows are flush; this nested layout removes the inter-row spacing.
             VerticalLayout {
                 spacing: 0px;
-                Text { text: "CREDITS / CONTACT"; color: Theme.text-muted; font-size: 9px; }
+                Text { text: "CREDITS / CONTACT"; color: Theme.text-muted; font-size: 10px; }
                 Text { text: "\{root.credit-author}  ·  nrum seq"; color: Theme.text; font-size: 10px; }
-                TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 9px; height: 20px; vertical-alignment: center; }
-                Text { text: "v" + root.version; color: Theme.text-muted; font-size: 9px; horizontal-alignment: right; }
+                TextInput { read-only: true; text: root.credit-github; color: Theme.text-muted; font-size: 10px; height: 20px; vertical-alignment: center; }
+                Text { text: "v" + root.version; color: Theme.text-muted; font-size: 10px; horizontal-alignment: right; }
             }
         }
     }
     }
+    // Edit-mode picker: one chip in the toolbar, a 2x4 grid of modes here.
+    if root.edit-menu-open: Rectangle {
+        x: Math.min(root.edit-menu-x, root.base-width - 300px);
+        y: Math.min(root.edit-menu-y, root.base-height - 132px);
+        width: 292px; height: 124px;
+        border-radius: 4px; background: Theme.surface;
+        border-width: 1px; border-color: Theme.border;
+        drop-shadow-blur: 12px; drop-shadow-color: #00000055; drop-shadow-offset-y: 3px;
+        GridLayout {
+            padding: 6px; spacing: 4px;
+            for i in 8: Rectangle {
+                row: i / 2; col: Math.mod(i, 2);
+                height: 28px; border-radius: 3px;
+                background: root.edit-mode == i ? Theme.c2.with-alpha(0.35) : (edit-touch.has-hover ? Theme.control-hover : Theme.control);
+                Text {
+                    width: parent.width;
+                    text: root.edit-mode-names[i];
+                    color: root.edit-mode == i ? Theme.text : Theme.text-muted;
+                    font-size: 11px; horizontal-alignment: center; vertical-alignment: center;
+                }
+                edit-touch := TipTouch {
+                    hint: root.edit-mode-hints[i];
+                    clicked => { root.edit-mode = i; root.edit-menu-open = false; }
+                }
+            }
+        }
+    }
     // Outside-click catcher for the dropdowns; declared before them so it cannot cover popup rows.
-    if root.wave-menu-open || root.scope-menu-open: Rectangle {
+    if root.wave-menu-open || root.scope-menu-open || root.edit-menu-open: Rectangle {
         x: 0px; y: 0px; width: root.base-width; height: root.base-height;
         background: #00000008;
-        TouchArea { clicked => { root.wave-menu-open = false; root.scope-menu-open = false; } }
+        TouchArea { clicked => {
+            root.wave-menu-open = false;
+            root.scope-menu-open = false;
+            root.edit-menu-open = false;
+        } }
     }
     // Waveform picker overlay: shows the actual sampled shape, not just its name.
     if root.wave-menu-open: Rectangle {
@@ -1734,7 +1950,6 @@ export component AppWindow inherits Window {
             }
         }
     }
-    // Randomize-scope popup.
     if root.scope-menu-open: Rectangle {
         x: root.scope-menu-x; y: root.scope-menu-y;
         width: 160px; height: 112px;
@@ -1762,16 +1977,17 @@ export component AppWindow inherits Window {
     }
 
     // Read-only modulation matrix, sliding up from below.
-    if root.matrix-y < root.base-height: Rectangle {
+    if root.lfo-ui && root.matrix-y < root.base-height: Rectangle {
         x: 0px; y: 0px; width: root.base-width; height: root.base-height;
         background: #00000055;
         TouchArea { clicked => { root.matrix-open = false; } }
     }
     Rectangle {
+        visible: root.lfo-ui;
         x: 0px; y: root.matrix-y; width: root.base-width; height: 300px;
         background: Theme.surface; border-width: 1px; border-color: Theme.border;
         drop-shadow-blur: 16px; drop-shadow-color: #00000055; drop-shadow-offset-y: -4px;
-        animate y { duration: 150ms; easing: ease-in-out; }
+        animate y { duration: root.reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
         VerticalLayout {
             padding: 10px; spacing: 6px;
             HorizontalLayout {
@@ -1779,7 +1995,7 @@ export component AppWindow inherits Window {
                 Text { text: "MODULATION MATRIX"; color: Theme.c1; font-size: 14px; font-weight: 700; vertical-alignment: center; }
                 Text { horizontal-stretch: 1; text: "drag an LFO point onto a parameter to link · × removes a link"; color: Theme.text-muted; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
                 Rectangle {
-                    width: 62px; height: 22px; border-radius: 4px;
+                    width: 62px; height: 24px; border-radius: 4px;
                     background: matrix-close.has-hover ? Theme.hi : Theme.control;
                     Text { text: "CLOSE"; color: matrix-close.has-hover ? Theme.on-accent : Theme.text; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
                     matrix-close := TipTouch { hint: "Close the modulation matrix"; clicked => { root.matrix-open = false; } }
