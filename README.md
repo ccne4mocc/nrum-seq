@@ -4,11 +4,7 @@
 
 ![nrum seq demo](assets/nrum-seq.gif)
 
-So... first of all: **AI-assisted, human-tested, maintained and used.** The code was written with
-heavy LLM assistance. I build every release myself and use the plugins in actual productions, but
-what has actually been loaded in which host is listed in
-[`docs/HOST_VERIFICATION.md`](docs/HOST_VERIFICATION.md), not assumed from a successful build.
-Native Linux host testing is still partial and the Windows build has only been loaded under Wine.
+So... first of all: **Heavy LLM Coding, architecture human-planned & tested, maintained and used.** 
 
 **This is an EARLY phase! Clock, generation, mode logic/function-wise, aswell as overall architecture and documents will be updated/polished over time.**
 
@@ -40,20 +36,18 @@ More details and install notes: [ccne4mocc.github.io](https://ccne4mocc.github.i
 
 This plugin grew out of lot of interessents in the last years, especially by starting to teach myself piano play and getting my head stuck in endless rabbit holes in music production & electronic music (and birds... and sound design... and music theory and so on lol). I was kinda unsatisfied with sequencers and generative stuff, also some where really unstable (looking at you HY-RPE), on the other side a variaty of plugins/software like strudl, supercollider and some other euclidian sequencers were awesome and really hooked me.
 
-I wanted something inbetween that allowed me to play around and jam fast with concepts & ideas, polymeter creation and something  usable for funny / experimental piano instrument play but also technical production.
-One reason was also knowing talented drummers that turn off their heads when complicated words come... so I needed some tool that can bridge the ideas I want to commuinicate (you know... for when it gets esoteric with ideas) - but well who knows ... drummers^^
-
 The basis for this project were lot of other side projects/works and linux music projects, which brought me to the point to use my former IT experience to get back a bit into coding and use opencode to concretize, build and merge my sideproject mess & ideas into these 2 plugins. Cause I didn't plan to come so far from 5 smaller Projects and also uncertain to even publish, I messed up to have a cleaner longer history but whatever...
 
-Everything is deterministic and bounded for a given parameter snapshot and seed, so a pattern can
-be recalled, automated and exported without hidden state.
+Everything is deterministic and bounded for a given parameter snapshot and seed, so a pattern can be recalled, automated and exported. It allows for basic midi pattern creation out base pattern application, aswell as polymetric and polyrythm methods, acid slides, mode-pattern corresponding parameter modulation (still some infos/descriptions open to do for in-plugin clarity). High step ceiling to have fun with the *ähem* deterministic drawing / sequencer style -> just for the pleasent moments with some modes, their pattern logic, and it's visualization :3 try for first funny eye-brain-shenanigans: 
+-> raised-cos threshold: with heigh steps/envelope cycle values,
+-> euclidian-swing-hybrid: low/high steps, increase pulses.
+-> arnold circle map: set steps whatever low/high, play around with rotation/coupling K values increasing/decreasing.
+-> sturmian word: word slop automation makes funny suns :>
+-> if you never saw cellular automatons: 8-100 steps, move around teh CA rule slider/parameter (yes that's this).
+... and so on...
 
-The plugin still needs polish in many directions and I'm also planning to add more modes from time to time and partially slim it down. Some functionalities are rather rudimentary like internal lfos, since DAW LFO tools can be linked to the plugin parameters. Sequencer Matrix is also rather simple and the idea based on [Helio](https://github.com/helio-fm/helio-sequencer), cause I often record the midi or sound input directly into clips or just use the export midi function.
-Also it can get visually confusing with higher parameter values and some combinations, depending on modes. Nevertheless, having the limits loose was more fun (step ceiling can be increased in settings). Optimizing and giving more depth in the view/presentation is also somewhere on the list (first 1D/2D more work, but also 3D ideas). 
-It's quite possible that I will smack both plugins to 1 package but I'll see. 
-
-Be also aware, switching theme to "Sketch" might burn your retina if you live in a cave like me.
-A reaper jsfx version is also on the way, but I'm not really fond of it right now.
+The plugin still needs polish and I'm also planning to add more modes from time to time and partially cleanup/slim-down. Also it can get  confusing with higher parameter values and some combinations, depending on modes. Nevertheless, having the limits loose was more fun (step ceiling can be increased in settings). Optimizing and giving more depth in the view/presentation is also somewhere on the list (first 1D/2D more work, but also 3D ideas). 
+It's quite possible that I will smack both plugins into 1 in future, especially cause of agentic/coding workflows I'm trying around... let's see with further polishment.
 
 The windows variants are experimental, my focus is mainly on linux but they worked with my tests.
 
@@ -202,7 +196,6 @@ Sessions created with the old `com.ndrum.ndrum` / `nDrum` IDs must replace the p
 
 ## Status and limitations
 
-- Not release-certified. Host smoke-testing is still required for each DAW.
 - `clap-validator` passes 33 tests with 11 skipped and 0 failures on the pinned `nice-plug`
   fork; host-side state round-trips still need manual verification.
 - Windows/MinGW builds scan, load and process under Wine/REAPER, but have not been run on real
