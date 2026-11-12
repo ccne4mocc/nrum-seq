@@ -1,0 +1,512 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-12T21:30:09+00:00",
+  "title": "Design System: nrum seq",
+  "extensions": {
+    "colorMeta": {
+      "signal-yellow": {
+        "role": "primary",
+        "displayName": "Signal Yellow",
+        "canonical": "#fde047",
+        "tonalRamp": [
+          "#3e370e",
+          "#776712",
+          "#b79c10",
+          "#f8d20c",
+          "#f6db4b",
+          "#f2e28c",
+          "#f5eec7",
+          "#faf8ea"
+        ]
+      },
+      "ember-orange": {
+        "role": "primary",
+        "displayName": "Ember Orange",
+        "canonical": "#f97316",
+        "tonalRamp": [
+          "#3e220f",
+          "#763c14",
+          "#b45513",
+          "#f46d10",
+          "#f4924d",
+          "#f1b68e",
+          "#f4dac7",
+          "#faf1ea"
+        ]
+      },
+      "alarm-red": {
+        "role": "primary",
+        "displayName": "Alarm Red",
+        "canonical": "#dc2626",
+        "tonalRamp": [
+          "#381515",
+          "#6a2020",
+          "#a12626",
+          "#d92b2b",
+          "#e06161",
+          "#e59999",
+          "#efcdcd",
+          "#f8ecec"
+        ]
+      },
+      "focus-cyan": {
+        "role": "primary",
+        "displayName": "Focus Cyan",
+        "canonical": "#38bdf8",
+        "tonalRamp": [
+          "#0f2f3d",
+          "#155775",
+          "#1482b3",
+          "#12adf2",
+          "#4fc0f2",
+          "#8fd2f0",
+          "#c8e6f4",
+          "#ebf5fa"
+        ]
+      },
+      "chamber-deep": {
+        "role": "neutral",
+        "displayName": "Chamber Deep",
+        "canonical": "#1b1010",
+        "tonalRamp": [
+          "#2d2020",
+          "#523838",
+          "#794e4e",
+          "#a16363",
+          "#b78a8a",
+          "#cdb2b2",
+          "#e4d8d8",
+          "#f4f0f0"
+        ]
+      },
+      "chamber-warm": {
+        "role": "neutral",
+        "displayName": "Chamber Warm",
+        "canonical": "#201113",
+        "tonalRamp": [
+          "#2e1f21",
+          "#553539",
+          "#7e4950",
+          "#a75d67",
+          "#bb868d",
+          "#cfafb4",
+          "#e5d7d9",
+          "#f5f0f0"
+        ]
+      },
+      "chamber-cool": {
+        "role": "neutral",
+        "displayName": "Chamber Cool",
+        "canonical": "#180e13",
+        "tonalRamp": [
+          "#2d2026",
+          "#523745",
+          "#7a4d63",
+          "#a26282",
+          "#b88aa1",
+          "#cdb1bf",
+          "#e4d8de",
+          "#f4f0f2"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "canonical": "#221416",
+        "tonalRamp": [
+          "#2d2022",
+          "#52373b",
+          "#7a4d54",
+          "#a1636c",
+          "#b78a90",
+          "#cdb2b6",
+          "#e4d8d9",
+          "#f4f0f1"
+        ]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "Control",
+        "canonical": "#332024",
+        "tonalRamp": [
+          "#2c2123",
+          "#51393e",
+          "#775058",
+          "#9e6672",
+          "#b58d95",
+          "#cbb3b8",
+          "#e3d8db",
+          "#f4f0f1"
+        ]
+      },
+      "control-hover": {
+        "role": "neutral",
+        "displayName": "Control Hover",
+        "canonical": "#4a2c2f",
+        "tonalRamp": [
+          "#2c2021",
+          "#52383a",
+          "#794e52",
+          "#a1636a",
+          "#b78a8f",
+          "#cdb2b5",
+          "#e4d8d9",
+          "#f4f0f1"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "canonical": "#f3e8e0",
+        "tonalRamp": [
+          "#31251b",
+          "#5c412e",
+          "#895e3e",
+          "#b77a4d",
+          "#c79b7a",
+          "#d6bca8",
+          "#e8dcd3",
+          "#f6f2ef"
+        ]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Text Muted",
+        "canonical": "#b09a94",
+        "tonalRamp": [
+          "#2a2423",
+          "#4d403d",
+          "#705c57",
+          "#947870",
+          "#ae9993",
+          "#c7bbb7",
+          "#e1dcda",
+          "#f3f2f1"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border",
+        "canonical": "#4a3134",
+        "tonalRamp": [
+          "#2b2122",
+          "#4f3a3d",
+          "#755256",
+          "#9b6a6f",
+          "#b28f93",
+          "#cab5b7",
+          "#e3d9da",
+          "#f4f1f1"
+        ]
+      },
+      "cell-off": {
+        "role": "neutral",
+        "displayName": "Cell Off",
+        "canonical": "#2a1a1c",
+        "tonalRamp": [
+          "#2c2022",
+          "#51393c",
+          "#774f54",
+          "#9e666d",
+          "#b58c91",
+          "#ccb3b6",
+          "#e3d8da",
+          "#f4f0f1"
+        ]
+      },
+      "on-accent": {
+        "role": "neutral",
+        "displayName": "On Accent",
+        "canonical": "#1a0d0d",
+        "tonalRamp": [
+          "#2e1e1e",
+          "#563434",
+          "#804747",
+          "#aa5a5a",
+          "#be8383",
+          "#d1aeae",
+          "#e6d6d6",
+          "#f5f0f0"
+        ]
+      },
+      "lane-1": {
+        "role": "lane",
+        "displayName": "Lane 1 Yellow",
+        "canonical": "#fde047",
+        "tonalRamp": [
+          "#3e370e",
+          "#776712",
+          "#b79c10",
+          "#f8d20c",
+          "#f6db4b",
+          "#f2e28c",
+          "#f5eec7",
+          "#faf8ea"
+        ]
+      },
+      "lane-2": {
+        "role": "lane",
+        "displayName": "Lane 2 Orange",
+        "canonical": "#f97316",
+        "tonalRamp": [
+          "#3e220f",
+          "#763c14",
+          "#b45513",
+          "#f46d10",
+          "#f4924d",
+          "#f1b68e",
+          "#f4dac7",
+          "#faf1ea"
+        ]
+      },
+      "lane-3": {
+        "role": "lane",
+        "displayName": "Lane 3 Red",
+        "canonical": "#dc2626",
+        "tonalRamp": [
+          "#381515",
+          "#6a2020",
+          "#a12626",
+          "#d92b2b",
+          "#e06161",
+          "#e59999",
+          "#efcdcd",
+          "#f8ecec"
+        ]
+      },
+      "lane-4": {
+        "role": "lane",
+        "displayName": "Lane 4 Cyan",
+        "canonical": "#38bdf8",
+        "tonalRamp": [
+          "#0f2f3d",
+          "#155775",
+          "#1482b3",
+          "#12adf2",
+          "#4fc0f2",
+          "#8fd2f0",
+          "#c8e6f4",
+          "#ebf5fa"
+        ]
+      },
+      "lane-5": {
+        "role": "lane",
+        "displayName": "Lane 5 Pink",
+        "canonical": "#f472b6",
+        "tonalRamp": [
+          "#3b1127",
+          "#711947",
+          "#ac1b67",
+          "#e91b87",
+          "#ec56a4",
+          "#ec93c1",
+          "#f2cadf",
+          "#f9ebf3"
+        ]
+      },
+      "lane-6": {
+        "role": "lane",
+        "displayName": "Lane 6 Bone",
+        "canonical": "#f3e8e0",
+        "tonalRamp": [
+          "#31251b",
+          "#5c412e",
+          "#895e3e",
+          "#b77a4d",
+          "#c79b7a",
+          "#d6bca8",
+          "#e8dcd3",
+          "#f6f2ef"
+        ]
+      },
+      "lane-7": {
+        "role": "lane",
+        "displayName": "Lane 7 Apricot",
+        "canonical": "#ffa87a",
+        "tonalRamp": [
+          "#3f1f0e",
+          "#783511",
+          "#b9490e",
+          "#fb5d0a",
+          "#f88649",
+          "#f4af8b",
+          "#f5d7c6",
+          "#faf0ea"
+        ]
+      },
+      "lane-8": {
+        "role": "lane",
+        "displayName": "Lane 8 Ochre",
+        "canonical": "#e0a020",
+        "tonalRamp": [
+          "#392c14",
+          "#6c521e",
+          "#a47923",
+          "#dda027",
+          "#e3b75e",
+          "#e7cc98",
+          "#f0e4cc",
+          "#f8f4ec"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Wordmark only."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel headings and the active generator name."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Generator description and settings prose."
+      },
+      "value": {
+        "displayName": "Value",
+        "purpose": "Parameter values, option labels, primary actions."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Chips, controls, status, column headers."
+      },
+      "dense": {
+        "displayName": "Dense",
+        "purpose": "Axis labels inside geometry that cannot grow."
+      }
+    },
+    "shadows": [
+      {
+        "name": "popover",
+        "value": "drop-shadow(0 3px 12px #00000055)",
+        "purpose": "Anchored menus and pickers."
+      },
+      {
+        "name": "drawer",
+        "value": "drop-shadow(0 4px 16px #00000055)",
+        "purpose": "Settings and edge-anchored surfaces."
+      }
+    ],
+    "motion": [
+      {
+        "name": "panel-slide",
+        "value": "140ms ease-in-out",
+        "purpose": "Settings drawer travel."
+      },
+      {
+        "name": "matrix-slide",
+        "value": "150ms ease-in-out",
+        "purpose": "Overlay panel travel."
+      },
+      {
+        "name": "regen-pulse",
+        "value": "180ms",
+        "purpose": "One-shot feedback after Generate."
+      }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Action Primary",
+      "kind": "button",
+      "refersTo": "action-primary",
+      "description": "The single primary action on screen; accent fill, darkest text.",
+      "html": "<button class=\"ds-action-primary\">GENERATE \u21bb</button>",
+      "css": ".ds-action-primary { background: #38bdf8; color: #1a0d0d; border: 0; border-radius: 5px;\n  width: 112px; height: 30px; font: 700 11px system-ui, sans-serif; letter-spacing: 0.02em; cursor: pointer; }\n.ds-action-primary:hover { box-shadow: 0 0 0 2px {c1} inset; }\n.ds-action-primary:focus-visible { outline: 1px solid #38bdf8; outline-offset: 3px; }"
+    },
+    {
+      "name": "Action Secondary",
+      "kind": "button",
+      "refersTo": "action-secondary",
+      "description": "Quiet sibling beside the primary; control fill, full-tone text.",
+      "html": "<button class=\"ds-action-secondary\">RANDOMIZE</button>",
+      "css": ".ds-action-secondary { background: #332024; color: #f3e8e0; border: 0; border-radius: 5px;\n  width: 112px; height: 30px; font: 400 11px system-ui, sans-serif; cursor: pointer; }\n.ds-action-secondary:hover { background: #4a2c2f; }\n.ds-action-secondary:focus-visible { outline: 1px solid #38bdf8; outline-offset: 3px; }"
+    },
+    {
+      "name": "Toggle Chip",
+      "kind": "chip",
+      "refersTo": "chip-toggle",
+      "description": "State chip: neutral fill when off, tinted fill with on-accent text when on.",
+      "html": "<button class=\"ds-chip ds-chip--on\">FOLLOW: ON</button>",
+      "css": ".ds-chip { background: #332024; color: #f3e8e0; border: 0; border-radius: 3px;\n  height: 24px; padding: 0 12px; font: 400 10px system-ui, sans-serif; cursor: pointer; }\n.ds-chip:hover { background: #4a2c2f; }\n.ds-chip--on { background: {c1}; color: #1a0d0d; }\n.ds-chip:focus-visible { outline: 1px solid #38bdf8; outline-offset: 2px; }"
+    },
+    {
+      "name": "Parameter Row",
+      "kind": "custom",
+      "refersTo": "slider-row",
+      "description": "The signature control: a 25px slot with a left-anchored fill and label/value printed on top.",
+      "html": "<div class=\"ds-param\"><span>Density</span><span>65%</span><i style=\"width:65%\"></i></div>",
+      "css": ".ds-param { position: relative; display: flex; align-items: center; justify-content: space-between;\n  height: 25px; padding: 0 8px; border-radius: 4px; background: #332024; overflow: hidden;\n  font: 400 11px system-ui, sans-serif; color: #f3e8e0; }\n.ds-param i { position: absolute; inset: 0 auto 0 0; background: {c1}; opacity: 0.3; }\n.ds-param span { position: relative; }\n.ds-param:hover { box-shadow: 0 0 0 1px #4a3134 inset; }"
+    },
+    {
+      "name": "Panel Card",
+      "kind": "card",
+      "refersTo": "card-panel",
+      "description": "Scrollable or grouped surface one step above the chamber.",
+      "html": "<div class=\"ds-card\"><strong>MODULATION</strong><p>Card body text sits at 11px muted.</p></div>",
+      "css": ".ds-card { background: #221416; color: #f3e8e0; border: 1px solid #4a3134; border-radius: 4px; padding: 8px; }\n.ds-card strong { display: block; font: 700 10px system-ui, sans-serif; letter-spacing: 0.5px; color: #b09a94; }\n.ds-card p { margin: 6px 0 0; font: 400 11px system-ui, sans-serif; color: #b09a94; }"
+    },
+    {
+      "name": "Numeric Field",
+      "kind": "input",
+      "refersTo": "field-input",
+      "description": "Typed value entry; replaces the row interior while active.",
+      "html": "<input class=\"ds-input\" value=\"256\" />",
+      "css": ".ds-input { background: #332024; color: #f3e8e0; border: 1px solid #4a3134; border-radius: 4px;\n  height: 25px; padding: 0 8px; font: 400 11px system-ui, sans-serif; text-align: right; width: 120px; }\n.ds-input:focus { outline: none; border-color: #38bdf8; box-shadow: 0 0 0 1px #38bdf8 inset; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Signal Observatory",
+    "overview": "nrum seq is a monitoring surface for an algorithm that is already running. The rosette, the cobweb, the phase circle and the attractor path are the product; the chrome around them is the instrument housing that lets you read and steer those drawings without competing with them. The surface is dark not to look technical but because a dark chamber is what makes a plotted signal legible: every bright mark on screen is data, and every dull mark is structure that must stay quiet enough to ignore. Density is the house style. The editor is a fixed 860x768 logical window holding a drawing, a mode description, sixteen parameter rows, an eight-lane matrix and a status strip. Nothing reflows; everything is placed. That constraint is why the type scale runs 9-14px and why weight and tone carry hierarchy rather than size. Precision is the ambition here, not expression.",
+    "keyCharacteristics": [
+      "Dark chamber with one plotted signal and three accent hues doing distinct jobs.",
+      "Fixed 860x768 coordinate space; no responsive breakpoints, only deliberate placement.",
+      "Type named by job, not size, and dominated by 10-11px functional text.",
+      "Flat surfaces; depth from tonal layering, with shadows reserved for overlays.",
+      "Controls machined to the same spec as the drawings: slots, caps, ticks, 3-4px radii."
+    ],
+    "rules": [
+      {
+        "name": "The One Reading Rule",
+        "section": "colors",
+        "body": "At rest, a screen carries one drawing in the accent hues and one primary action in focus cyan. Everything else is neutral. Two saturated focal points means the hierarchy is wrong."
+      },
+      {
+        "name": "The Signal Not Decor Rule",
+        "section": "colors",
+        "body": "Saturated colour is data. If a saturated element does not encode a value, a lane, or a state the user can act on, it is a bug."
+      },
+      {
+        "name": "The Two-Tone Rule",
+        "section": "typography",
+        "body": "A label and its value share a row and differ in tone, not in size. If a value needs a larger type size to be found, the row is too wide."
+      },
+      {
+        "name": "The 9px Floor Rule",
+        "section": "typography",
+        "body": "9px exists for labels inside geometry that cannot grow (axis ticks, step badges). A control label at 9px is a layout failure, not a type choice."
+      },
+      {
+        "name": "The Flat-At-Rest Rule",
+        "section": "elevation",
+        "body": "No surface inside the panel carries a shadow. If a control appears to float, it has been over-styled."
+      }
+    ],
+    "dos": [
+      "Do keep saturated colour for data and state only; the neutral stack carries the structure.",
+      "Do place controls at their final position in the fixed 860x768 space rather than adding breakpoints or scroll regions to the main panel.",
+      "Do use 3-4px radii and 1px low-contrast borders; the surface should read as a panel, not a set of cards.",
+      "Do reserve 12px shadows for popovers and 16px for drawers, with the single shadow colour.",
+      "Do let one drawing and one action own the accent hues at rest."
+    ],
+    "donts": [
+      "Don't use gradients as fills, glows, or glass; the only gradient permitted is the three-stop accent fill inside a parameter row, and it is being retired.",
+      "Don't build a dark web dashboard: no purple, no translucent cards, no pill-shaped everything, no emoji as iconography.",
+      "Don't imitate a generic DAW: no brushed metal, no knobs, no tabbed preferences, no stock widget styling.",
+      "Don't build a sci-fi HUD: no scanlines, no neon wireframes, no hexagonal grids, no telemetry animation for its own sake.",
+      "Don't raise functional labels above 11px to create hierarchy; use weight and tone instead, and if that fails the layout is wrong."
+    ]
+  }
+}
