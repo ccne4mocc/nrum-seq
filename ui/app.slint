@@ -697,6 +697,10 @@ export component AppWindow inherits Window {
     property <int> display-cells: root.loop-view && root.loop-steps > 0 ? root.loop-steps : root.cells;
     property <int> bar-count: root.steps-per-bar >= 1 ? Math.min(1024, Math.ceil(root.display-cells / root.steps-per-bar)) : 0;
     property <int> beat-count: root.steps-per-beat >= 1 ? Math.min(1024, Math.ceil(root.display-cells / root.steps-per-beat)) : 0;
+    // Slint instantiates a repeater body even when it is invisible, so a zoomed-out pattern used
+    // to create every bar label and beat rule for nothing. Counts drop to zero instead.
+    property <int> beat-line-count: root.show-beat-lines ? root.beat-count : 0;
+    property <int> ruler-label-count: root.matrix-cell-width * root.steps-per-bar >= 26px ? root.bar-count : 0;
     // Gate drags snap to a musical fraction of one step.
     in-out property <int> gate-snap-index: 1;
     in-out property <bool> gate-dragging: false;
@@ -1399,8 +1403,8 @@ export component AppWindow inherits Window {
                             width: 1px; height: parent.height;
                             background: Theme.c1.with-alpha(0.35);
                         }
-                        for i in root.beat-count: Rectangle {
-                            visible: i > 0 && root.show-beat-lines;
+                        for i in root.beat-line-count: Rectangle {
+                            visible: i > 0;
                             x: i * root.steps-per-beat * root.matrix-cell-width;
                             width: 1px; height: parent.height;
                             background: Theme.text-muted.with-alpha(0.24);
@@ -1411,8 +1415,7 @@ export component AppWindow inherits Window {
                             width: 1px; height: parent.height;
                             background: Theme.hi;
                         }
-                        for b in root.bar-count: Text {
-                            visible: root.matrix-cell-width * root.steps-per-bar >= 26px;
+                        for b in root.ruler-label-count: Text {
                             x: b * root.steps-per-bar * root.matrix-cell-width + 2px;
                             width: Math.max(20px, root.matrix-cell-width * root.steps-per-bar - 4px);
                             height: parent.height;
@@ -1423,8 +1426,8 @@ export component AppWindow inherits Window {
                     for track in root.tracks: Rectangle {
                         height: root.matrix-row-height;
                         // Meter lines behind the cells; hits stay readable above them.
-                        for i in root.beat-count: Rectangle {
-                            visible: i > 0 && root.show-beat-lines;
+                        for i in root.beat-line-count: Rectangle {
+                            visible: i > 0;
                             x: i * root.steps-per-beat * root.matrix-cell-width;
                             width: 1px; height: parent.height;
                             background: Theme.text-muted.with-alpha(0.45);
