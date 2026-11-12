@@ -232,6 +232,12 @@ float, it has been over-styled.
 across the panel: 70ms to arrive, 450ms to leave. Nothing else in the chrome eases; state changes
 land on contact, because an instrument confirms by touch.
 
+**The Held Link Rule.** The drawing and the matrix are one object. Hold a step in the matrix and
+the marks that produced it keep their ink and a focus ring while the rest step back; hold a mark
+and the cell it came from takes the ring. The link is a state, not an animation, and it appears
+only when the held step has a mark to point at. It never competes with the bloom: one is a
+generated event, the other is a reading.
+
 ## Shapes
 
 Corners are cut to the size of the thing they wrap: 1px for ticks and hairline marks, 3px for

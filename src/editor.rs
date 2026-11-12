@@ -645,7 +645,35 @@ fn track_rows(
     rows
 }
 
-fn push_view(ui: &AppWindow, v: &View) {
+#[derive(Clone, Copy)]
+struct LinkMark { x: f32, y: f32, r: f32, lane: i32, step: i32, len: i32 }
+
+/// Return the (lane, centre step) of the mark nearest a pointer position in the 210-unit
+/// drawing space, or (-1, -1) when the pointer is not on a linked mark.
+fn nearest_link(cached: &[LinkMark], ux: f32, uy: f32) -> (i32, i32) {
+    let mut best: Option<(f32, i32, i32)> = None;
+    for m in cached {
+        let dx = m.x - ux;
+        let dy = m.y - uy;
+        let reach = m.r + 2.5;
+        let d2 = dx * dx + dy * dy;
+        if d2 <= reach * reach && best.is_none_or(|b| d2 < b.0) {
+            best = Some((d2, m.lane, m.step + m.len.max(1) / 2));
+        }
+    }
+    best.map(|(_, lane, step)| (lane, step)).unwrap_or((-1, -1))
+}
+
+/// Whether a held matrix cell has any drawing mark behind it. Empty cells keep the panel lit.
+fn step_has_mark(cached: &[LinkMark], lane: i32, step: i32) -> bool {
+    step >= 0 && cached.iter().any(|m| {
+        step >= m.step
+            && step < m.step + m.len.max(1)
+            && (m.lane < 0 || m.lane == lane)
+    })
+}
+
+fn push_view(ui: &AppWindow, v: &View, links: &Mutex<Vec<LinkMark>>) {
     // Update rows in place when the count is unchanged: replacing the model resets the repeater
     // and breaks Pebble Box's `animate x, y`.
     let model = ui.get_view_nodes();
@@ -654,6 +682,9 @@ fn push_view(ui: &AppWindow, v: &View) {
             let node = ViewNode {
                 x: n.x, y: n.y, r: n.r, on: n.on, cur: n.cur, label: SharedString::from(n.label.as_str()),
                 lane: if n.lane == u8::MAX { -1 } else { n.lane as i32 },
+                link_lane: if n.link_lane == u8::MAX { -1 } else { n.link_lane as i32 },
+                link_step: n.link_step,
+                link_len: n.link_len.max(1),
             };
             if model.row_data(i).as_ref() != Some(&node) { model.set_row_data(i, node); }
         }
@@ -661,11 +692,24 @@ fn push_view(ui: &AppWindow, v: &View) {
         ui.set_view_nodes(ModelRc::new(VecModel::from(v.nodes.iter().map(|n| ViewNode {
             x: n.x, y: n.y, r: n.r, on: n.on, cur: n.cur, label: SharedString::from(n.label.as_str()),
             lane: if n.lane == u8::MAX { -1 } else { n.lane as i32 },
+            link_lane: if n.link_lane == u8::MAX { -1 } else { n.link_lane as i32 },
+            link_step: n.link_step,
+            link_len: n.link_len.max(1),
         }).collect::<Vec<_>>())));
     }
     ui.set_view_edges(SharedString::from(v.edges.as_str()));
     ui.set_view_lines(SharedString::from(v.lines.as_str()));
     ui.set_view_hand(SharedString::from(v.hand.as_str()));
+    // One compact list for the pointer probe; rebuilt only when the view itself changes.
+    if let Ok(mut cached) = links.lock() {
+        cached.clear();
+        cached.extend(v.nodes.iter().filter(|n| n.link_step >= 0).map(|n| LinkMark {
+            x: n.x, y: n.y, r: n.r,
+            lane: if n.link_lane == u8::MAX { -1 } else { n.link_lane as i32 },
+            step: n.link_step,
+            len: n.link_len.max(1),
+        }));
+    }
 }
 
 impl Editor for SlintEditor {
@@ -716,6 +760,10 @@ impl Editor for SlintEditor {
         let (setup_params, setup_ctx) = (self.params.clone(), context.clone());
         let setup_shared = self.shared.clone();
         let setup_scale = self.scale.clone();
+        // Drawing marks that can answer the matrix x-ray, cached here so a pointer move never
+        // walks (or clones) the Slint repeater model.
+        let probe_links = Arc::new(Mutex::new(Vec::<LinkMark>::new()));
+        let setup_links = probe_links.clone();
         // `spawn` returns before closures run and they must be `'static`, so clone shared state here.
         let setup = move |h: &slint_baseview::SlintWindowHandler<AppWindow>, _w: &mut slint_baseview::Window| {
             let ui = h.component();
@@ -993,6 +1041,37 @@ impl Editor for SlintEditor {
                 ui.on_randomize_pressed(move || randomize_parameters(&p, &c));
             }
             {
+                // Signal x-ray, drawing -> matrix: find the cached mark nearest the pointer and
+                // publish the display step it came from. The cache is rebuilt with the view, so
+                // the link can never point at a stale node.
+                let weak = ui.as_weak();
+                let links = setup_links.clone();
+                ui.on_probe_at(move |ux, uy| {
+                    let Some(ui) = weak.upgrade() else { return; };
+                    let mut found = (-1, -1);
+                    if ux >= 0.0 {
+                        let cached = links.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                        found = nearest_link(&cached, ux, uy);
+                    }
+                    ui.set_probe_lane(found.0);
+                    ui.set_probe_step(found.1);
+                });
+            }
+            {
+                // Signal x-ray, matrix -> drawing: only dim the panel when the held step has a
+                // mark to point at. Empty cells leave the drawing exactly as it was.
+                let weak = ui.as_weak();
+                let links = setup_links.clone();
+                ui.on_xray_hover(move |lane, step| {
+                    let Some(ui) = weak.upgrade() else { return; };
+                    let active = {
+                        let cached = links.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                        step_has_mark(&cached, lane, step)
+                    };
+                    ui.set_xray_active(active);
+                });
+            }
+            {
                 let (p, c) = (setup_params.clone(), setup_ctx.clone());
                 ui.on_toggle_round_steps(move || set(&c, &p.round_steps, !p.round_steps.value()));
             }
@@ -1091,6 +1170,7 @@ impl Editor for SlintEditor {
         };
 
         let cache = Arc::new(Mutex::new(Cache { gen_key: None, pattern: Pattern::default(), view_key: None }));
+        let update_links = probe_links.clone();
         let (update_params, update_shared, update_cache, update_context) = (self.params.clone(), self.shared.clone(), cache, context.clone());
         // The update closure outlives `&self`, so it reads the scale through the atomic.
         let update_scale_cell = self.scale.clone();
@@ -1318,7 +1398,7 @@ impl Editor for SlintEditor {
             let view_key = (gen_key, cur, cur_steps, (display_span, display_step, loop_view), mask, vel_key);
             if c.view_key != Some(view_key) {
                 let v = view::build(&gen_key, &c.pattern, cur);
-                push_view(&ui, &v);
+                push_view(&ui, &v, &update_links);
                                 let rows = track_rows(p, &c.pattern, &gen_key, display_span, display_step, &cur_steps, loop_view);
 ui.set_tracks(ModelRc::new(VecModel::from(rows)));
                 c.view_key = Some(view_key);
@@ -1513,6 +1593,22 @@ mod tests {
     }
 
     #[test]
+    fn nearest_link_finds_the_mark_and_ignores_empty_space() {
+        let marks = [
+            LinkMark { x: 50.0, y: 50.0, r: 3.0, lane: 2, step: 7, len: 1 },
+            LinkMark { x: 55.0, y: 50.0, r: 3.0, lane: 4, step: 4, len: 4 },
+            LinkMark { x: 100.0, y: 100.0, r: 3.0, lane: -1, step: 5, len: 1 },
+        ];
+        assert_eq!(nearest_link(&marks, 50.5, 50.5), (2, 7));
+        assert_eq!(nearest_link(&marks, 55.0, 50.0), (4, 6), "a range answers at its centre");
+        assert_eq!(nearest_link(&marks, 20.0, 20.0), (-1, -1));
+        assert!(step_has_mark(&marks, 2, 7));
+        assert!(step_has_mark(&marks, -1, 5), "a shared mark answers any lane");
+        assert!(!step_has_mark(&marks, 2, 9), "a step with no mark stays inactive");
+        assert!(!step_has_mark(&marks, 3, 7), "another lane's mark is not a match");
+    }
+
+    #[test]
     fn appwindow_maps_keyboard_shortcuts_and_tab_focus() {
         use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
         use slint::platform::{Platform, WindowAdapter};
@@ -1611,6 +1707,16 @@ mod tests {
                 "a closed Settings drawer must not take keyboard focus"
             );
         }
+
+        // Signal x-ray: a plain hover (no button) must publish the matrix step. TouchArea::moved
+        // only fires while dragging, so the panel watches has-hover and mouse-x instead.
+        window
+            .try_dispatch_event(slint::platform::WindowEvent::PointerMoved {
+                position: slint::LogicalPosition::new(204.0, 430.0),
+            })
+            .unwrap();
+        assert_eq!(ui.get_hover_lane(), 0, "hovering the first matrix row did not publish its lane");
+        assert!(ui.get_hover_step() >= 0, "hovering the matrix did not publish a step");
     }
 
     /// Render one cycle of the matrix to PPM frames so the README GIF can be regenerated.
@@ -1687,7 +1793,7 @@ mod tests {
             let cur = (frame % steps) as i32;
             let cur_steps = [cur; TRACKS];
             let view = view::build(&gen_key, &pattern, cur);
-            push_view(&ui, &view);
+            push_view(&ui, &view, &Mutex::new(Vec::<LinkMark>::new()));
             let rows = track_rows(&p, &pattern, &gen_key, steps, cur, &cur_steps, false);
             ui.set_tracks(ModelRc::new(VecModel::from(rows)));
             ui.set_current_step(cur);

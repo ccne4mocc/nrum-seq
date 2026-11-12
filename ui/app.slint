@@ -46,7 +46,7 @@ export global Type {
     out property <length> glyph-large: 14px;
 }
 
-export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string, lane: int }
+export struct ViewNode { x: length, y: length, r: length, on: bool, cur: bool, label: string, lane: int, link-lane: int, link-step: int, link-len: int }
 export struct ModeEntry { group: string, index: int, header: bool }
 export struct StepCell { track: int, step: int, hit: bool, playing: bool, velocity: float, probability: float, hit-override: int, edited: bool, ratchet: int, offset: int, length: float }
 export struct TrackRow { index: int, name: string, enabled: bool, note: int, cells: [StepCell] }
@@ -587,6 +587,12 @@ component ModePanel inherits Rectangle {
     in property <string> edges: "M0 0";
     in property <string> lines: "M0 0";
     in property <string> hand: "M0 0";
+    // Matrix pointer position, for the signal x-ray: the marks that produced that step stay
+    // legible while every other mark recedes. -1 means no link is being held.
+    in property <int> xray-lane: -1;
+    in property <int> xray-step: -1;
+    in property <bool> xray-active: false;
+    callback probe-at(length, length);
     // view.rs builds every panel in a 210-unit space; paths scale through the viewbox and node
     // rectangles are scaled by hand so dots and labels grow with the box.
     property <float> px-per-unit: 1.4285714;   // 300px square drawing / 210-unit geometry
@@ -602,10 +608,26 @@ component ModePanel inherits Rectangle {
         x: root.draw-offset-x + (n.x - n.r) * root.px-per-unit; y: (n.y - n.r) * root.px-per-unit;
         width: n.r * 2 * root.px-per-unit; height: n.r * 2 * root.px-per-unit;
         border-radius: n.r * root.px-per-unit;
+        property <bool> linked: root.xray-step >= 0 && n.link-step >= 0
+            && root.xray-step >= n.link-step && root.xray-step < n.link-step + n.link-len
+            && (n.link-lane < 0 || n.link-lane == root.xray-lane);
+        // The x-ray is a held state, never an animation: the matched marks keep full ink and a
+        // focus ring, the rest step back. It lands instantly, like every other state.
+        opacity: !root.xray-active || root.xray-step < 0 || linked ? 1.0 : 0.28;
         background: n.cur ? Theme.hi : (n.lane >= 0 ? Theme.lanes[Math.mod(n.lane, 8)].with-alpha(n.on ? 0.95 : 0.35) : (n.on ? Theme.c1 : Theme.cell-off));
-        border-width: 1px; border-color: n.lane >= 0 ? Theme.lanes[Math.mod(n.lane, 8)] : Theme.border;
+        border-width: linked ? 2px : 1px;
+        border-color: linked ? Theme.hi : (n.lane >= 0 ? Theme.lanes[Math.mod(n.lane, 8)] : Theme.border);
         // Canvas labels scale with the drawing, so they follow the node radius, not a text role.
         Text { width: parent.width; height: parent.height; text: n.label; font-size: 7px * root.px-per-unit; color: (n.cur || n.on) ? Theme.on-accent : Theme.text; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    // Read the drawing under the pointer. The host finds the nearest step-linked mark, so the
+    // same link works in the other direction: the matrix lights the cell the mark came from.
+    probe := TouchArea {
+        x: root.draw-offset-x; y: 0px; width: 300px; height: 300px;
+        moved => { root.probe-at(probe.mouse-x / root.px-per-unit, probe.mouse-y / root.px-per-unit); }
+        changed has-hover => {
+            if (!probe.has-hover) { root.probe-at(-9999px, -9999px); }
+        }
     }
 }
 
@@ -716,6 +738,20 @@ export component AppWindow inherits Window {
     // a mouse click, so `nav.has-focus` alone would leave a ring on screen forever.
     in-out property <bool> cursor-engaged: false;
     property <bool> cursor-visible: nav.has-focus && root.cursor-engaged;
+    changed cursor-visible => {
+        if (cursor-visible) { root.xray-hover(root.cursor-lane, root.cursor-step); }
+    }
+    // Signal x-ray. `hover-*` is the step under the matrix pointer, `probe-*` the mark under the
+    // drawing pointer. They never feed each other, so the two surfaces stay independently held.
+    in-out property <int> hover-lane: -1;
+    in-out property <int> hover-step: -1;
+    in-out property <int> probe-lane: -1;
+    in-out property <int> probe-step: -1;
+    // True when the held step actually has a drawing mark. The panel dims only for a real
+    // link; an empty cell must not flash the whole drawing.
+    in-out property <bool> xray-active: false;
+    callback probe-at(length, length);
+    callback xray-hover(int, int);
     // `viewport-x` is the content offset and is negative when scrolled right.
     pure function follow-x() -> length {
         let max-offset = Math.max(0px, root.display-cells * root.matrix-cell-width - matrix-scroll.width);
@@ -747,6 +783,7 @@ export component AppWindow inherits Window {
         if (steps <= 0) { return; }
         root.cursor-lane = Math.max(0, Math.min(lanes - 1, root.cursor-lane + dlane));
         root.cursor-step = Math.max(0, Math.min(steps - 1, root.cursor-step + dstep));
+        root.xray-hover(root.cursor-lane, root.cursor-step);
         root.reveal-cursor();
         HoverTip.text = root.cursor-text();
         // A sentinel owner keeps a nearby hover from clearing the readout.
@@ -1251,7 +1288,14 @@ export component AppWindow inherits Window {
         HorizontalLayout {
             // 300px fits the description and live math line without squeezing the sliders.
             height: 300px; spacing: 10px;
-            ModePanel { nodes: root.view-nodes; edges: root.view-edges; lines: root.view-lines; hand: root.view-hand; reduce-motion: root.reduce-motion; }
+            ModePanel {
+                nodes: root.view-nodes; edges: root.view-edges; lines: root.view-lines; hand: root.view-hand;
+                reduce-motion: root.reduce-motion;
+                xray-lane: root.hover-step >= 0 ? root.hover-lane : (root.cursor-visible ? root.cursor-lane : -1);
+                xray-step: root.hover-step >= 0 ? root.hover-step : (root.cursor-visible ? root.cursor-step : -1);
+                xray-active: root.xray-active;
+                probe-at(x, y) => { root.probe-at(x, y); }
+            }
             VerticalLayout {
                 spacing: 3px; alignment: start;
                 mode-header := Rectangle {
@@ -1468,8 +1512,10 @@ export component AppWindow inherits Window {
                                     opacity: track.enabled ? 1.0 : 0.35;
                                     property <bool> cursor-cell: root.cursor-visible
                                         && cell.step == root.cursor-step && track.index == root.cursor-lane;
-                                    border-width: cell.playing ? 2px : (cursor-cell ? 2px : (cell.edited ? 1px : 0px));
-                                    border-color: cell.playing ? Theme.hi : (cursor-cell ? Theme.c1 : Theme.border);
+                                    property <bool> probe-cell: root.probe-step >= 0 && cell.step == root.probe-step
+                                        && (root.probe-lane < 0 || root.probe-lane == track.index);
+                                    border-width: probe-cell ? 2px : (cell.playing ? 2px : (cursor-cell ? 2px : (cell.edited ? 1px : 0px)));
+                                    border-color: probe-cell ? Theme.hi : (cell.playing ? Theme.hi : (cursor-cell ? Theme.c1 : Theme.border));
                                     if cell.playing: Rectangle {
                                         x: 0px; y: 0px; width: parent.width; height: parent.height;
                                         background: Theme.hi.with-alpha(0.08);
@@ -1511,6 +1557,35 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
+                        xray-ta := TouchArea {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height;
+                            // `moved` means "dragging", not "hovering"; a plain TouchArea reports
+                            // hover through has-hover and mouse-x, so watch those instead.
+                            property <int> hovered-step: Math.max(0, Math.min(root.display-cells - 1,
+                                Math.floor(xray-ta.mouse-x / root.matrix-cell-width)));
+                            changed hovered-step => {
+                                if (xray-ta.has-hover) {
+                                    root.hover-lane = track.index;
+                                    root.hover-step = xray-ta.hovered-step;
+                                    root.xray-hover(track.index, xray-ta.hovered-step);
+                                }
+                            }
+                            changed has-hover => {
+                                if (xray-ta.has-hover) {
+                                    root.hover-lane = track.index;
+                                    root.hover-step = xray-ta.hovered-step;
+                                    root.xray-hover(track.index, xray-ta.hovered-step);
+                                } else if (root.hover-lane == track.index) {
+                                    root.hover-lane = -1;
+                                    root.hover-step = -1;
+                                    if (root.cursor-visible) {
+                                        root.xray-hover(root.cursor-lane, root.cursor-step);
+                                    } else {
+                                        root.xray-hover(-1, -1);
+                                    }
+                                }
+                            }
+                        }
                         if root.edit-mode > 0: Rectangle {
                             x: 0px; y: 0px; width: parent.width; height: parent.height;
                             background: transparent;
@@ -1518,6 +1593,9 @@ export component AppWindow inherits Window {
                                 pointer-event(e) => {
                                     let step = Math.floor(editor-ta.mouse-x / root.matrix-cell-width);
                                     let fraction = (editor-ta.mouse-x / root.matrix-cell-width) - step;
+                                    root.hover-lane = track.index;
+                                    root.hover-step = Math.max(0, Math.min(root.display-cells - 1, step));
+                                    root.xray-hover(track.index, root.hover-step);
                                     if (root.edit-mode == 7) {
                                         if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                                             root.gate-dragging = true;
@@ -1529,6 +1607,17 @@ export component AppWindow inherits Window {
                                         }
                                     } else if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                                         root.edit-step(track.index, step, root.edit-mode);
+                                    }
+                                }
+                                changed has-hover => {
+                                    if (!editor-ta.has-hover && root.hover-lane == track.index) {
+                                        root.hover-lane = -1;
+                                        root.hover-step = -1;
+                                        if (root.cursor-visible) {
+                                            root.xray-hover(root.cursor-lane, root.cursor-step);
+                                        } else {
+                                            root.xray-hover(-1, -1);
+                                        }
                                     }
                                 }
                             }
