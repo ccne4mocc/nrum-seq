@@ -1208,9 +1208,18 @@ export component AppWindow inherits Window {
             triggered => { root.mod-status = ""; }
         }
         Rectangle {
-            visible: root.regen-pulse;
+            // Generate answers with one bloom over the drawing: quick to arrive, slow to leave,
+            // so the panel reads as changed without the pattern itself moving.
             width: parent.width; height: parent.height;
-            background: Theme.c1.with-alpha(0.10);
+            opacity: 0;
+            background: @linear-gradient(135deg, Theme.c1 0%, Theme.c2 50%, Theme.c3 100%);
+            states [
+                pulse when root.regen-pulse: {
+                    opacity: 0.16;
+                    in { animate opacity { duration: root.reduce-motion ? 0ms : 70ms; easing: ease-out; } }
+                    out { animate opacity { duration: root.reduce-motion ? 0ms : 450ms; easing: ease-in-out; } }
+                }
+            ]
         }
 
     VerticalLayout {

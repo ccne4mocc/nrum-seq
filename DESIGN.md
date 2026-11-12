@@ -228,6 +228,10 @@ window, and they are always the same colour at two blur sizes.
 **The Flat-At-Rest Rule.** No surface inside the panel carries a shadow. If a control appears to
 float, it has been over-styled.
 
+**The One Bloom Rule.** Motion has exactly one moment. Generate answers with a single accent bloom
+across the panel: 70ms to arrive, 450ms to leave. Nothing else in the chrome eases; state changes
+land on contact, because an instrument confirms by touch.
+
 ## Shapes
 
 Corners are cut to the size of the thing they wrap: 1px for ticks and hairline marks, 3px for
